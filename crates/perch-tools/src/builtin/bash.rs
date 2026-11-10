@@ -1,0 +1,102 @@
+//! `bash`: `sh -c` in the root, both streams captured, killed after `timeout`.
+
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+use serde_json::{Value, json};
+
+use super::process::run_captured;
+use super::text::truncate;
+use super::{BASH_MAX_OUTPUT, BASH_TIMEOUT, command_arg, object_schema};
+use crate::{Preview, Result, Tool, ToolCtx, ToolOutput, ToolSpec, confine};
+
+pub struct Bash {
+    timeout: Duration,
+}
+
+impl Bash {
+    pub fn new() -> Self {
+        Self {
+            timeout: BASH_TIMEOUT,
+        }
+    }
+
+    /// The same tool with a different deadline, so a test can prove the kill without waiting.
+    pub fn with_timeout(timeout: Duration) -> Self {
+        Self { timeout }
+    }
+}
+
+impl Default for Bash {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tool for Bash {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "bash".into(),
+            description: format!(
+                "Run a shell command with the worktree root as cwd. Killed after {} s; output capped at 16 KiB.",
+                self.timeout.as_secs()
+            ),
+            parameters: object_schema(
+                json!({
+                    "command": { "type": "string", "description": "Command passed to `sh -c`." }
+                }),
+                &["command"],
+                "Run one shell command.",
+            ),
+        }
+    }
+
+    fn needs_approval(&self) -> bool {
+        true
+    }
+
+    fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
+        let command = command_arg(args)?;
+        let cwd = confine(&ctx.root, Path::new("."))?;
+        let mut child = Command::new("sh");
+        child
+            .arg("-c")
+            .arg(&command)
+            .current_dir(&cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let captured = run_captured(child, self.timeout)?;
+
+        let mut text = String::new();
+        push_block(&mut text, &captured.stdout);
+        push_block(&mut text, &captured.stderr);
+        if let Some(code) = captured.code.filter(|code| *code != 0) {
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str(&format!("exit {code}"));
+        }
+        Ok(ToolOutput::with_preview(
+            truncate(text, BASH_MAX_OUTPUT),
+            Preview::Command(command),
+        ))
+    }
+
+    /// The command itself, which is the whole of what a shell call will do.
+    fn preview(&self, args: &Value, ctx: &ToolCtx) -> Result<Option<Preview>> {
+        let _ = ctx;
+        Ok(Some(Preview::Command(command_arg(args)?)))
+    }
+}
+
+fn push_block(text: &mut String, bytes: &[u8]) {
+    if bytes.is_empty() {
+        return;
+    }
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&String::from_utf8_lossy(bytes));
+}

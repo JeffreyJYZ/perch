@@ -1,0 +1,99 @@
+//! The app's session state: sessions read from their logs, one live agent each, and the
+//! transcript, tools and dispatch thread those sessions answer with.
+//!
+//! [`AppState`] is the window's whole model of a live conversation. It owns the turn's events
+//! only through [`AppState::pump`], which folds whatever the dispatch thread posted into the
+//! active transcript — so the thread that draws is the thread that mutates, and a turn's arrival
+//! can never race a frame. Everything a turn needs from a person blocks that dispatch thread and
+//! nothing else; the answer comes back through [`AppState::answer`].
+//!
+//! The tools are the one part that is not fixed when the app opens. [`Worker`] rebuilds them from
+//! the plugin directory and the configured MCP servers on its own thread, and the frame only reads
+//! the snapshot it publishes: the live registry every dispatch reads, the panels and the words. A
+//! change therefore lands at the next call, without a turn being rewound and without a frame
+//! waiting for a server to answer.
+//!
+//! The state is split by the moment it belongs to: `open` and `boot` create sessions,
+//! `sessions` switches and reads them, `config` follows the settings file, and `answers`
+//! carries what a person replies into a running turn.
+
+mod answers;
+mod boot;
+mod config;
+mod open;
+mod sessions;
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use perch_store::secret::SecretStore;
+
+use crate::live_registry::Live;
+use crate::session::SessionRuntime;
+use crate::watch::Watch;
+use crate::worker::{Snapshot, Worker};
+
+pub use crate::session::CANCELLED;
+
+/// How long one pump waits for the next event before calling the session quiet.
+///
+/// Short enough that a frame is never held, long enough that a stream's deltas arrive in batches.
+pub const QUIET: Duration = Duration::from_millis(25);
+
+/// The system message every session starts from.
+const SYSTEM: &str = "You are perch, a coding agent working in the session's worktree. Use the \
+                      tools you are given; every path is relative to that worktree.";
+
+/// Everything perch-app can fail at.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("store: {0}")]
+    Store(#[from] perch_store::Error),
+    #[error("mcp: {0}")]
+    Mcp(#[from] perch_mcp::Error),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("no session is open")]
+    NoSession,
+    #[error("session {0} is not open")]
+    MissingSession(usize),
+    #[error("the worktree {0} no longer exists, so this session cannot run a turn")]
+    MissingWorktree(PathBuf),
+}
+
+/// A perch-app result.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// The provider a new session talks to.
+///
+/// Plain values rather than the whole [`perch_store::Settings`]: a test hands an app a fixture
+/// server's base URL without touching the keychain, and the window hands it what the settings file
+/// said.
+#[derive(Debug, Clone, Default)]
+pub struct ProviderDefaults {
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+}
+
+/// Every open session, which one the window shows, and the tools they share.
+pub struct AppState {
+    pub(crate) dir: PathBuf,
+    pub(crate) sessions: Vec<SessionRuntime>,
+    pub(crate) active: usize,
+    /// The tools every session's model may call, swapped as a whole when the sources change.
+    pub(crate) live: Live,
+    /// The registry built off the frame thread, and the panels and words that came with it.
+    pub(crate) worker: Worker,
+    /// The snapshot the frame last absorbed: what it draws and what every call dispatches through.
+    pub(crate) snapshot: Arc<Snapshot>,
+    /// The debounced filesystem watcher, when the platform gave one.
+    pub(crate) watch: Option<Watch>,
+    defaults: ProviderDefaults,
+    /// Whether the provider was stated by the caller rather than read from settings. A stated one
+    /// is never overwritten by a reload, which is what lets a fixture server stay pinned.
+    stated: bool,
+    /// Where the provider key is kept: the login keychain, or a test's in-memory store.
+    secrets: Box<dyn SecretStore>,
+}

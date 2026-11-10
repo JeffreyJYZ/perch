@@ -11,6 +11,8 @@
 //! turn can ask the model again with the results in front of it. A cancel that lands before a call
 //! starts is obeyed instead: the card is shown, and nothing runs.
 
+mod dispatch;
+
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -20,8 +22,6 @@ use perch_agent::{
 use perch_tools::{Preview, ToolCtx};
 
 use crate::live_registry::Live;
-
-use crate::answer::Answers;
 
 pub use crate::answer::ANSWER_TIMEOUT;
 
@@ -106,7 +106,7 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("perch-dispatch".to_string())
         .spawn(move || {
-            run(
+            dispatch::run(
                 &agent,
                 events,
                 &out,
@@ -121,94 +121,4 @@ pub fn spawn(
         events: incoming,
         replies,
     }
-}
-
-/// Reads the turn's events and runs the calls it asks for, in order, one call at a time.
-///
-/// Every event is forwarded, including a `TurnEnd` that arrives while a call is being answered:
-/// the window learns the turn is over, and the dispatch loop then ends with the channel.
-fn run(
-    agent: &AgentHandle,
-    events: Receiver<AgentEvent>,
-    out: &Sender<BridgeEvent>,
-    replies: &Receiver<Reply>,
-    live: &Live,
-    ctx: &ToolCtx,
-    dispatcher: &Mutex<Dispatcher>,
-) {
-    for event in events {
-        let posted = match event {
-            AgentEvent::TextDelta(text) => out.send(BridgeEvent::Text(text)).is_ok(),
-            AgentEvent::ToolResult { id, ok, text } => {
-                out.send(BridgeEvent::ToolResult { id, ok, text }).is_ok()
-            }
-            AgentEvent::ToolCall(call) => {
-                dispatch(call, agent, out, replies, live, ctx, dispatcher)
-            }
-            AgentEvent::TurnEnd { reason, usage } => {
-                out.send(BridgeEvent::TurnEnd { reason, usage }).is_ok()
-            }
-        };
-        // A closed channel means the window is gone; nothing left to show a result to.
-        if !posted {
-            return;
-        }
-    }
-}
-
-/// Runs one call, shows its result, and answers the turn with it. False when the window stopped
-/// listening.
-fn dispatch(
-    call: ToolCall,
-    agent: &AgentHandle,
-    out: &Sender<BridgeEvent>,
-    replies: &Receiver<Reply>,
-    live: &Live,
-    ctx: &ToolCtx,
-    dispatcher: &Mutex<Dispatcher>,
-) -> bool {
-    if out.send(BridgeEvent::ToolCall(call.clone())).is_err() {
-        return false;
-    }
-    // The turn that asked for this call may already be cancelled: the card is shown, so the
-    // column says what was asked, and the call does not run.
-    if agent.watch().cancelled() {
-        return true;
-    }
-    let mut interactor = Answers {
-        id: call.id.clone(),
-        out,
-        replies,
-    };
-    // The registry as it is when this call starts. A reload that lands mid-turn is therefore
-    // deferred to the next call, and never splits one call across two tool lists.
-    let registry = live.load();
-    let mut dispatcher = lock(dispatcher);
-    let replies = dispatcher.run(std::slice::from_ref(&call), &registry, ctx, &mut interactor);
-    for reply in replies {
-        let ok = reply.ok;
-        let text = reply.message.content.clone().unwrap_or_default();
-        if out
-            .send(BridgeEvent::ToolResult {
-                id: call.id.clone(),
-                ok,
-                text,
-            })
-            .is_err()
-        {
-            return false;
-        }
-        // The model is waiting on this before it can answer, and a denied call is answered too:
-        // "the user denied it" is something it can act on, silence is not.
-        if !agent.reply(reply) {
-            return false;
-        }
-    }
-    true
-}
-
-fn lock(dispatcher: &Mutex<Dispatcher>) -> std::sync::MutexGuard<'_, Dispatcher> {
-    dispatcher
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

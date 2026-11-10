@@ -1,23 +1,11 @@
-//! One live turn against a real provider, for a model named on the command line.
-//!
-//! The unit tests replay recorded SSE bodies; this runs the same [`Agent`] against
-//! OpenRouter, with the six built-ins confined to a fresh temporary directory and an
-//! interactor that allows everything. The prompt forces at least two rounds: a write, a
-//! read, an append, and a sentence that can only be written after the tool results came
-//! back. Anything printed is a name, a count or a verdict — never the key, never a
-//! request header.
-//!
-//! The key arrives in `OPENROUTER_API_KEY`, never on the command line, so it cannot be
-//! read back out of the process table. Exit code 0 means the loop genuinely ran.
+//! What the probe runs and what it says about the run.
 
-use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-use perch_agent::{
-    Agent, AgentConfig, AgentEvent, AgentHandle, Answer, Decision, Dispatcher, EndReason,
-    Interactor, SecretString, ToolReply, Tools,
-};
-use perch_tools::{Preview, ToolCtx, ToolRegistry};
+use perch_agent::{Agent, AgentConfig, Dispatcher, EndReason, SecretString, Tools};
+use perch_tools::ToolCtx;
+
+use crate::drive::{Run, drive};
 
 /// The API root `/chat/completions` is appended to.
 const BASE_URL: &str = "https://openrouter.ai/api/v1";
@@ -43,12 +31,8 @@ When the task is done, state the result in one short paragraph.";
 const PROMPT: &str = "Create notes.txt with three short lines about a terminal, \
 then read it back and append a fourth line, then tell me the file's final line count.";
 
-fn main() {
-    std::process::exit(run());
-}
-
 /// The probe itself, returning the exit status.
-fn run() -> i32 {
+pub(super) fn run() -> i32 {
     let Some(model) = std::env::args().nth(1) else {
         eprintln!("usage: live_probe <model>");
         return 2;
@@ -96,13 +80,26 @@ fn run() -> i32 {
         requests: 1,
         ..Run::default()
     };
-    let end = drive(&handle, &events, &registry, &ctx, &mut run);
+    let end = drive(
+        &handle,
+        &events,
+        &registry,
+        &ctx,
+        &mut run,
+        EVENT_TIMEOUT,
+        CALL_DRAIN,
+    );
 
     let path = root.join("notes.txt");
     let exists = path.is_file();
     let body = std::fs::read_to_string(&path).unwrap_or_default();
     let lines = body.lines().count();
 
+    report(&model, &run, end, exists, lines)
+}
+
+/// Prints one run's counts and answers its exit status.
+fn report(model: &str, run: &Run, end: EndReason, exists: bool, lines: usize) -> i32 {
     let looped = run.requests >= 2;
     let passed = end == EndReason::Done && looped && !run.names.is_empty() && exists;
 
@@ -181,122 +178,6 @@ fn why(end: EndReason, looped: bool, exists: bool) -> String {
         return "notes.txt was never created".to_string();
     }
     "no tool was called".to_string()
-}
-
-/// Read the turn's events, running every round of calls it asks for, until it ends.
-fn drive(
-    handle: &AgentHandle,
-    events: &Receiver<AgentEvent>,
-    registry: &ToolRegistry,
-    ctx: &ToolCtx,
-    run: &mut Run,
-) -> EndReason {
-    let mut dispatcher = Dispatcher::new();
-    // An event already read while gathering a round's calls, to be handled next turn.
-    let mut stash: Option<AgentEvent> = None;
-    loop {
-        let event = match stash.take() {
-            Some(event) => event,
-            None => match events.recv_timeout(EVENT_TIMEOUT) {
-                Ok(event) => event,
-                Err(_) => {
-                    return EndReason::Errored(format!(
-                        "no event arrived within {} s",
-                        EVENT_TIMEOUT.as_secs()
-                    ));
-                }
-            },
-        };
-        match event {
-            AgentEvent::TextDelta(delta) => run.text.push_str(&delta),
-            AgentEvent::ToolCall(call) => {
-                let mut batch = vec![call];
-                // A round emits all of its calls before it waits for the first reply, so
-                // the rest of them are already queued and one drain collects the round.
-                loop {
-                    match events.recv_timeout(CALL_DRAIN) {
-                        Ok(AgentEvent::ToolCall(next)) => batch.push(next),
-                        Ok(other) => {
-                            stash = Some(other);
-                            break;
-                        }
-                        Err(_) => break,
-                    }
-                }
-                // The prompt was the first request; each round of calls buys the next one.
-                run.requests += 1;
-                // Whatever came before the calls was a preamble, not the answer.
-                run.text.clear();
-                for call in &batch {
-                    run.names.push(call.name.clone());
-                    run.ids.push(call.id.clone());
-                }
-                run.rounds.push(
-                    batch
-                        .iter()
-                        .map(|call| call.name.clone())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-                let replies: Vec<ToolReply> =
-                    dispatcher.run(&batch, registry, ctx, &mut run.interactor);
-                for reply in replies {
-                    handle.reply(reply);
-                }
-            }
-            // The runner emits these, not the agent, so there is nothing to see here.
-            AgentEvent::ToolResult { .. } => {}
-            AgentEvent::TurnEnd { reason, usage } => {
-                run.usage = (usage.input, usage.output);
-                run.final_text = std::mem::take(&mut run.text);
-                return reason;
-            }
-        }
-    }
-}
-
-/// Everything one run saw, filled in as its events arrive.
-#[derive(Default)]
-struct Run {
-    /// One for the prompt plus one per round that asked for tools, so a run that never
-    /// reaches two never fed a tool result back.
-    requests: usize,
-    /// Each round's calls, in request order, so the count above is checkable.
-    rounds: Vec<String>,
-    names: Vec<String>,
-    ids: Vec<String>,
-    text: String,
-    final_text: String,
-    usage: (u32, u32),
-    interactor: Scripted,
-}
-
-/// Allows every call, and remembers what it was asked about.
-#[derive(Default)]
-struct Scripted {
-    approvals: Vec<String>,
-    questions: Vec<String>,
-}
-
-impl Interactor for Scripted {
-    fn approve(&mut self, name: &str, preview: Option<&Preview>) -> Decision {
-        let what = match preview {
-            Some(Preview::Diff(diff)) => format!("{name} ({} diff lines)", diff.lines().count()),
-            Some(Preview::Command(command)) => format!("{name}: {command}"),
-            None => name.to_string(),
-        };
-        self.approvals.push(what);
-        Decision::Allow
-    }
-
-    /// A scripted run answers the first option, and says so when there is nothing to pick.
-    fn ask(&mut self, prompt: &str, options: &[String], _multiple: bool) -> Answer {
-        self.questions.push(prompt.to_string());
-        match options.first() {
-            Some(first) => Answer::Text(first.clone()),
-            None => Answer::Text("no answer".to_string()),
-        }
-    }
 }
 
 /// `text` on one line, cut to [`ANSWER_LIMIT`], so the report stays readable.
