@@ -2,12 +2,11 @@
 
 use std::fs::File;
 use std::io::Read as IoRead;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ignore::WalkBuilder;
 use serde_json::{Value, json};
 use similar::TextDiff;
 use wait_timeout::ChildExt;
@@ -22,14 +21,10 @@ pub const BASH_MAX_OUTPUT: usize = 16 * 1024;
 pub const READ_MAX_BYTES: u64 = 64 * 1024;
 /// `grep` never returns more than this many bytes.
 pub const GREP_MAX_OUTPUT: usize = 16 * 1024;
-/// `grep` stops after this many matching lines.
-const GREP_MAX_MATCHES: usize = 200;
 /// `list` stops after this many entries.
 pub const LIST_MAX_ENTRIES: usize = 512;
 /// Bytes kept from each child stream before the rest is drained and discarded.
 const MAX_CAPTURE: usize = 1024 * 1024;
-/// A file containing a NUL byte in its first block is treated as binary.
-const BINARY_PROBE: u64 = 8 * 1024;
 
 /// Every built-in tool, in the order the model sees them.
 pub fn builtin_tools() -> Vec<Arc<dyn Tool>> {
@@ -39,7 +34,7 @@ pub fn builtin_tools() -> Vec<Arc<dyn Tool>> {
         Arc::new(Edit),
         Arc::new(Bash::new()),
         Arc::new(List),
-        Arc::new(Grep),
+        Arc::new(Grep::new()),
     ]
 }
 
@@ -435,22 +430,49 @@ impl Tool for List {
     }
 }
 
-/// `grep`: literal substring search, skipping binary files and honouring ignore rules.
-pub struct Grep;
+/// `grep`: ripgrep, honouring ignore files and skipping binary files.
+pub struct Grep {
+    program: PathBuf,
+    timeout: Duration,
+}
+
+impl Grep {
+    pub fn new() -> Self {
+        Self {
+            program: PathBuf::from("rg"),
+            timeout: BASH_TIMEOUT,
+        }
+    }
+
+    /// The same tool with a different binary, so a test can prove a missing one is an error.
+    pub fn with_program(program: impl Into<PathBuf>) -> Self {
+        Self {
+            program: program.into(),
+            timeout: BASH_TIMEOUT,
+        }
+    }
+}
+
+impl Default for Grep {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Tool for Grep {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "grep".into(),
             description:
-                "Search a file or directory for a literal string. Binary files are skipped.".into(),
+                "Search a file or directory with a regular expression, honouring .gitignore and skipping binary files."
+                    .into(),
             parameters: object_schema(
                 json!({
-                    "pattern": { "type": "string", "description": "Literal text to find." },
+                    "pattern": { "type": "string", "description": "Regular expression, in ripgrep syntax." },
                     "path": { "type": "string", "description": "File or directory relative to the worktree root; defaults to `.`." }
                 }),
                 &["pattern"],
-                "Search for a literal string.",
+                "Search for a regular expression.",
             ),
         }
     }
@@ -467,54 +489,63 @@ impl Tool for Grep {
         let path = args.get("path").and_then(Value::as_str).unwrap_or(".");
         let root = ctx.root.canonicalize()?;
         let base = confine(&ctx.root, Path::new(path))?;
+        let relative = base.strip_prefix(&root).unwrap_or(Path::new("."));
+        let relative = if relative.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            relative
+        };
 
-        let mut matches = Vec::new();
-        for entry in WalkBuilder::new(&base)
-            .build()
-            .filter_map(std::result::Result::ok)
-        {
-            if matches.len() >= GREP_MAX_MATCHES {
-                break;
-            }
-            if !entry
-                .file_type()
-                .map(|kind| kind.is_file())
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            let Some(body) = read_text(entry.path()) else {
-                continue;
-            };
-            let shown = entry.path().strip_prefix(&root).unwrap_or(entry.path());
-            for (index, line) in body.lines().enumerate() {
-                if line.contains(&pattern) {
-                    matches.push(format!("{}:{}: {}", shown.display(), index + 1, line));
-                    if matches.len() >= GREP_MAX_MATCHES {
-                        break;
-                    }
-                }
-            }
+        let mut child = Command::new(self.program.as_os_str());
+        child
+            .arg("--line-number")
+            .arg("--no-heading")
+            .arg("--color=never")
+            .arg("--with-filename")
+            .arg("--no-config")
+            // ripgrep only honours .gitignore inside a git repository by default, and a
+            // worktree root is not always one; the ignore rule must not depend on that.
+            .arg("--no-require-git")
+            .arg("--")
+            .arg(&pattern)
+            .arg(relative)
+            .current_dir(&root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let captured = run_captured(child, self.timeout)?;
+        let stderr = String::from_utf8_lossy(&captured.stderr).trim().to_string();
+        match captured.code {
+            Some(0) => Ok(ToolOutput::text(truncate(
+                strip_dot_slash(&String::from_utf8_lossy(&captured.stdout)),
+                GREP_MAX_OUTPUT,
+            ))),
+            // ripgrep exits 1 for "no matches", which is an empty result, not a failure.
+            Some(1) if stderr.is_empty() => Ok(ToolOutput::text(String::new())),
+            _ => Err(Error::Message(if stderr.is_empty() {
+                format!(
+                    "{} exited with {}",
+                    self.program.display(),
+                    captured
+                        .code
+                        .map(|code| code.to_string())
+                        .unwrap_or_else(|| "a signal".to_string())
+                )
+            } else {
+                stderr
+            })),
         }
-        matches.sort();
-        let mut text = matches.join("\n");
-        if !text.is_empty() {
-            text.push('\n');
-        }
-        Ok(ToolOutput::text(truncate(text, GREP_MAX_OUTPUT)))
     }
 }
 
-/// Reads a text file, or answers `None` for a binary or unreadable one.
-fn read_text(path: &Path) -> Option<String> {
-    let mut head = Vec::new();
-    File::open(path)
-        .ok()?
-        .take(BINARY_PROBE)
-        .read_to_end(&mut head)
-        .ok()?;
-    if head.contains(&0) {
-        return None;
+/// ripgrep prefixes hits with `./` when the search root is `.`; paths should read the way the
+/// model would write them, relative to the root with no prefix.
+fn strip_dot_slash(stdout: &str) -> String {
+    let mut text = String::with_capacity(stdout.len());
+    for line in stdout.lines() {
+        text.push_str(line.strip_prefix("./").unwrap_or(line));
+        text.push('\n');
     }
-    std::fs::read_to_string(path).ok()
+    text
 }

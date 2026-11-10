@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub use builtin::{
-    BASH_MAX_OUTPUT, BASH_TIMEOUT, Bash, GREP_MAX_OUTPUT, LIST_MAX_ENTRIES, READ_MAX_BYTES,
+    BASH_MAX_OUTPUT, BASH_TIMEOUT, Bash, GREP_MAX_OUTPUT, Grep, LIST_MAX_ENTRIES, READ_MAX_BYTES,
     builtin_tools,
 };
 pub use confine::confine;
