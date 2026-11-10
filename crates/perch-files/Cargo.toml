@@ -5,10 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-gix = "0.90"
 ignore = "0.4"
-serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+wait-timeout = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
