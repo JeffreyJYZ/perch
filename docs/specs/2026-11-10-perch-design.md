@@ -133,7 +133,7 @@ Every discovered tool becomes an ordinary `perch_tools::Tool` registered as `<se
 
 MCP tools report `needs_approval() == false` — the user's call, because a server that needs a browser to connect is not one to prompt about on every call — and instead the host records every call as a `Note::Call` carrying the server name. The host also notes connections, failures and removals, and its lines are the transcript's words for a failure: a server that will not start is a note in every session's column, never a window that will not open.
 
-A failed server is skipped at startup. `McpHost::disconnect` can drop a dead server's tools, but the window never calls it, so a server that dies mid-session keeps its tools listed until restart.
+A failed server is skipped at startup and recorded by name, so a later reconciliation can drop it instead of retrying it forever. The host is reconciled rather than rebuilt: `McpHost::reconcile` keeps a server whose name and configuration are unchanged, connects a new or changed one, and drops one that is no longer configured or whose transport has closed; `McpHost::register_into` fills a registry built from empty without reconnecting anything. `disconnect` runs on every frame, so a server that dies mid-session loses its tools at the next one rather than at the next restart.
 
 ### Plugins
 

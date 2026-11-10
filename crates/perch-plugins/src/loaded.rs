@@ -69,6 +69,18 @@ impl Loaded {
         &self.registry
     }
 
+    /// The registry, for a caller that is still filling it: MCP tools land here too, so both
+    /// sources end up in the one list `specs()` reports.
+    pub fn registry_mut(&mut self) -> &mut ToolRegistry {
+        &mut self.registry
+    }
+
+    /// Moves the event feed from a host being replaced into this one, so a reload does not replay
+    /// the session's whole log into a freshly loaded plugin.
+    pub fn inherit_feed(&mut self, previous: &mut Loaded) {
+        self.feed = std::mem::take(&mut previous.feed);
+    }
+
     /// How many plugins are still loaded. A disabled one does not count.
     pub fn len(&self) -> usize {
         self.host.len()

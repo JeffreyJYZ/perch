@@ -4,12 +4,25 @@
 //! append-only log per session — and the transcript the window draws. Everything the dispatch
 //! thread needs from a person arrives as a message, and the answer goes back on one channel, so
 //! the window never blocks on a turn and a turn never reads the window's state directly.
+//!
+//! The tools are rebuilt rather than restarted: [`Sources`] builds a registry from the built-ins,
+//! the plugin directory and the configured MCP servers, [`Live`] holds the one every dispatch
+//! reads, and [`watch`] turns a save into a reload.
 
 pub mod answer;
 pub mod app;
 pub mod bridge;
 mod live;
+mod live_registry;
+mod session;
 pub mod settings;
+mod sources;
+mod turn;
+pub mod watch;
 
-pub use app::{AppState, Error, Pending, ProviderDefaults, Result, SessionRuntime};
+pub use app::{AppState, Error, ProviderDefaults, Result};
 pub use bridge::{BridgeEvent, Reply};
+pub use live_registry::Live;
+pub use session::SessionRuntime;
+pub use sources::Sources;
+pub use turn::{Pending, Pumped};

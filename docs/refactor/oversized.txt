@@ -3,7 +3,6 @@
 crates/perch-agent/src/provider.rs 537
 crates/perch-app/src/app.rs 693
 crates/perch-app/src/bridge.rs 231
-crates/perch-mcp/src/lib.rs 402
 crates/perch-mcp/src/oauth.rs 308
 crates/perch-term/src/frame.rs 203
 crates/perch-term/src/keys.rs 238

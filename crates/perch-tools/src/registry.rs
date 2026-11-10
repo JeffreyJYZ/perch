@@ -8,7 +8,11 @@ use crate::{Error, Preview, Result, Tool, ToolCtx, ToolOutput, ToolSpec, builtin
 ///
 /// Insertion order is kept so `specs()` is stable, and registering a name that already exists
 /// replaces it in place instead of appending a duplicate.
-#[derive(Default)]
+///
+/// A registry is a cheap snapshot: every entry is already an `Arc`, so a clone shares the tools
+/// and only copies the list. That is what lets a running session be handed a rebuilt registry
+/// while the one it was using keeps working until its last call returns.
+#[derive(Clone, Default)]
 pub struct ToolRegistry {
     tools: Vec<Arc<dyn Tool>>,
 }

@@ -3,27 +3,31 @@
 //! plugin's tools away.
 //!
 //! Nothing here needs a provider: a plugin is loaded, called and released without a turn running,
-//! which is exactly what the window does at startup.
+//! which is exactly what the window does at startup and again on every reload.
 
 mod support;
 
-use perch_app::settings;
+use perch_app::Sources;
 use perch_tools::ToolCtx;
 use serde_json::json;
 use support::{app, dir_with, fixtures, session};
 
+fn sources(dir: &std::path::Path) -> Sources {
+    Sources::open(dir.to_path_buf(), &[]).expect("a plugin directory opens without MCP servers")
+}
+
 #[test]
 fn a_plugin_directory_registers_its_tools_beside_the_builtins() {
     let dir = dir_with(&[("counter.wasm", "counter.wasm")]);
-    let loaded = settings::plugins(dir.path());
+    let sources = sources(dir.path());
 
     assert_eq!(
-        loaded.len(),
+        sources.plugin_count(),
         1,
         "the fixture plugin did not load: {:?}",
-        loaded.failures()
+        sources.words()
     );
-    let names: Vec<String> = loaded
+    let names: Vec<String> = sources
         .registry()
         .specs()
         .into_iter()
@@ -39,20 +43,20 @@ fn a_plugin_directory_registers_its_tools_beside_the_builtins() {
         names.contains(&"echo".to_string()),
         "the plugin's tool is missing from {names:?}"
     );
-    assert!(loaded.words().is_empty(), "{:?}", loaded.words());
+    assert!(sources.words().is_empty(), "{:?}", sources.words());
 
     // One registry, one dispatch path: the plugin's tool answers exactly where `bash` does, and an
     // approval-gated built-in still asks.
     let ctx = ToolCtx {
         root: dir.path().to_path_buf(),
     };
-    let out = loaded
+    let out = sources
         .registry()
         .call("echo", &json!({"text": "perch"}), &ctx)
         .expect("the plugin tool ran");
     assert_eq!(out.text, "perch");
     assert!(
-        loaded.registry().needs_approval("bash").unwrap(),
+        sources.registry().needs_approval("bash").unwrap(),
         "the plugin load changed a built-in's policy"
     );
 }
@@ -60,7 +64,7 @@ fn a_plugin_directory_registers_its_tools_beside_the_builtins() {
 #[test]
 fn a_component_that_will_not_load_is_words_and_the_app_still_opens() {
     let data = tempfile::tempdir().unwrap();
-    let plugins = data.path().join(settings::PLUGINS);
+    let plugins = data.path().join("plugins");
     std::fs::create_dir_all(&plugins).unwrap();
     std::fs::copy(
         fixtures().join("counter.wasm"),
@@ -70,20 +74,20 @@ fn a_component_that_will_not_load_is_words_and_the_app_still_opens() {
     std::fs::write(plugins.join("broken.wasm"), b"not a component").unwrap();
     session(data.path());
 
-    let loaded = settings::plugins(&plugins);
+    let sources = sources(&plugins);
     assert_eq!(
-        loaded.len(),
+        sources.plugin_count(),
         1,
         "a broken file cost the plugin beside it: {:?}",
-        loaded.failures()
+        sources.words()
     );
     assert!(
-        loaded
-            .failures()
+        sources
+            .words()
             .iter()
             .any(|words| words.contains("broken.wasm")),
         "no line names the file that would not load: {:?}",
-        loaded.failures()
+        sources.words()
     );
 
     // The window opens over the same data directory, with the plugin that did load.
@@ -93,19 +97,22 @@ fn a_component_that_will_not_load_is_words_and_the_app_still_opens() {
 #[test]
 fn a_plugin_that_traps_is_released_and_named() {
     let dir = dir_with(&[("counter.wasm", "counter.wasm")]);
-    let mut loaded = settings::plugins(dir.path());
+    let mut sources = sources(dir.path());
     let ctx = ToolCtx {
         root: dir.path().to_path_buf(),
     };
 
     assert!(
-        loaded.registry().call("explode", &json!({}), &ctx).is_err(),
+        sources
+            .registry()
+            .call("explode", &json!({}), &ctx)
+            .is_err(),
         "the trapping fixture did not trap"
     );
     // A trap disables the plugin but does not touch the registry: the caller that holds the
-    // registry releases it, which is the call the app makes once a call has failed.
+    // registry releases it, which is the call the app makes on the next frame.
     assert!(
-        loaded
+        sources
             .registry()
             .specs()
             .iter()
@@ -113,14 +120,13 @@ fn a_plugin_that_traps_is_released_and_named() {
         "the tool went before the release"
     );
 
-    assert_eq!(
-        loaded.release(),
-        3,
-        "the plugin's tools were not all released"
+    assert!(
+        sources.settle(),
+        "the app did not notice that a plugin had trapped"
     );
     for name in ["echo", "explode", "read_outside"] {
         assert!(
-            !loaded
+            !sources
                 .registry()
                 .specs()
                 .iter()
@@ -129,19 +135,19 @@ fn a_plugin_that_traps_is_released_and_named() {
         );
     }
     assert!(
-        loaded.panels().is_empty(),
+        sources.panels().is_empty(),
         "a disabled plugin still draws a panel"
     );
     assert!(
-        loaded
+        sources
             .words()
             .iter()
             .any(|words| words.contains("counter") && words.contains("disabled")),
         "nothing says which plugin went: {:?}",
-        loaded.words()
+        sources.words()
     );
     assert!(
-        loaded.registry().needs_approval("bash").unwrap(),
+        sources.registry().needs_approval("bash").unwrap(),
         "the release touched a built-in"
     );
 }

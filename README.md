@@ -1,6 +1,6 @@
 # perch
 
-perch is a small native coding-agent harness: one Rust binary that opens a Rune window with a session list, a streaming transcript, a worktree tree and a Ghostty-backed terminal dock. The agent loop is OpenAI-compatible, its tools are confined to the session's worktree and gated by approvals, MCP servers are tool sources, and a wasm plugin host exists but is not yet loaded by the app.
+perch is a small native coding-agent harness: one Rust binary that opens a Rune window with a session list, a streaming transcript, a worktree tree and a Ghostty-backed terminal dock. The agent loop is OpenAI-compatible, its tools are confined to the session's worktree and gated by approvals, MCP servers are tool sources, and wasm plugins contribute tools and panels from a directory the app watches.
 
 Spec: `docs/specs/2026-11-10-perch-design.md`. Plan and its status: `docs/plans/2026-11-10-perch-core.md`.
 
@@ -105,14 +105,22 @@ The provider key is written to the macOS keychain under service `dev.jyz.perch`,
 
 MCP OAuth tokens live in the same keychain, one entry per server under `mcp:<server>`.
 
+### Reloading without a restart
+
+The tools are rebuilt rather than restarted. `settings.toml`, the plugin directory and the `mcp_servers` list are watched with a ~200 ms debounce (`crates/perch-app/src/watch.rs`); a change runs `Sources::rebuild`, which starts from an empty registry — the built-ins, then every `*.wasm` in the plugin directory, then every connected server — and swaps the result into the live registry every session dispatches through (`ArcSwap<ToolRegistry>`).
+
+A call reads the registry when it starts, so a change lands on the next call: a turn already in flight finishes its current call against the tools it began with and sees the new list for its next one. No message is rewritten and no turn is rewound. Deleting a plugin or a server removes its tools from `specs()` and from dispatch at that point; nothing is left to resurrect it. A plugin that will not load is one line in the right-hand column, never a failure to open the window. MCP connections outlive a rebuild: `McpHost::reconcile` keeps a server whose name and configuration are unchanged, connects a new or changed one, and drops one that is no longer configured or has died — including a server that never connected at startup, which the host now records. A crashed server's tools leave the registry at the next frame.
+
+The model's tool list is still fixed when a session starts (`AgentConfig.tools` is passed to `perch-agent` at spawn). A plugin installed mid-session answers immediately when called and appears in `specs()`, but the model is offered it from the next session, not the next turn.
+
 A remote `url` server is always authorized: a stored token is reused, and otherwise perch runs the browser flow (discovery, dynamic client registration, PKCE, loopback callback) before connecting. A remote server with no OAuth metadata fails and is reported, rather than being reached anonymously.
 
 ## What is not there yet
 
 - No updater wired into the app: `perch-update` checks a manifest, orders prerelease versions, verifies a SHA-256 download and stages it, but nothing in the window calls it yet. No notarized or universal bundle — the build is arm64 and ad-hoc signed.
-- The plugin host is implemented and tested but the app does not load plugins, so plugin tools and panels are absent from the window.
+- The plugin host loads from `<data>/plugins` (or `--plugins <dir>`), and its tools and panels are live: a file added, edited or deleted is picked up by the directory watcher.
 - The worktree tree is display-only: clicking a file does nothing, the preview panel is not placed in the window, and the "Open in Zed" button has no press. The crate underneath (`perch-files`) does have the walk, status, preview and `open -a Zed`.
 - A question can be answered in the window only by picking one numbered option; multi-pick and free text exist in the agent layer, not in the window. "Allow for session" is likewise not offered by the window (Enter allows once, Escape refuses).
 - Tool cards stay collapsed: the transcript can expand one, but no press is wired to a card.
 - No wheel handler is attached to the transcript, so a long transcript cannot be scrolled with the wheel; only the terminal grid takes a wheel. The accessibility tree names regions and text rows rather than individual cells or the cursor.
-- A session's branch is stored empty, and a crashed MCP server's tools stay registered until restart.
+- A session's branch is stored empty, and the model's tool list is fixed when a session starts, so a plugin installed mid-session answers on the next call but is offered to the model only from a new session.

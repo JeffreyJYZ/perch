@@ -6,6 +6,11 @@
 //! active transcript — so the thread that draws is the thread that mutates, and a turn's arrival
 //! can never race a frame. Everything a turn needs from a person blocks that dispatch thread and
 //! nothing else; the answer comes back through [`AppState::answer`].
+//!
+//! The tools are the one part that is not fixed when the app opens. [`Sources`] rebuilds them from
+//! the plugin directory and the configured MCP servers, [`AppState::reload`] swaps the result into
+//! the live registry, and every dispatch reads the registry when its call starts — so a change
+//! lands at the next call without a turn being rewound.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -13,31 +18,30 @@ use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use perch_agent::{
-    Agent, AgentConfig, AgentEvent, AgentHandle, Answer, Decision, Dispatcher, EndReason,
-    SecretString,
-};
-use perch_mcp::{McpHost, Note};
+use perch_agent::{Agent, AgentConfig, AgentEvent, Answer, Decision, Dispatcher, SecretString};
+use perch_plugins::PanelEntry;
+use perch_store::Settings;
 use perch_store::secret::{self, SecretStore};
-use perch_store::settings::McpServerConfig;
-use perch_store::{SessionEvent, SessionLog, SessionMeta};
-use perch_tools::{ToolCtx, ToolRegistry};
+use perch_store::settings::{self as settings_file, McpServerConfig};
+use perch_store::{SessionLog, SessionMeta};
+use perch_tools::{ToolCtx, ToolOutput, ToolSpec};
 use perch_ui::Transcript;
 use perch_ui::settings::SettingsDraft;
-use perch_ui::shell::{KeyStatus, SettingsSnapshot};
+use perch_ui::shell::{KeyStatus, Panels, SettingsSnapshot};
 
-use crate::bridge::{self, Bridge, BridgeEvent, Reply};
+use crate::bridge;
+use crate::live_registry::Live;
+use crate::session::SessionRuntime;
+use crate::sources::Sources;
+use crate::turn::{Pending, Pumped};
+use crate::watch::{self, Watch};
+
+pub use crate::session::CANCELLED;
 
 /// How long one pump waits for the next event before calling the session quiet.
 ///
 /// Short enough that a frame is never held, long enough that a stream's deltas arrive in batches.
 pub const QUIET: Duration = Duration::from_millis(25);
-
-/// What the transcript says when a turn is cancelled.
-///
-/// A word, like every other state the window shows: the turn stopped, and saying so is the only
-/// way the column is not silently missing an answer.
-pub const CANCELLED: &str = "cancelled";
 
 /// The system message every session starts from.
 const SYSTEM: &str = "You are perch, a coding agent working in the session's worktree. Use the \
@@ -63,28 +67,6 @@ pub enum Error {
 /// A perch-app result.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// What one [`AppState::pump`] did, so a caller can tell a quiet frame from a moving one.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Pumped {
-    /// Whether any event reached the transcript.
-    pub changed: bool,
-    /// Whether the session is now waiting for the user, which is where a caller stops.
-    pub waiting: bool,
-}
-
-/// What a session is waiting on, and therefore what [`AppState::answer`] settles.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Pending {
-    /// A call that needs the user's decision before it runs.
-    Approval { id: String, name: String },
-    /// The model's question.
-    Question {
-        prompt: String,
-        options: Vec<String>,
-        multiple: bool,
-    },
-}
-
 /// The provider a new session talks to.
 ///
 /// Plain values rather than the whole [`Settings`]: a test hands an app a fixture server's base
@@ -96,151 +78,21 @@ pub struct ProviderDefaults {
     pub model: String,
 }
 
-/// One session: its log, its agent, its transcript, and the thread that runs its tools.
-pub struct SessionRuntime {
-    pub meta: SessionMeta,
-    pub transcript: Transcript,
-    pub log: SessionLog,
-    pub agent: AgentHandle,
-    /// What remembers an "allow for session". One per session, because allowing `bash` here
-    /// must not silently allow it in another session.
-    ///
-    /// Held by the session, not only by the dispatch thread, so the same allowances are reachable
-    /// for a later reset without a second dispatcher appearing.
-    #[allow(
-        dead_code,
-        reason = "held for the session's lifetime, read through the dispatch thread"
-    )]
-    dispatcher: Arc<Mutex<Dispatcher>>,
-    bridge: Bridge,
-    pending: Option<Pending>,
-    /// Whether a turn is in flight. A turn that is waiting on the user is still in flight, but
-    /// nothing can arrive until it is answered, so the window stops polling for it.
-    running: bool,
-    turns: u32,
-    /// The text this turn has streamed, so the log keeps the reply the transcript showed.
-    open_text: String,
-}
-
-impl SessionRuntime {
-    /// What this session is waiting for, when it is waiting.
-    pub fn pending(&self) -> Option<&Pending> {
-        self.pending.as_ref()
-    }
-
-    /// Whether the session is waiting for the user before it can go on.
-    pub fn is_waiting(&self) -> bool {
-        self.pending.is_some()
-    }
-
-    /// Whether a turn is in flight.
-    pub fn is_running(&self) -> bool {
-        self.running
-    }
-
-    /// How many turns have ended. One is the promise; a count makes a second one visible.
-    pub fn turns_ended(&self) -> u32 {
-        self.turns
-    }
-
-    /// This session's transcript, which the shell draws.
-    pub fn transcript(&self) -> &Transcript {
-        &self.transcript
-    }
-
-    /// Folds one posted event into the transcript and the log, and reports whether the session
-    /// is now waiting on the user.
-    fn apply(&mut self, event: BridgeEvent) -> bool {
-        match event {
-            BridgeEvent::Text(text) => {
-                self.transcript.apply(&AgentEvent::TextDelta(text.clone()));
-                self.open_text.push_str(&text);
-            }
-            BridgeEvent::ToolCall(call) => {
-                self.transcript.apply(&AgentEvent::ToolCall(call.clone()));
-                // The log is the conversation's only durable copy; a write failing is worth
-                // dropping rather than stopping the turn the user is watching.
-                let _ = self.log.append(&SessionEvent::ToolCall {
-                    id: call.id,
-                    name: call.name,
-                    args: call.args,
-                });
-            }
-            BridgeEvent::ToolResult { id, ok, text } => {
-                self.transcript.apply(&AgentEvent::ToolResult {
-                    id: id.clone(),
-                    ok,
-                    text: text.clone(),
-                });
-                let _ = self.log.append(&SessionEvent::ToolResult { id, ok, text });
-            }
-            BridgeEvent::Approval { id, name, preview } => {
-                // A tool that asks and shows nothing keeps its card saying "running": the column
-                // has one approval state and it is the preview's. The wait below is what holds
-                // the turn either way.
-                if let Some(preview) = preview {
-                    self.transcript.request_approval(&id, preview);
-                }
-                self.pending = Some(Pending::Approval { id, name });
-                return true;
-            }
-            BridgeEvent::Question {
-                prompt,
-                options,
-                multiple,
-            } => {
-                self.transcript
-                    .apply(&AgentEvent::TextDelta(question_text(&prompt, &options)));
-                self.pending = Some(Pending::Question {
-                    prompt,
-                    options,
-                    multiple,
-                });
-                return true;
-            }
-            BridgeEvent::TurnEnd { reason, usage } => {
-                self.transcript.apply(&AgentEvent::TurnEnd {
-                    reason: reason.clone(),
-                    usage,
-                });
-                if reason == EndReason::Cancelled {
-                    // The column has no note item and this lane does not own its enum, so the
-                    // word takes the same path a reply's text does — one item, saying the turn
-                    // stopped. When the transcript gains a note item this is one line to change.
-                    self.transcript
-                        .apply(&AgentEvent::TextDelta(CANCELLED.into()));
-                }
-                let reply = std::mem::take(&mut self.open_text);
-                if !reply.is_empty() {
-                    let _ = self.log.append(&SessionEvent::Assistant { text: reply });
-                }
-                let _ = self.log.append(&SessionEvent::TurnEnd {
-                    reason: reason_word(&reason),
-                    tokens_in: usage.input,
-                    tokens_out: usage.output,
-                });
-                self.pending = None;
-                self.running = false;
-                self.turns += 1;
-            }
-        }
-        false
-    }
-}
-
 /// Every open session, which one the window shows, and the tools they share.
 pub struct AppState {
     dir: PathBuf,
     sessions: Vec<SessionRuntime>,
     active: usize,
-    /// The tools every session's model may call: the six built-ins, `ask_user`, and whatever MCP
-    /// servers contributed at start.
-    registry: Arc<ToolRegistry>,
-    /// The MCP servers that loaded, kept so their notes can be reported and their tools dropped.
-    mcp: McpHost,
-    /// What each server that failed said, so a session opened later still hears about it.
-    mcp_failures: Vec<String>,
+    /// The tools every session's model may call, swapped as a whole when the sources change.
+    live: Live,
+    /// What a registry is built from: the plugin directory and the MCP servers.
+    sources: Sources,
+    /// The debounced filesystem watcher, when the platform gave one.
+    watch: Option<Watch>,
     defaults: ProviderDefaults,
+    /// Whether the provider was stated by the caller rather than read from settings. A stated one
+    /// is never overwritten by a reload, which is what lets a fixture server stay pinned.
+    stated: bool,
     /// Where the provider key is kept: the login keychain, or a test's in-memory store.
     secrets: Box<dyn SecretStore>,
 }
@@ -257,8 +109,8 @@ impl AppState {
 
     /// The same, with the provider stated instead of read: what a test or a scripted run uses.
     ///
-    /// MCP servers still come from settings, so a session started this way sees exactly the tools
-    /// the window would give it.
+    /// MCP servers still come from settings and plugins from `<dir>/plugins`, so a session started
+    /// this way sees the tools the window would give it.
     pub fn open_with(dir: &Path, defaults: ProviderDefaults) -> Result<AppState> {
         crate::settings::open(dir, Some(defaults), Box::new(secret::Keychain))
     }
@@ -272,28 +124,37 @@ impl AppState {
         crate::settings::open(dir, Some(defaults), secrets)
     }
 
+    /// The same as [`AppState::open_with_secrets`], with the plugin directory stated too.
+    pub fn open_at(
+        dir: &Path,
+        defaults: ProviderDefaults,
+        secrets: Box<dyn SecretStore>,
+        plugins: &Path,
+    ) -> Result<AppState> {
+        crate::settings::open_at(dir, Some(defaults), secrets, plugins)
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the app's own state, read once and never rebuilt"
+    )]
     pub(crate) fn build(
         dir: &Path,
         defaults: ProviderDefaults,
+        stated: bool,
         servers: &[McpServerConfig],
         secrets: Box<dyn SecretStore>,
+        plugins: &Path,
     ) -> Result<AppState> {
-        let mut registry = Dispatcher::builtin_registry();
-        // A server that fails is reported by the host and skipped, so one broken server cannot
-        // stop the app from opening.
-        let mcp = McpHost::connect_all(servers, &mut registry)?;
+        let sources = Sources::open(plugins.to_path_buf(), servers)?;
+        let live = Live::new(sources.registry().clone());
+        let watch = watch::watch(&settings_file::path_in(dir), plugins);
         // A failure is the user's business, and the transcript is the only place the window ever
         // says things: it is a note in every session's column, never a window that will not open.
-        let mcp_failures: Vec<String> = mcp
-            .notes()
-            .iter()
-            .filter(|note| matches!(note, Note::Failed { .. }))
-            .map(Note::line)
-            .collect();
-        let registry = Arc::new(registry);
+        let words = sources.words();
         let mut sessions = Vec::new();
         for meta in headers(dir)? {
-            sessions.push(runtime(dir, meta, &registry, &defaults, &mcp_failures)?);
+            sessions.push(runtime(dir, meta, &live, &defaults, &words)?);
         }
         // The most recent session is the one the window opens on.
         let active = sessions.len().saturating_sub(1);
@@ -301,10 +162,11 @@ impl AppState {
             dir: dir.to_path_buf(),
             sessions,
             active,
-            registry,
-            mcp,
-            mcp_failures,
+            live,
+            sources,
+            watch,
             defaults,
+            stated,
             secrets,
         })
     }
@@ -327,13 +189,8 @@ impl AppState {
             model: self.defaults.model.clone(),
             created,
         };
-        let runtime = runtime(
-            &self.dir,
-            meta,
-            &self.registry,
-            &self.defaults,
-            &self.mcp_failures,
-        )?;
+        let words = self.sources.words();
+        let runtime = runtime(&self.dir, meta, &self.live, &self.defaults, &words)?;
         self.sessions.push(runtime);
         self.active = self.sessions.len() - 1;
         Ok(self.active)
@@ -369,9 +226,29 @@ impl AppState {
         self.sessions.get_mut(self.active)
     }
 
+    /// The tools a session is offered right now, in the order the model sees them.
+    pub fn tools(&self) -> Vec<ToolSpec> {
+        self.live.specs()
+    }
+
+    /// Runs a tool by name through the live registry, in the active session's worktree.
+    ///
+    /// This is the session's dispatch path without a model: what a test or a script calls to prove
+    /// a tool answers, and what makes a plugin's arrival visible without a turn.
+    pub fn call_tool(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+    ) -> perch_tools::Result<ToolOutput> {
+        let root = self
+            .active_session()
+            .map_or_else(|| self.dir.clone(), |session| session.meta.worktree.clone());
+        self.live.call(name, args, &ToolCtx { root })
+    }
+
     /// The MCP servers whose tools loaded, in configuration order.
     pub fn mcp_servers(&self) -> Vec<String> {
-        self.mcp.server_names()
+        self.sources.mcp_servers()
     }
 
     /// The provider a new session would be given: what a settings save changes.
@@ -396,6 +273,26 @@ impl AppState {
             .map_err(|error| error.to_string())
     }
 
+    /// Rebuilds the tools from disk and swaps them in: the plugin directory, `settings.toml`, and
+    /// the MCP servers it names.
+    ///
+    /// The rebuild starts from an empty registry, so what comes back is exactly what is on disk —
+    /// a deleted plugin has nothing left to resurrect it. A turn already in flight is untouched:
+    /// its calls read the registry when they start, so the next one sees the new list. Answers
+    /// whether the settings file could be read; a file a person broke by hand leaves the tools
+    /// alone rather than losing the ones that work.
+    pub fn reload(&mut self) -> bool {
+        let Ok(settings) = Settings::load(&self.dir) else {
+            return false;
+        };
+        if !self.stated {
+            self.follow(&settings);
+        }
+        self.sources.rebuild(&settings.mcp_servers);
+        self.refresh_live();
+        true
+    }
+
     /// Sends the composer's text as a turn: the question is recorded, logged, and handed to the
     /// agent. A session whose worktree has gone refuses it and says why in its own transcript.
     pub fn prompt(&mut self, text: impl Into<String>) -> Result<()> {
@@ -408,12 +305,7 @@ impl AppState {
             say(&mut runtime.transcript, &format!("not sent: {error}"));
             return Err(error);
         }
-        runtime.open_text.clear();
-        runtime.running = true;
-        runtime.transcript.push_user(text.clone());
-        let _ = runtime
-            .log
-            .append(&SessionEvent::User { text: text.clone() });
+        runtime.begin(&text);
         runtime.agent.prompt(text);
         Ok(())
     }
@@ -496,13 +388,13 @@ impl AppState {
 
     /// Answers whatever the session is waiting on — an approval or a question — and reports
     /// whether anyone was waiting.
-    pub fn answer(&mut self, reply: impl Into<Reply>) -> bool {
+    pub fn answer(&mut self, reply: impl Into<crate::Reply>) -> bool {
         let Some(runtime) = self.sessions.get_mut(self.active) else {
             return false;
         };
         let sent = runtime.bridge.answer(reply.into());
         if sent {
-            runtime.pending = None;
+            runtime.answered();
         }
         sent
     }
@@ -512,7 +404,46 @@ impl AppState {
     ///
     /// A session waiting for the user stops the loop: no further event can arrive until
     /// [`AppState::answer`] is called, so the frame is the frame's.
+    ///
+    /// The watcher is serviced first, and the plugins last: a change that arrived between frames
+    /// is rebuilt before this frame draws, and the events the frame folded reach the plugins
+    /// before it returns.
     pub fn pump(&mut self, budget: Duration) -> Pumped {
+        if self.watch.as_ref().is_some_and(Watch::changed) {
+            self.reload();
+        }
+        let mut pumped = self.pump_events(budget);
+        if self.feed_plugins(pumped.changed || self.busy()) {
+            pumped.changed = true;
+        }
+        pumped
+    }
+
+    /// Pumps until `done` holds, the session waits for the user, or `budget` runs out.
+    ///
+    /// The waiting case returns false rather than spinning: nothing can change until
+    /// [`AppState::answer`] is called, so a caller that keeps pumping would only hold its frame.
+    pub fn pump_until<F>(&mut self, budget: Duration, done: F) -> bool
+    where
+        F: Fn(&SessionRuntime) -> bool,
+    {
+        let deadline = Instant::now() + budget;
+        loop {
+            match self.sessions.get(self.active) {
+                Some(runtime) if done(runtime) => return true,
+                Some(runtime) if runtime.is_waiting() => return false,
+                Some(_) => {}
+                None => return false,
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            self.pump(QUIET);
+        }
+    }
+
+    /// The event loop without the watcher and the plugin feed.
+    fn pump_events(&mut self, budget: Duration) -> Pumped {
         let deadline = Instant::now() + budget;
         let mut pumped = Pumped::default();
         let Some(runtime) = self.sessions.get_mut(self.active) else {
@@ -557,27 +488,43 @@ impl AppState {
         }
     }
 
-    /// Pumps until `done` holds, the session waits for the user, or `budget` runs out.
-    ///
-    /// The waiting case returns false rather than spinning: nothing can change until
-    /// [`AppState::answer`] is called, so a caller that keeps pumping would only hold its frame.
-    pub fn pump_until<F>(&mut self, budget: Duration, done: F) -> bool
-    where
-        F: Fn(&SessionRuntime) -> bool,
-    {
-        let deadline = Instant::now() + budget;
-        loop {
-            match self.sessions.get(self.active) {
-                Some(runtime) if done(runtime) => return true,
-                Some(runtime) if runtime.is_waiting() => return false,
-                Some(_) => {}
-                None => return false,
-            }
-            if Instant::now() >= deadline {
-                return false;
-            }
-            self.pump(QUIET);
+    /// Hands the active session's new events to the plugins, and takes away the tools of a plugin
+    /// that trapped or a server that died. Answers whether the live registry moved and needs
+    /// swapping.
+    fn feed_plugins(&mut self, active: bool) -> bool {
+        let mut moved = false;
+        if active && let Some(session) = self.sessions.get(self.active) {
+            moved = self.sources.sync(&session.log);
         }
+        moved |= self.sources.settle();
+        if moved {
+            self.refresh_live();
+        }
+        moved
+    }
+
+    /// Folds the settings file's provider into the defaults a new session would read.
+    fn follow(&mut self, settings: &Settings) {
+        self.defaults.base_url = settings.provider_base_url.clone();
+        self.defaults.model = settings.model.clone();
+        self.defaults.api_key = crate::settings::stored_key(&*self.secrets).unwrap_or_default();
+    }
+
+    /// Makes the rebuilt registry the one every dispatch reads from now on.
+    fn refresh_live(&self) {
+        self.live.store(self.sources.registry().clone());
+    }
+}
+
+/// The plugin column, over the app's own sources: a window laid out over `AppState` alone shows
+/// the same panels as the binary's window does.
+impl Panels for AppState {
+    fn panels(&self) -> Vec<PanelEntry> {
+        self.sources.panels()
+    }
+
+    fn plugin_words(&self) -> Vec<String> {
+        self.sources.words()
     }
 }
 
@@ -585,7 +532,7 @@ impl AppState {
 fn runtime(
     dir: &Path,
     meta: SessionMeta,
-    registry: &Arc<ToolRegistry>,
+    live: &Live,
     defaults: &ProviderDefaults,
     notes: &[String],
 ) -> Result<SessionRuntime> {
@@ -600,8 +547,9 @@ fn runtime(
         api_key: SecretString::from(defaults.api_key.clone()),
         model,
         system: SYSTEM.to_string(),
-        // One list for every session, so the model is offered exactly what the registry holds.
-        tools: registry
+        // The list the model is offered is fixed when the session starts; the registry a call
+        // dispatches through is read at the call, so a reload lands without restarting a turn.
+        tools: live
             .specs()
             .into_iter()
             .map(|spec| perch_agent::ToolSpec {
@@ -615,24 +563,15 @@ fn runtime(
     let ctx = ToolCtx {
         root: meta.worktree.clone(),
     };
-    let bridge = bridge::spawn(agent.clone(), events, registry, ctx, &dispatcher);
+    let bridge = bridge::spawn(agent.clone(), events, live, ctx, &dispatcher);
     let mut transcript = Transcript::default();
     // A server that did not load is said once per session, in the column the user is reading.
     for note in notes {
         say(&mut transcript, note);
     }
-    Ok(SessionRuntime {
-        meta,
-        transcript,
-        log,
-        agent,
-        dispatcher,
-        bridge,
-        pending: None,
-        running: false,
-        turns: 0,
-        open_text: String::new(),
-    })
+    Ok(SessionRuntime::new(
+        meta, transcript, log, agent, dispatcher, bridge,
+    ))
 }
 
 /// Says `words` in a transcript as one item: the transcript has no note kind, so a note takes the
@@ -672,22 +611,4 @@ fn headers(dir: &Path) -> Result<Vec<SessionMeta>> {
     }
     metas.sort_by_key(|meta| meta.created);
     Ok(metas)
-}
-
-/// The question and its options as the transcript shows them.
-fn question_text(prompt: &str, options: &[String]) -> String {
-    let mut text = prompt.to_string();
-    for (index, option) in options.iter().enumerate() {
-        text.push_str(&format!("\n{}. {option}", index + 1));
-    }
-    text
-}
-
-/// How a turn's ending is written in the log.
-fn reason_word(reason: &EndReason) -> String {
-    match reason {
-        EndReason::Done => "done".to_string(),
-        EndReason::Cancelled => CANCELLED.to_string(),
-        EndReason::Errored(why) => format!("errored: {why}"),
-    }
 }

@@ -17,7 +17,9 @@ use std::sync::{Arc, Mutex};
 use perch_agent::{
     AgentEvent, AgentHandle, Answer, Decision, Dispatcher, EndReason, ToolCall, Usage,
 };
-use perch_tools::{Preview, ToolCtx, ToolRegistry};
+use perch_tools::{Preview, ToolCtx};
+
+use crate::live_registry::Live;
 
 use crate::answer::Answers;
 
@@ -93,11 +95,11 @@ impl Bridge {
 pub fn spawn(
     agent: AgentHandle,
     events: Receiver<AgentEvent>,
-    registry: &Arc<ToolRegistry>,
+    live: &Live,
     ctx: ToolCtx,
     dispatcher: &Arc<Mutex<Dispatcher>>,
 ) -> Bridge {
-    let registry = Arc::clone(registry);
+    let live = live.clone();
     let dispatcher = Arc::clone(dispatcher);
     let (out, incoming) = mpsc::channel();
     let (replies, incoming_replies) = mpsc::channel();
@@ -109,7 +111,7 @@ pub fn spawn(
                 events,
                 &out,
                 &incoming_replies,
-                &registry,
+                &live,
                 &ctx,
                 &dispatcher,
             )
@@ -130,7 +132,7 @@ fn run(
     events: Receiver<AgentEvent>,
     out: &Sender<BridgeEvent>,
     replies: &Receiver<Reply>,
-    registry: &ToolRegistry,
+    live: &Live,
     ctx: &ToolCtx,
     dispatcher: &Mutex<Dispatcher>,
 ) {
@@ -141,7 +143,7 @@ fn run(
                 out.send(BridgeEvent::ToolResult { id, ok, text }).is_ok()
             }
             AgentEvent::ToolCall(call) => {
-                dispatch(call, agent, out, replies, registry, ctx, dispatcher)
+                dispatch(call, agent, out, replies, live, ctx, dispatcher)
             }
             AgentEvent::TurnEnd { reason, usage } => {
                 out.send(BridgeEvent::TurnEnd { reason, usage }).is_ok()
@@ -161,7 +163,7 @@ fn dispatch(
     agent: &AgentHandle,
     out: &Sender<BridgeEvent>,
     replies: &Receiver<Reply>,
-    registry: &ToolRegistry,
+    live: &Live,
     ctx: &ToolCtx,
     dispatcher: &Mutex<Dispatcher>,
 ) -> bool {
@@ -178,8 +180,11 @@ fn dispatch(
         out,
         replies,
     };
+    // The registry as it is when this call starts. A reload that lands mid-turn is therefore
+    // deferred to the next call, and never splits one call across two tool lists.
+    let registry = live.load();
     let mut dispatcher = lock(dispatcher);
-    let replies = dispatcher.run(std::slice::from_ref(&call), registry, ctx, &mut interactor);
+    let replies = dispatcher.run(std::slice::from_ref(&call), &registry, ctx, &mut interactor);
     for reply in replies {
         let ok = reply.ok;
         let text = reply.message.content.clone().unwrap_or_default();

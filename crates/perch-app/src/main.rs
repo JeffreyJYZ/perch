@@ -12,7 +12,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use perch_app::AppState;
 use perch_app::settings;
 use perch_files::Workspace;
 use perch_store::SessionMeta;
@@ -118,7 +117,11 @@ fn open_app(flags: &Flags) -> Window {
     let Some(dir) = data_dir() else {
         return Window::Offline("no data directory for this platform".to_string());
     };
-    match AppState::open(&dir) {
+    let plugins = flags
+        .plugins
+        .clone()
+        .unwrap_or_else(|| dir.join(settings::PLUGINS));
+    match settings::open_with_plugins(&dir, &plugins) {
         Ok(mut app) => {
             // A first run has no session at all, and a window with nothing to ask is a dead one:
             // the launch directory is the worktree, which is the design's rule.
@@ -128,11 +131,7 @@ fn open_app(flags: &Flags) -> Window {
                     return Window::Offline(error.to_string());
                 }
             }
-            let plugins = flags
-                .plugins
-                .clone()
-                .unwrap_or_else(|| dir.join(settings::PLUGINS));
-            Window::open(app, settings::plugins(&plugins))
+            Window::open(app)
         }
         Err(error) => Window::Offline(error.to_string()),
     }

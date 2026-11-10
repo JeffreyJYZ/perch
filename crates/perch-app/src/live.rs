@@ -6,7 +6,7 @@ use std::time::Duration;
 use perch_ui::Transcript;
 use perch_ui::shell::{Live, Waiting};
 
-use crate::app::{AppState, Pending};
+use crate::{AppState, Pending};
 
 impl Live for AppState {
     fn pump(&mut self, budget: Duration) -> bool {

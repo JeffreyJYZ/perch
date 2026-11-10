@@ -6,7 +6,7 @@
 
 mod support;
 
-use perch_app::settings;
+use perch_app::Sources;
 use perch_store::SessionEvent;
 use support::{app, dir_with, session};
 
@@ -23,13 +23,14 @@ fn a_sessions_logged_events_reach_the_plugin_and_change_its_panel() {
     let app = app(data.path());
 
     let plugins = dir_with(&[("counter.wasm", "counter.wasm")]);
-    let mut loaded = settings::plugins(plugins.path());
+    let mut sources = Sources::open(plugins.path().to_path_buf(), &[]).unwrap();
+    let log = &app.active_session().expect("the app opened a session").log;
     assert!(
-        settings::feed(&mut loaded, &app),
+        sources.sync(log),
         "the turn end already in the log was never delivered"
     );
 
-    let panel = loaded
+    let panel = sources
         .panels()
         .into_iter()
         .find(|entry| entry.plugin == "counter")
@@ -41,11 +42,8 @@ fn a_sessions_logged_events_reach_the_plugin_and_change_its_panel() {
     );
 
     // Once only: the feed reads the bytes it has not read, so a second pass adds nothing.
-    assert!(
-        !settings::feed(&mut loaded, &app),
-        "the same event was delivered twice"
-    );
-    let panel = loaded
+    assert!(!sources.sync(log), "the same event was delivered twice");
+    let panel = sources
         .panels()
         .into_iter()
         .next()
