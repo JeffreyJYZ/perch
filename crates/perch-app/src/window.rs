@@ -171,4 +171,18 @@ impl Panels for Window {
     fn plugin_words(&self) -> Vec<String> {
         self.app().map(Panels::plugin_words).unwrap_or_default()
     }
+
+    fn panel_action(
+        &mut self,
+        plugin: &str,
+        control: &str,
+        value: Option<String>,
+    ) -> std::result::Result<(), String> {
+        match self {
+            Window::Open(app) => Panels::panel_action(app.as_mut(), plugin, control, value),
+            Window::Offline(why) => Err(format!(
+                "no app is running, so `{control}` reached no plugin: {why}"
+            )),
+        }
+    }
 }

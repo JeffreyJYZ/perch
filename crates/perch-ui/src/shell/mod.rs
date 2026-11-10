@@ -33,6 +33,7 @@ mod keymap;
 mod layout;
 mod live;
 mod paint;
+mod panel_form;
 mod panels;
 mod paste;
 mod pump;

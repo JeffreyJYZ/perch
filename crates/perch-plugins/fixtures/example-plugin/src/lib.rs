@@ -5,9 +5,14 @@
 //! host never granted, so the refusal is proved by the ABI rather than by the guest being
 //! polite.
 //!
-//! Its panel is a counter: `panel` reports how many turns this store has seen end and
-//! `on-event` counts them, so a test proves an event reached the guest by watching the panel
-//! change. A fresh store starts at zero, so every test sees the same first panel.
+//! Its panel is a counter: `panel` reports how many turns this store has seen end and `on-event`
+//! counts them, so a test proves an event reached the guest by watching the panel change. A fresh
+//! store starts at zero, so every test sees the same first panel.
+//!
+//! The controls it declares are the action path: `bump` adds one to the same counter, `reset`
+//! puts it back to zero, and `note` keeps the text it was submitted with. Each one is visible in
+//! the panel, so a test proves a press reached the guest by re-reading the model instead of
+//! trusting the call's return.
 
 wit_bindgen::generate!({
     path: "../../wit",
@@ -15,7 +20,9 @@ wit_bindgen::generate!({
 });
 
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 
+use exports::perch::plugin::actions::Guest as ActionsGuest;
 use exports::perch::plugin::panels::{
     Guest as PanelsGuest, PanelButton, PanelInput, PanelModel, PanelSection,
 };
@@ -23,8 +30,11 @@ use exports::perch::plugin::tools::{Guest as ToolsGuest, ToolSpec};
 
 struct CounterPlugin;
 
-/// Turns this store has seen end. Per store, so one load never sees another's count.
+/// Turns this store has seen end, and button presses since. Per store, so one load never sees
+/// another's count.
 static TURNS: AtomicU32 = AtomicU32::new(0);
+/// What was last submitted through the `note` input, per store like the count.
+static NOTE: Mutex<String> = Mutex::new(String::new());
 
 fn spec(name: &str, description: &str, parameters: &str) -> ToolSpec {
     ToolSpec {
@@ -83,21 +93,28 @@ impl ToolsGuest for CounterPlugin {
 
 impl PanelsGuest for CounterPlugin {
     fn panel() -> PanelModel {
+        let note = NOTE.lock().map(|note| note.clone()).unwrap_or_default();
+        let mut sections = vec![
+            PanelSection::Text(format!("count: {}", TURNS.load(Ordering::Relaxed))),
+            PanelSection::Button(PanelButton {
+                id: "bump".to_string(),
+                label: "Bump".to_string(),
+            }),
+            PanelSection::Button(PanelButton {
+                id: "reset".to_string(),
+                label: "Reset".to_string(),
+            }),
+            PanelSection::Input(PanelInput {
+                id: "note".to_string(),
+                label: "Note".to_string(),
+            }),
+        ];
+        if !note.is_empty() {
+            sections.push(PanelSection::Text(format!("note: {note}")));
+        }
         PanelModel {
             title: "Counter".to_string(),
-            // Text only, so the flattened lines are exactly the count; the button and the
-            // input are host-drawn controls and are never part of the text lines.
-            sections: vec![
-                PanelSection::Text(format!("count: {}", TURNS.load(Ordering::Relaxed))),
-                PanelSection::Button(PanelButton {
-                    id: "reset".to_string(),
-                    label: "Reset".to_string(),
-                }),
-                PanelSection::Input(PanelInput {
-                    id: "note".to_string(),
-                    label: "Note".to_string(),
-                }),
-            ],
+            sections,
         }
     }
 
@@ -107,6 +124,28 @@ impl PanelsGuest for CounterPlugin {
         };
         if event.get("kind").and_then(serde_json::Value::as_str) == Some("turn_end") {
             TURNS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+impl ActionsGuest for CounterPlugin {
+    /// The press the host reports: `bump` counts, `reset` clears, `note` keeps the text it came
+    /// with. An id this plugin does not declare is answered as an error rather than ignored, so a
+    /// test can tell a press that arrived from one that did not.
+    fn action(id: String, value: Option<String>) {
+        match id.as_str() {
+            "bump" => {
+                TURNS.fetch_add(1, Ordering::Relaxed);
+            }
+            "reset" => TURNS.store(0, Ordering::Relaxed),
+            "note" => {
+                if let Ok(mut note) = NOTE.lock() {
+                    *note = value.unwrap_or_default();
+                }
+            }
+            // The host refuses an id this panel never declared, so this arm is unreachable; it
+            // exists because the ABI passes a string.
+            _ => {}
         }
     }
 }

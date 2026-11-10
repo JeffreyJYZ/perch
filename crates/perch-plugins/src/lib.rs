@@ -13,6 +13,7 @@
 //! a session's events to them.
 
 mod abi;
+mod actions;
 mod bounds;
 mod feed;
 mod host;

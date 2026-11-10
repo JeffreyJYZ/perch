@@ -106,6 +106,28 @@ impl Loaded {
         panels
     }
 
+    /// Reports a press on a control `plugin` declared, answering why it reached no plugin.
+    ///
+    /// A press can trap, and a trap is the same event a tool's is: the plugin is disabled, its
+    /// tools leave the registry in the [`Loaded::release`] this settles for, and
+    /// [`Loaded::words`] says which plugin went. The error is the caller's copy of that — a
+    /// stated refusal rather than silence about a press that changed nothing.
+    pub fn panel_action(
+        &mut self,
+        plugin: &str,
+        control: &str,
+        value: Option<&str>,
+    ) -> std::result::Result<(), String> {
+        let outcome = self
+            .host
+            .panel_action(plugin, control, value)
+            .map_err(|err| err.to_string());
+        // Settled here rather than at the next frame, so a plugin this press disabled is never
+        // offered in the registry between the trap and the snapshot that follows it.
+        self.settle();
+        outcome
+    }
+
     /// One session event to every live plugin, answering whether any of them trapped on it.
     ///
     /// Every plugin is offered every event, which is the host's rule: a plugin that does not care

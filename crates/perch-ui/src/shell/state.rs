@@ -9,6 +9,7 @@ use rune::TextEdit;
 
 use super::answer::Answering;
 use super::live::{Idle, Live, Waiting};
+use super::panel_form::PanelForm;
 use super::settings::Panel;
 use super::terminal::{GRID, TerminalTab};
 use crate::files::FilePanel;
@@ -40,6 +41,8 @@ pub struct Shell<L: Live = Idle> {
     pub(super) prompt: TextEdit,
     /// The settings panel, when it is open: a draft, never the live settings.
     pub(super) settings: Option<Panel>,
+    /// What the plugin column's controls hold: each input's text and the last refusal.
+    pub(super) panel: PanelForm,
 }
 
 impl Shell<Idle> {
@@ -75,6 +78,7 @@ impl<L: Live> Shell<L> {
             grid: Cell::new(GRID),
             prompt: TextEdit::default(),
             settings: None,
+            panel: PanelForm::default(),
         }
     }
 

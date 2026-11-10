@@ -10,6 +10,7 @@ wit_bindgen::generate!({
     world: "perch-plugin",
 });
 
+use exports::perch::plugin::actions::Guest as ActionsGuest;
 use exports::perch::plugin::panels::{Guest as PanelsGuest, PanelModel};
 use exports::perch::plugin::tools::{Guest as ToolsGuest, ToolSpec};
 
@@ -39,6 +40,11 @@ impl PanelsGuest for TrapPanelPlugin {
     }
 
     fn on_event(_event_json: String) {}
+}
+
+/// Unreachable: the panel traps before any control is ever drawn, so no press can arrive.
+impl ActionsGuest for TrapPanelPlugin {
+    fn action(_id: String, _value: Option<String>) {}
 }
 
 export!(TrapPanelPlugin);

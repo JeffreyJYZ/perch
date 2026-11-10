@@ -120,4 +120,16 @@ impl Panels for AppState {
     fn plugin_words(&self) -> Vec<String> {
         self.snapshot.words.clone()
     }
+
+    /// A press on a panel control: refused here when the drawn panel cannot address it, and
+    /// otherwise queued for the worker that owns the plugin host. The panel it changes is re-read
+    /// into the next snapshot, which is what draws the change.
+    fn panel_action(
+        &mut self,
+        plugin: &str,
+        control: &str,
+        value: Option<String>,
+    ) -> std::result::Result<(), String> {
+        AppState::panel_action(self, plugin, control, value)
+    }
 }

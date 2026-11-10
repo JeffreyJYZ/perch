@@ -62,8 +62,19 @@ interface panels {
     on-event: func(event-json: string);
 }
 
+/// What the host reports back to a plugin: a press on a control its panel declared.
+///
+/// One function rather than one per control kind, so a plugin answers every control in one place
+/// and a new kind of control does not widen the ABI again. `value` is what an input was submitted
+/// with; a button press has none, because a button has nothing to say.
+interface actions {
+    /// A press on the control `id`, with the text a person submitted when it is an input.
+    action: func(id: string, value: option<string>);
+}
+
 world perch-plugin {
     import log;
     export tools;
     export panels;
+    export actions;
 }

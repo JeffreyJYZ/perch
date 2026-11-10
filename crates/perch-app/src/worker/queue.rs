@@ -20,6 +20,10 @@ pub(super) struct Wanted {
     pub(super) rebuild: Option<Vec<McpServerConfig>>,
     /// The session whose new log lines the plugins have not been given.
     pub(super) feed: Option<(PathBuf, SessionMeta)>,
+    /// The presses on panel controls the plugins have not been told about, in order. Every press
+    /// is its own event — pressing a button twice must count twice — so these are queued rather
+    /// than held in one slot.
+    pub(super) actions: Vec<PanelAction>,
     /// Who asked for a rebuild and is waiting for it to be done.
     pub(super) waiting: Vec<Sender<()>>,
     /// Whether anything is wanted or being done: what the window reads to keep a frame coming
@@ -27,22 +31,36 @@ pub(super) struct Wanted {
     pub(super) outstanding: bool,
 }
 
+/// One press on a control a plugin's panel declared, waiting for the worker.
+pub(super) struct PanelAction {
+    pub(super) plugin: String,
+    pub(super) control: String,
+    /// The text an input was submitted with; a button press has none.
+    pub(super) value: Option<String>,
+}
+
 /// One pass of work taken out of the queue.
 pub(super) struct Job {
     pub(super) rebuild: Option<Vec<McpServerConfig>>,
     pub(super) feed: Option<(PathBuf, SessionMeta)>,
+    pub(super) actions: Vec<PanelAction>,
     pub(super) waiting: Vec<Sender<()>>,
 }
 
 /// Takes one pass of work out of the queue, or `None` when there is none.
 pub(super) fn take(wanted: &Mutex<Wanted>) -> Option<Job> {
     let mut slot = lock(wanted);
-    if slot.rebuild.is_none() && slot.feed.is_none() && slot.waiting.is_empty() {
+    if slot.rebuild.is_none()
+        && slot.feed.is_none()
+        && slot.actions.is_empty()
+        && slot.waiting.is_empty()
+    {
         return None;
     }
     Some(Job {
         rebuild: slot.rebuild.take(),
         feed: slot.feed.take(),
+        actions: std::mem::take(&mut slot.actions),
         waiting: std::mem::take(&mut slot.waiting),
     })
 }

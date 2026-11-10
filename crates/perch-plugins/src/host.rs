@@ -18,7 +18,7 @@ use crate::plugin::{Plugin, PluginInner};
 /// through a shared handle, so a trap disables a plugin with one flag. The registry owns its own
 /// entries, so dropping a disabled plugin's tools is [`PluginHost::release`].
 pub struct PluginHost {
-    plugins: Vec<Plugin>,
+    pub(crate) plugins: Vec<Plugin>,
     /// Keeps the engine's epoch moving, which is what bounds a call. Held for its `Drop`.
     _clock: Clock,
 }

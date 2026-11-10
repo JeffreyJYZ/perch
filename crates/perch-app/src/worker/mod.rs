@@ -11,21 +11,22 @@
 //! newest configuration and a frame that pumps while the worker is busy does not queue a thousand
 //! of them.
 
+mod body;
 mod queue;
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::path::Path;
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
 use perch_plugins::PanelEntry;
+use perch_store::SessionMeta;
 use perch_store::settings::McpServerConfig;
-use perch_store::{SessionLog, SessionMeta, meta_path};
 
 use crate::sources::Sources;
 
-use queue::{Wanted, lock, take};
+use body::{published, run};
+use queue::{PanelAction, Wanted, lock};
 
 /// One published state of the tools: everything the frame would otherwise have computed.
 pub struct Snapshot {
@@ -103,6 +104,20 @@ impl Worker {
         self.post(|wanted| wanted.feed = Some(log));
     }
 
+    /// Reports a press on a panel control without waiting for the guest's answer.
+    ///
+    /// The host lives on this thread, so a press is queued like any other change: the worker
+    /// answers it, publishes the panels it moved and the words for a refusal, and the frame reads
+    /// them on its next pump. A window therefore never waits on a plugin to redraw.
+    pub fn panel_action(&self, plugin: &str, control: &str, value: Option<String>) {
+        let action = PanelAction {
+            plugin: plugin.to_string(),
+            control: control.to_string(),
+            value,
+        };
+        self.post(move |wanted| wanted.actions.push(action));
+    }
+
     /// Queues one change and wakes the worker that there is something to do.
     fn post(&self, change: impl FnOnce(&mut Wanted)) {
         {
@@ -113,70 +128,5 @@ impl Worker {
         // The wake goes out after the queue is written, so a worker that was about to park finds
         // the work when it looks and is woken if it has already parked.
         let _ = self.wake.send(());
-    }
-}
-
-/// The worker thread: take whatever is queued, do it, publish, tell the waiters.
-fn run(
-    sources: &mut Sources,
-    latest: &ArcSwap<Snapshot>,
-    wanted: &Mutex<Wanted>,
-    wake: &Receiver<()>,
-) {
-    // One handle per session, so a feed is a read of what is new rather than a replay of the log.
-    let mut logs: HashMap<PathBuf, SessionLog> = HashMap::new();
-    while wake.recv().is_ok() {
-        while let Some(job) = take(wanted) {
-            if let Some(servers) = job.rebuild {
-                sources.rebuild(&servers);
-            }
-            if let Some((dir, meta)) = job.feed
-                && let Some(log) = log_for(&mut logs, &dir, &meta)
-            {
-                sources.sync(log);
-            }
-            latest.store(Arc::new(published(sources)));
-            for waiter in job.waiting {
-                let _ = waiter.send(());
-            }
-        }
-        // Cleared only once the queue is empty, so a frame that asks while the last job runs keeps
-        // the window drawing until the snapshot it is waiting for is published.
-        let mut slot = lock(wanted);
-        if slot.rebuild.is_none() && slot.feed.is_none() && slot.waiting.is_empty() {
-            slot.outstanding = false;
-        }
-    }
-}
-
-/// The session's log as this thread sees it, opened once and kept.
-///
-/// A second handle on a file the session appends to is safe: this one only reads through
-/// [`Sources::sync`], which opens the file itself and remembers how far it read.
-fn log_for<'log>(
-    logs: &'log mut HashMap<PathBuf, SessionLog>,
-    dir: &Path,
-    meta: &SessionMeta,
-) -> Option<&'log mut SessionLog> {
-    let path = meta_path(dir, &meta.id);
-    if !logs.contains_key(&path) {
-        logs.insert(path.clone(), SessionLog::open(dir, meta.clone()).ok()?);
-    }
-    logs.get_mut(&path)
-}
-
-/// Everything the frame draws, computed from the sources as they are now.
-///
-/// The panels are asked first because a plugin that traps while its panel is drawn is recorded
-/// there; the release then lands in this same pass, so the registry is never published offering a
-/// spec whose tool has just gone.
-fn published(sources: &mut Sources) -> Snapshot {
-    let panels = sources.panels();
-    sources.settle();
-    Snapshot {
-        registry: sources.registry().clone(),
-        panels,
-        words: sources.words(),
-        servers: sources.mcp_servers(),
     }
 }

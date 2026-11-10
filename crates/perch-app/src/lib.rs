@@ -15,6 +15,7 @@ pub mod app;
 pub mod bridge;
 mod live;
 mod live_registry;
+mod panels;
 mod pump;
 mod session;
 pub mod settings;

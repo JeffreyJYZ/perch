@@ -7,7 +7,9 @@
 //!
 //! [`Panels`] is what the window asks the app for. It is a second trait beside
 //! [`Live`](super::live::Live) because a panel is not a transcript or a prompt: an app with no
-//! plugin host at all answers neither method and draws no column, which is the truth.
+//! plugin host at all answers neither method and draws no column, which is the truth. A press on a
+//! control in a panel is the exception that goes the other way: it is a [`Panels`] method because
+//! the plugin host is what it must reach.
 
 use perch_plugins::PanelEntry;
 use rune::{El, col};
@@ -35,20 +37,36 @@ pub trait Panels {
     fn plugin_words(&self) -> Vec<String> {
         Vec::new()
     }
+
+    /// Reports a press on `control`, which `plugin`'s panel declared, with the text an input was
+    /// submitted with. A button press has no value.
+    ///
+    /// The error is why the press reached no plugin — a plugin that is gone, or an id it does not
+    /// declare — and it is in words because the column says it.
+    fn panel_action(
+        &mut self,
+        _plugin: &str,
+        _control: &str,
+        _value: Option<String>,
+    ) -> std::result::Result<(), String> {
+        Err("no app is running, so the press reached no plugin".to_string())
+    }
 }
 
-/// A window with no app behind it has no plugin host, so it has no column.
+/// A window with no app behind it has no plugin host, so it has no column and no press to report.
 impl Panels for Idle {}
 
-/// The column, or `None` when there is nothing to draw.
+/// The column, or `None` when there is nothing to draw and nothing to say.
 ///
-/// The button and the input inside a panel are controls the host draws; a press belongs to whoever
-/// holds the plugin host, so nothing here attaches one.
+/// Every control a panel declares is attached here: the panel view draws the button or the field
+/// and this is where its press reaches the app, so a plugin's answer is one pump away rather than
+/// a handler of the renderer's.
 pub(super) fn column<L: Live + Panels>(shell: &Shell<L>, kit: &Kit) -> Option<El> {
     let live = shell.live()?;
     let panels = live.panels();
     let words = live.plugin_words();
-    if panels.is_empty() && words.is_empty() {
+    let refused = shell.panel.refusal();
+    if panels.is_empty() && words.is_empty() && refused.is_none() {
         return None;
     }
     let mut body = col()
@@ -68,7 +86,13 @@ pub(super) fn column<L: Live + Panels>(shell: &Shell<L>, kit: &Kit) -> Option<El
         body = body.child(note(kit, word));
     }
     for entry in &panels {
-        body = body.child(panel_view(&entry.model).key(format!("plugin-{}", entry.plugin)));
+        body = body.child(
+            panel_view(shell, &entry.plugin, kit, &entry.model)
+                .key(format!("plugin-{}", entry.plugin)),
+        );
+    }
+    if let Some(refusal) = refused {
+        body = body.child(note(kit, refusal));
     }
     Some(body)
 }

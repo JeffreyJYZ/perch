@@ -32,3 +32,4 @@ build shadow-plugin shadow_plugin shadow/shadow.wasm
 build dupe-plugin-a dupe_plugin_a duplicate/01-first.wasm
 build dupe-plugin-b dupe_plugin_b duplicate/02-second.wasm
 build trap-panel-plugin trap_panel_plugin trap-panel/trap-panel.wasm
+build trap-action-plugin trap_action_plugin trap-action/trap-action.wasm

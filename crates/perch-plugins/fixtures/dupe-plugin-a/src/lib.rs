@@ -9,6 +9,7 @@ wit_bindgen::generate!({
     world: "perch-plugin",
 });
 
+use exports::perch::plugin::actions::Guest as ActionsGuest;
 use exports::perch::plugin::panels::{Guest as PanelsGuest, PanelModel};
 use exports::perch::plugin::tools::{Guest as ToolsGuest, ToolSpec};
 
@@ -40,6 +41,11 @@ impl PanelsGuest for DupePluginA {
     }
 
     fn on_event(_event_json: String) {}
+}
+
+/// No controls are declared, so there is nothing to answer.
+impl ActionsGuest for DupePluginA {
+    fn action(_id: String, _value: Option<String>) {}
 }
 
 export!(DupePluginA);

@@ -54,6 +54,16 @@ impl PanelModel {
             sections: model.sections.into_iter().map(section_from_wit).collect(),
         }
     }
+
+    /// Whether the panel declares `control` as a button or an input, which is what a press may
+    /// address. Text and rows are content, so an id that only looks like one of them is not a
+    /// control a plugin can be reported a press for.
+    pub fn has_control(&self, control: &str) -> bool {
+        self.sections.iter().any(|section| match section {
+            PanelSection::Button { id, .. } | PanelSection::Input { id, .. } => id == control,
+            PanelSection::Text(_) | PanelSection::Rows(_) => false,
+        })
+    }
 }
 
 fn section_from_wit(section: WitSection) -> PanelSection {

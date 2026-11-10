@@ -30,6 +30,11 @@ pub struct Sources {
     /// The servers the last build could not connect, kept as words after the host has dropped the
     /// entries: a failure stays visible until the configuration changes, not until the next frame.
     failures: Vec<(String, String)>,
+    /// The words of the last press that reached no plugin, cleared by the next press that did.
+    ///
+    /// A press is answered by the worker's thread and no frame waits for it, so the refusal has
+    /// one place to be said: the column, beside the plugin it was addressed to.
+    action_error: Option<String>,
 }
 
 impl Sources {
@@ -43,6 +48,7 @@ impl Sources {
             loaded,
             mcp,
             failures,
+            action_error: None,
         })
     }
 
@@ -76,7 +82,35 @@ impl Sources {
         for (server, error) in &self.failures {
             words.push(format!("mcp {server} failed: {error}"));
         }
+        if let Some(error) = &self.action_error {
+            words.push(error.clone());
+        }
         words
+    }
+
+    /// Reports a press on a control a plugin's panel declared, with the text an input was
+    /// submitted with.
+    ///
+    /// The refusal is kept as words as well as returned, because the caller that presses is the
+    /// frame and the caller that reads words is the column: a press for a plugin that has gone, or
+    /// for an id it never declared, is said where a person can see it rather than swallowed by a
+    /// frame that had nothing to draw it in.
+    pub fn panel_action(
+        &mut self,
+        plugin: &str,
+        control: &str,
+        value: Option<&str>,
+    ) -> std::result::Result<(), String> {
+        match self.loaded.panel_action(plugin, control, value) {
+            Ok(()) => {
+                self.action_error = None;
+                Ok(())
+            }
+            Err(message) => {
+                self.action_error = Some(message.clone());
+                Err(message)
+            }
+        }
     }
 
     /// The panels to draw, one per live plugin.
