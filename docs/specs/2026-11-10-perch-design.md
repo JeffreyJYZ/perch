@@ -15,6 +15,8 @@ Everything is Rust, and the UI is Rune.
 - A transcript that streams assistant text and tool calls without flicker, with selection that copies across turns.
 - A real terminal: full-screen programs, colours, scrollback, correct key encoding, resize.
 - A file browser that reflects the worktree and git state, previews a file read-only, and hands it to Zed on request.
+- A model that can ask the user a question with options and a free-text answer, and pause the turn until it is answered.
+- MCP servers as tool sources: local stdio, remote HTTP, and the OAuth flow, with MCP tools allowed to run without an approval prompt but every call recorded in the transcript.
 - Plugins from day one: a plugin can add tools the model calls and add a side panel.
 - A session is bound to a worktree that already exists on disk.
 

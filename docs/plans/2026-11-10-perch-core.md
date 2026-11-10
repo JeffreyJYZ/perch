@@ -776,6 +776,144 @@ git add -A && git commit -m "feat(plugins): declarative panels and session event
 
 ---
 
+### Task 13: Tool dispatch, approval and the question tool
+
+**Files:**
+- Create: `crates/perch-agent/src/dispatch.rs`, `crates/perch-agent/src/ask.rs`
+- Modify: `crates/perch-agent/src/lib.rs`
+- Test: `crates/perch-agent/tests/dispatch.rs`
+
+**Interfaces:**
+- Consumes: `AgentEvent`, `ToolCall` from Task 6; `ToolRegistry`, `ToolCtx`, `Preview` from Task 7.
+- Produces: `trait Interactor { fn approve(&mut self, name: &str, preview: Option<&Preview>) -> Decision; fn ask(&mut self, prompt: &str, options: &[String], multiple: bool) -> Answer; }`; `Decision::{Allow, AllowForSession, Deny}`; `Answer::Pick(usize)`, `Answer::Text(String)`, `Answer::Cancelled`; `Dispatcher::run(&mut self, calls: &[ToolCall], registry: &ToolRegistry, ctx: &ToolCtx, interactor: &mut dyn Interactor) -> Vec<Message>`; the `ask_user` tool, registered by `Dispatcher::builtin_registry()` alongside the six, which calls `Interactor::ask` and returns the choice as text.
+
+- [ ] **Step 1: Write the failing test**
+
+```rust
+#[test]
+fn a_denied_tool_never_runs_and_says_so() {
+    let mut dispatcher = Dispatcher::new();
+    let mut interactor = Script::deny_all();
+    let out = dispatcher.run(&[call("bash", json!({"command": "rm -rf /"})], &registry(), &ctx(), &mut interactor);
+    assert!(out[0].content.as_deref().unwrap().contains("denied"));
+}
+
+#[test]
+fn allow_for_session_stops_asking_for_that_tool() {
+    let mut dispatcher = Dispatcher::new();
+    let mut interactor = Script::allow_session_once();
+    for _ in 0..3 {
+        dispatcher.run(&[call("bash", json!({"command": "true"}))], &registry(), &ctx(), &mut interactor);
+    }
+    assert_eq!(interactor.prompts, 1);
+}
+
+#[test]
+fn the_question_tool_returns_the_picked_option_and_free_text() {
+    let mut dispatcher = Dispatcher::new();
+    let mut interactor = Script::answer(Answer::Pick(1));
+    let out = dispatcher.run(&[call("ask_user", json!({"prompt": "which?", "options": ["a", "b"]}))], &registry(), &ctx(), &mut interactor);
+    assert_eq!(out[0].content.as_deref(), Some("b"));
+    let mut interactor = Script::answer(Answer::Text("neither, use c".into()));
+    let out = dispatcher.run(&[call("ask_user", json!({"prompt": "which?", "options": ["a", "b"]}))], &registry(), &ctx(), &mut interactor);
+    assert_eq!(out[0].content.as_deref(), Some("neither, use c"));
+}
+
+#[test]
+fn cancelling_a_question_ends_the_turn_rather_than_answering_for_the_user() {
+    let mut dispatcher = Dispatcher::new();
+    let mut interactor = Script::answer(Answer::Cancelled);
+    let out = dispatcher.run(&[call("ask_user", json!({"prompt": "which?"}))], &registry(), &ctx(), &mut interactor);
+    assert_eq!(out[0].content.as_deref(), Some("the user cancelled the question"));
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cargo test -p perch-agent dispatch`
+Expected: FAIL, `Dispatcher` not found.
+
+- [ ] **Step 3: Implement**
+
+`Dispatcher` runs the pending calls in order, consults `needs_approval`, asks the interactor, executes through the registry, and returns one tool message per call with the id preserved. `AllowedForSession` is remembered by tool name for the dispatcher's lifetime. `ask_user` is an ordinary tool registered in the same registry, so the model sees it like any other; when the interactor cancels, it returns text rather than an error so the model can carry on without inventing an answer. Tool failures become message content, never a panic.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cargo test -p perch-agent`
+Expected: PASS, all agent tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(agent): dispatch, approvals and the question tool"
+```
+
+---
+
+### Task 14: MCP servers as tool sources
+
+**Files:**
+- Create: `crates/perch-mcp/Cargo.toml`, `crates/perch-mcp/src/lib.rs`, `crates/perch-mcp/src/stdio.rs`, `crates/perch-mcp/src/remote.rs`, `crates/perch-mcp/src/oauth.rs`, `crates/perch-mcp/src/tools.rs`
+- Modify: `crates/perch-store/src/settings.rs` (server list), `crates/perch-tools/src/registry.rs` (namespaced registration), `Cargo.toml` (workspace member)
+- Test: `crates/perch-mcp/tests/stdio.rs`, `crates/perch-mcp/tests/names.rs`
+
+**Interfaces:**
+- Consumes: `ToolRegistry`, `Tool`, `ToolSpec`, `ToolCtx` from Task 7; `secret` from Task 1.
+- Produces: `McpServerConfig { name: String, command: Option<String>, args: Vec<String>, url: Option<String> }` in settings; `McpHost::connect_all(&[McpServerConfig], &mut ToolRegistry) -> Result<McpHost>`; `McpHost::server_names(&self) -> Vec<String>`; tools registered as `<server>__<tool>`, and `McpHost::disconnect(&self, registry: &mut ToolRegistry)`.
+
+- [ ] **Step 1: Write the failing test**
+
+```rust
+#[test]
+fn a_stdio_server_contributes_namespaced_tools() {
+    let mut registry = ToolRegistry::builtin();
+    let host = McpHost::connect_all(&[fixture_server()], &mut registry).unwrap();
+    let names: Vec<String> = registry.specs().into_iter().map(|s| s.name).collect();
+    assert!(names.contains(&"fixture__echo".to_string()));
+    let ctx = ToolCtx { root: tempdir().unwrap().path().to_path_buf() };
+    assert_eq!(registry.call("fixture__echo", &json!({"text": "hi"}), &ctx).unwrap().text, "hi");
+}
+
+#[test]
+fn a_server_that_dies_is_reported_and_its_tools_are_dropped() {
+    let mut registry = ToolRegistry::builtin();
+    let host = McpHost::connect_all(&[fixture_server()], &mut registry).unwrap();
+    host.kill_for_test("fixture");
+    assert!(host.disconnect(&mut registry) > 0);
+    assert!(!registry.specs().iter().any(|s| s.name.starts_with("fixture__")));
+}
+
+#[test]
+fn namespacing_prevents_a_server_shadowing_a_builtin() {
+    let mut registry = ToolRegistry::builtin();
+    McpHost::connect_all(&[fixture_server_named("bash")], &mut registry).unwrap();
+    assert!(registry.specs().iter().any(|s| s.name == "bash"));
+    assert!(registry.specs().iter().any(|s| s.name == "bash__echo"));
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cargo test -p perch-mcp`
+Expected: FAIL, `McpHost` not found.
+
+- [ ] **Step 3: Implement**
+
+Use the official `rmcp` client. stdio: spawn the command, carry JSON-RPC over the pipes, `initialize` then `tools/list`, and map each tool to a `Tool` whose `call` sends `tools/call` under a 30s timeout. Remote: streamable HTTP with OAuth — dynamic client registration, PKCE, open the browser, and receive the callback on a loopback port; tokens live in the keychain under `mcp:<server>`, never in TOML. Every registered name is `<server>__<tool>`, which is why no server can collide with a builtin or another server. A server that exits is reported on the transcript and its tools are removed through `unregister`. All MCP tools report `needs_approval() == false` — the user's call — and each call is written to the transcript with the server name so the record survives.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cargo test -p perch-mcp && cargo test -p perch-tools`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(mcp): stdio, remote http and oauth servers as tool sources"
+```
+
+---
+
 ## After this plan
 
 Task 11 and 12 close the plugin story the spec promises. After they land, the remaining work is polish: keybindings, themes, scrollback edge cases, packaging and the updater.
