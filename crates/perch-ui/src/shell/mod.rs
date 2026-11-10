@@ -15,7 +15,8 @@
 //! [`dock`]; [`state`] holds what every region reads and [`actions`] the presses that change it;
 //! [`pump`] folds a frame of the world in; [`keymap`] is the one place a press becomes an
 //! [`Intent`] and [`term_keys`] the one place a press becomes bytes for a shell; [`live`] is the
-//! seam to the app, and [`paint`] is what a terminal run looks like.
+//! seam to the app, and [`paint`] is what a terminal run looks like. [`settings`] is the
+//! provider form the window shows in place of the transcript.
 
 mod actions;
 mod composer;
@@ -25,6 +26,8 @@ mod layout;
 mod live;
 mod paint;
 mod pump;
+mod settings;
+mod settings_view;
 mod sidebar;
 mod state;
 mod term_keys;
@@ -34,7 +37,9 @@ pub use composer::composer_key;
 pub use dock::terminal_key;
 pub use keymap::{Intent, intent};
 pub use layout::view;
-pub use live::{BUDGET, Idle, Live, SHELL_TICK, TURN_TICK, Waiting};
+pub use live::{BUDGET, Idle, KeyStatus, Live, SHELL_TICK, SettingsSnapshot, TURN_TICK, Waiting};
+pub use settings::Panel;
+pub use settings::settings_key;
 pub use state::Shell;
 pub use terminal::{EXITED, GRID, TerminalTab};
 

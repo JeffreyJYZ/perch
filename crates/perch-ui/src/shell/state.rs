@@ -8,6 +8,7 @@ use perch_store::SessionMeta;
 use rune::TextEdit;
 
 use super::live::{Idle, Live, Waiting};
+use super::settings::Panel;
 use super::terminal::{GRID, TerminalTab};
 use crate::files::FilePanel;
 use crate::transcript::Transcript;
@@ -36,6 +37,8 @@ pub struct Shell<L: Live = Idle> {
     /// The grid the dock measured last, as the pty is told it.
     pub(super) grid: Cell<(u16, u16)>,
     pub(super) prompt: TextEdit,
+    /// The settings panel, when it is open: a draft, never the live settings.
+    pub(super) settings: Option<Panel>,
 }
 
 impl Shell<Idle> {
@@ -70,6 +73,7 @@ impl<L: Live> Shell<L> {
             terminal: 0,
             grid: Cell::new(GRID),
             prompt: TextEdit::default(),
+            settings: None,
         }
     }
 

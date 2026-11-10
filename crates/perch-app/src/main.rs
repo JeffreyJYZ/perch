@@ -9,15 +9,15 @@
 //! still moving. Nothing on the drawing thread waits for a provider, a tool or a pty.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use perch_app::AppState;
 use perch_files::Workspace;
 use perch_store::SessionMeta;
 use perch_ui::Shell;
-use perch_ui::Transcript;
-use perch_ui::shell::{Live, Waiting};
 use rune::{AppSpec, Chrome, Env, KeyEvent, Runtime, Tx};
+
+mod window;
+use window::Window;
 
 /// The window's size, in points.
 const WINDOW: (f32, f32) = (1280.0, 820.0);
@@ -67,83 +67,6 @@ fn main() {
     })
     .chrome(chrome)
     .run();
-}
-
-/// The window's live half: the app when its data directory opened, and the words when it did not.
-///
-/// A window that refuses to start is worse than one that starts without a session: the layout, the
-/// file panel and the dock all still work, and the reason the app is missing is on stderr.
-enum Window {
-    Open(AppState),
-    Offline(String),
-}
-
-impl Window {
-    /// The app, when it opened.
-    fn app(&self) -> Option<&AppState> {
-        match self {
-            Window::Open(app) => Some(app),
-            Window::Offline(_) => None,
-        }
-    }
-}
-
-impl Live for Window {
-    fn pump(&mut self, budget: Duration) -> bool {
-        match self {
-            Window::Open(app) => Live::pump(app, budget),
-            Window::Offline(_) => false,
-        }
-    }
-
-    fn transcript(&self) -> Option<&Transcript> {
-        self.app().and_then(Live::transcript)
-    }
-
-    fn waiting(&self) -> Waiting {
-        self.app().map_or(Waiting::Nothing, Live::waiting)
-    }
-
-    fn busy(&self) -> bool {
-        self.app().is_some_and(Live::busy)
-    }
-
-    fn prompt(&mut self, text: String) -> std::result::Result<(), String> {
-        match self {
-            Window::Open(app) => Live::prompt(app, text),
-            Window::Offline(why) => Err(format!("no session is open: {why}")),
-        }
-    }
-
-    fn cancel(&mut self) {
-        if let Window::Open(app) = self {
-            Live::cancel(app);
-        }
-    }
-
-    fn approve(&mut self) {
-        if let Window::Open(app) = self {
-            Live::approve(app);
-        }
-    }
-
-    fn deny(&mut self) {
-        if let Window::Open(app) = self {
-            Live::deny(app);
-        }
-    }
-
-    fn pick(&mut self, index: usize) {
-        if let Window::Open(app) = self {
-            Live::pick(app, index);
-        }
-    }
-
-    fn switch(&mut self, index: usize) {
-        if let Window::Open(app) = self {
-            Live::switch(app, index);
-        }
-    }
 }
 
 /// Opens the app, then the window over it.

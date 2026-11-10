@@ -67,5 +67,10 @@ pub fn composer_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, _: &mut Tx) ->
             shell.confirm();
             true
         }
+        // The gear takes this same path: one action, two ways to ask for it.
+        Intent::Settings => {
+            shell.toggle_settings();
+            true
+        }
     }
 }

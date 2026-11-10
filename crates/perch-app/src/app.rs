@@ -18,10 +18,13 @@ use perch_agent::{
     SecretString,
 };
 use perch_mcp::{McpHost, Note};
-use perch_store::{SessionEvent, SessionLog, SessionMeta, Settings, settings::McpServerConfig};
+use perch_store::secret::{self, SecretStore};
+use perch_store::settings::McpServerConfig;
+use perch_store::{SessionEvent, SessionLog, SessionMeta};
 use perch_tools::{ToolCtx, ToolRegistry};
 use perch_ui::Transcript;
-use perch_ui::shell::{Live, Waiting};
+use perch_ui::settings::SettingsDraft;
+use perch_ui::shell::{KeyStatus, SettingsSnapshot};
 
 use crate::bridge::{self, Bridge, BridgeEvent, Reply};
 
@@ -39,9 +42,6 @@ pub const CANCELLED: &str = "cancelled";
 /// The system message every session starts from.
 const SYSTEM: &str = "You are perch, a coding agent working in the session's worktree. Use the \
                       tools you are given; every path is relative to that worktree.";
-
-/// The keychain account the provider key is stored under.
-const KEY_ACCOUNT: &str = "provider";
 
 /// Everything perch-app can fail at.
 #[derive(Debug, thiserror::Error)]
@@ -241,6 +241,8 @@ pub struct AppState {
     /// What each server that failed said, so a session opened later still hears about it.
     mcp_failures: Vec<String>,
     defaults: ProviderDefaults,
+    /// Where the provider key is kept: the login keychain, or a test's in-memory store.
+    secrets: Box<dyn SecretStore>,
 }
 
 impl AppState {
@@ -250,17 +252,7 @@ impl AppState {
     /// A keychain that refuses is not fatal: the window opens and a turn reports the provider's
     /// rejection, which is a better failure than a window that will not start.
     pub fn open(dir: &Path) -> Result<AppState> {
-        let settings = Settings::load(dir)?;
-        let api_key = perch_store::secret::load(KEY_ACCOUNT)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let defaults = ProviderDefaults {
-            base_url: settings.provider_base_url.clone(),
-            api_key,
-            model: settings.model.clone(),
-        };
-        Self::build(dir, defaults, &settings.mcp_servers)
+        crate::settings::open(dir, None, Box::new(secret::Keychain))
     }
 
     /// The same, with the provider stated instead of read: what a test or a scripted run uses.
@@ -268,14 +260,23 @@ impl AppState {
     /// MCP servers still come from settings, so a session started this way sees exactly the tools
     /// the window would give it.
     pub fn open_with(dir: &Path, defaults: ProviderDefaults) -> Result<AppState> {
-        let settings = Settings::load(dir)?;
-        Self::build(dir, defaults, &settings.mcp_servers)
+        crate::settings::open(dir, Some(defaults), Box::new(secret::Keychain))
     }
 
-    fn build(
+    /// The same, with the secret store stated: what a test uses so it never reaches the keychain.
+    pub fn open_with_secrets(
+        dir: &Path,
+        defaults: ProviderDefaults,
+        secrets: Box<dyn SecretStore>,
+    ) -> Result<AppState> {
+        crate::settings::open(dir, Some(defaults), secrets)
+    }
+
+    pub(crate) fn build(
         dir: &Path,
         defaults: ProviderDefaults,
         servers: &[McpServerConfig],
+        secrets: Box<dyn SecretStore>,
     ) -> Result<AppState> {
         let mut registry = Dispatcher::builtin_registry();
         // A server that fails is reported by the host and skipped, so one broken server cannot
@@ -304,6 +305,7 @@ impl AppState {
             mcp,
             mcp_failures,
             defaults,
+            secrets,
         })
     }
 
@@ -370,6 +372,28 @@ impl AppState {
     /// The MCP servers whose tools loaded, in configuration order.
     pub fn mcp_servers(&self) -> Vec<String> {
         self.mcp.server_names()
+    }
+
+    /// The provider a new session would be given: what a settings save changes.
+    pub fn provider_defaults(&self) -> &ProviderDefaults {
+        &self.defaults
+    }
+
+    /// What the settings panel opens with: the saved values and whether a key is stored.
+    pub fn settings(&self) -> SettingsSnapshot {
+        crate::settings::snapshot(&self.dir, &*self.secrets)
+    }
+
+    /// Writes the panel's draft and folds it into the provider defaults, with no restart.
+    ///
+    /// A session that is already running keeps the provider it was spawned with; the next session
+    /// gets these values, which is what "applies immediately" can mean without restarting a turn.
+    pub fn save_settings(
+        &mut self,
+        draft: SettingsDraft,
+    ) -> std::result::Result<KeyStatus, String> {
+        crate::settings::apply(&self.dir, &mut self.defaults, &*self.secrets, draft)
+            .map_err(|error| error.to_string())
     }
 
     /// Sends the composer's text as a turn: the question is recorded, logged, and handed to the
@@ -554,54 +578,6 @@ impl AppState {
             }
             self.pump(QUIET);
         }
-    }
-}
-
-impl Live for AppState {
-    fn pump(&mut self, budget: Duration) -> bool {
-        AppState::pump(self, budget).changed
-    }
-
-    fn transcript(&self) -> Option<&Transcript> {
-        self.active_session().map(SessionRuntime::transcript)
-    }
-
-    fn waiting(&self) -> Waiting {
-        match self.active_session().and_then(SessionRuntime::pending) {
-            Some(Pending::Approval { .. }) => Waiting::Approval,
-            Some(Pending::Question { options, .. }) => Waiting::Question {
-                options: options.len(),
-            },
-            None => Waiting::Nothing,
-        }
-    }
-
-    fn busy(&self) -> bool {
-        AppState::busy(self)
-    }
-
-    fn prompt(&mut self, text: String) -> std::result::Result<(), String> {
-        AppState::prompt(self, text).map_err(|error| error.to_string())
-    }
-
-    fn cancel(&mut self) {
-        AppState::interrupt(self);
-    }
-
-    fn approve(&mut self) {
-        AppState::allow(self);
-    }
-
-    fn deny(&mut self) {
-        AppState::refuse(self);
-    }
-
-    fn pick(&mut self, index: usize) {
-        AppState::choose(self, index);
-    }
-
-    fn switch(&mut self, index: usize) {
-        let _ = AppState::switch(self, index);
     }
 }
 

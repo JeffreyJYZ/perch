@@ -1,13 +1,15 @@
 //! The window's regions, composed: the left column, the centre, and the dock under it.
 
-use rune::{Cx, El, col, el, row};
+use rune::{Cx, El, Icon, col, el, row};
 use rune_kit::Kit;
 use rune_kit::glyphs;
 use rune_kit::shell::{TabItem, TabOrientation, TabStrip};
+use rune_kit::{IconButton, IconButtonVariant};
 
 use super::composer::composer;
 use super::dock::dock;
 use super::live::Live;
+use super::settings_view;
 use super::sidebar::{files, sessions};
 use super::state::Shell;
 use super::{COLUMN, TABS};
@@ -48,6 +50,9 @@ fn column<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
 
 /// The centre: the tab strip, the transcript with the prompt under it, and the dock under the
 /// transcript alone.
+///
+/// While the settings panel is open it takes the transcript's place, so the dock keeps its tab
+/// and the column it belongs to stays visible beside the form.
 fn workspace<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &mut Cx<Shell<L>>) -> El {
     col()
         .key("workspace")
@@ -56,12 +61,17 @@ fn workspace<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &mut Cx<Shell<L>>) -> El 
         .h_full()
         .fill(kit.c.bg_deep)
         .child(tabs(shell, kit))
-        .child(centre(shell, kit))
+        .child(if shell.settings_open() {
+            settings_view::panel(shell, kit)
+        } else {
+            centre(shell, kit)
+        })
         .child(rule(kit, "dock-rule").w_full().h(1.0))
         .child(dock(shell, kit, cx))
 }
 
-/// The session tabs. Selecting one is the same state swap the rows make.
+/// The session tabs, and the gear that opens the settings. Selecting a tab is the same state swap
+/// the rows make.
 ///
 /// The strip grows along its parent's main axis, which is right in a titlebar and wrong in a
 /// column, so it gets a row of its own: one tab row's height, the transcript takes the rest.
@@ -86,7 +96,35 @@ fn tabs<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
             }
         })
         .build(kit);
-    row().key("tab-row").w_full().h(TABS).child(strip)
+    row()
+        .key("tab-row")
+        .w_full()
+        .h(TABS)
+        .child(strip)
+        .child(gear::<L>(kit))
+}
+
+/// The gear on the tab row: the window's one way into the settings, with ⌘, beside it.
+///
+/// Feather's settings glyph (MIT), drawn at 24 so its teeth stay legible at 16 points.
+static GEAR: Icon = Icon {
+    name: "perch-settings",
+    view: 24.0,
+    body: r#"<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>"#,
+};
+
+/// The gear's press is [`Shell::toggle_settings`], the same action ⌘, takes.
+fn gear<L: Live>(kit: &Kit) -> El {
+    row().key("settings-slot").pr(8.0).center_y().child(
+        IconButton::new(&GEAR)
+            .variant(IconButtonVariant::GhostMuted)
+            .label("Settings")
+            .help("Settings")
+            .shortcut("cmd+,")
+            .on_press(|shell: &mut Shell<L>| shell.toggle_settings())
+            .build(kit)
+            .key("settings-gear"),
+    )
 }
 
 /// The transcript column: the turns, and the prompt at the bottom of it.

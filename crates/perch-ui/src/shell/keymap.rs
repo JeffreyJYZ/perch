@@ -25,13 +25,15 @@ pub enum Intent {
     Select(usize),
     /// Answer the question with the option [`Intent::Select`] highlighted.
     Confirm,
+    /// Show the settings panel, or hide it when it is open: ⌘,.
+    Settings,
     /// Nothing this window does with that key.
     Ignore,
 }
 
 /// What `ev` asks for, given what the session is waiting on: Enter sends, Shift+Enter breaks the
-/// line, Ctrl+C interrupts, and while an approval or a question is up a number key picks an option,
-/// Enter confirms it and Escape refuses or dismisses it.
+/// line, Ctrl+C interrupts, ⌘, shows the settings, and while an approval or a question is up a
+/// number key picks an option, Enter confirms it and Escape refuses or dismisses it.
 pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
     // Ctrl+C is the shell's interrupt, not a character: it stops the turn whatever is on screen.
     // On macOS a Control chord arrives as text with `ctrl` set, so this is where it lands.
@@ -40,6 +42,10 @@ pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
         && matches!(&ev.key, Key::Text(text) if text.eq_ignore_ascii_case("c"))
     {
         return Intent::Cancel;
+    }
+    // ⌘, is the settings panel, the window's own chord rather than a menu's.
+    if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command(',')) {
+        return Intent::Settings;
     }
     // A chord with Cmd or Option belongs to a shortcut or to the input method, never to a turn.
     if ev.mods.cmd || ev.mods.alt {
@@ -150,6 +156,22 @@ mod tests {
             intent(&press(Key::Escape, false), Waiting::Nothing),
             Intent::Ignore
         );
+    }
+
+    #[test]
+    fn cmd_comma_asks_for_the_settings() {
+        let settings = KeyEvent {
+            key: Key::Command(','),
+            mods: Mods {
+                cmd: true,
+                ..Mods::default()
+            },
+        };
+        for waiting in [Waiting::Nothing, Waiting::Approval, QUESTION] {
+            assert_eq!(intent(&settings, waiting), Intent::Settings, "{waiting:?}");
+        }
+        // Without ⌘ a comma is a character in the field, not a shortcut.
+        assert_eq!(intent(&text(","), Waiting::Nothing), Intent::Ignore);
     }
 
     #[test]

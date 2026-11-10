@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use crate::settings::{DEFAULT_THEME, SettingsDraft};
 use crate::transcript::Transcript;
 
 /// What one frame may spend folding a turn's events. The rest of the frame is the frame's: a
@@ -49,6 +50,67 @@ pub trait Live: 'static {
 
     /// Shows the session at `index`.
     fn switch(&mut self, index: usize);
+
+    /// The saved settings, when an app is behind the window. `None` is a window with no data
+    /// directory, which the settings panel opens over with its defaults.
+    fn settings(&self) -> Option<SettingsSnapshot> {
+        None
+    }
+
+    /// Writes `draft` and reports whether a key is stored afterwards.
+    ///
+    /// The error is why it was not written, in words. Validation belongs to the panel, so a
+    /// caller here has already refused anything the person could see was wrong.
+    fn save_settings(&mut self, _draft: SettingsDraft) -> std::result::Result<KeyStatus, String> {
+        Err("no app is running, so nothing was saved".to_string())
+    }
+}
+
+/// Whether a provider key is stored, as the settings panel says it.
+///
+/// The key itself is never part of this: the panel shows one of these words instead, so a saved
+/// secret has no path back to the screen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KeyStatus {
+    /// Nothing is stored for the provider account.
+    #[default]
+    Missing,
+    /// A key is stored; its value is the keychain's business, not the window's.
+    Stored,
+}
+
+impl KeyStatus {
+    /// The word the panel shows in place of the key.
+    pub fn words(self) -> &'static str {
+        match self {
+            KeyStatus::Missing => "missing",
+            KeyStatus::Stored => "stored",
+        }
+    }
+}
+
+/// What the settings panel opens with: the saved provider settings and whether a key is stored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingsSnapshot {
+    /// The provider's API root.
+    pub base_url: String,
+    /// The model every new session asks for.
+    pub model: String,
+    /// The saved theme.
+    pub theme: String,
+    /// Whether a key is stored for the provider account.
+    pub key: KeyStatus,
+}
+
+impl Default for SettingsSnapshot {
+    fn default() -> Self {
+        Self {
+            base_url: String::new(),
+            model: String::new(),
+            theme: DEFAULT_THEME.to_string(),
+            key: KeyStatus::Missing,
+        }
+    }
 }
 
 /// A window with no app behind it: the layout, the file panel and the dock alone.
