@@ -1,5 +1,7 @@
 /target
 target-*
 .DS_Store
+# Zig toolchain state written by scripts/zig-env.sh
+/.zig-env
 *.dmg
 dist/
