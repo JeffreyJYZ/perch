@@ -5,7 +5,6 @@ crates/perch-app/src/app.rs 693
 crates/perch-app/src/bridge.rs 231
 crates/perch-mcp/src/lib.rs 402
 crates/perch-mcp/src/oauth.rs 308
-crates/perch-plugins/src/host.rs 423
 crates/perch-term/src/frame.rs 203
 crates/perch-term/src/keys.rs 238
 crates/perch-tools/src/builtin.rs 610
