@@ -1,0 +1,150 @@
+//! What a press does to the state: a session switched, a turn sent or stopped, an answer given,
+//! a terminal tab opened or shown.
+
+use perch_term::TermSession;
+use rune::TextEdit;
+
+use super::live::{Live, Waiting};
+use super::state::Shell;
+use super::terminal::TerminalTab;
+
+impl<L: Live> Shell<L> {
+    /// Selects the session at `index`. An index past the end is ignored rather than clamped: it
+    /// names a session that is gone, and switching to a neighbour would switch to the wrong one.
+    pub fn select(&mut self, index: usize) {
+        if index < self.sessions.len() {
+            self.active = index;
+            if let Some(live) = self.live.as_mut() {
+                live.switch(index);
+            }
+            self.refresh();
+        }
+    }
+
+    /// Puts `text` in the composer, as typing would.
+    pub fn set_prompt(&mut self, text: impl Into<String>) {
+        self.prompt = TextEdit::default();
+        self.prompt.text = text.into();
+    }
+
+    /// Replaces tab `index`'s frame with the newest one its thread published. An index past the
+    /// end is ignored: a frame for a closed tab is not a reason to open one.
+    pub fn set_frame(&mut self, index: usize, frame: perch_term::Frame) {
+        if let Some(tab) = self.terminals.get_mut(index) {
+            tab.frame = Some(frame);
+        }
+    }
+
+    /// Shows the terminal tab at `index`. An index past the end is ignored, for the same reason a
+    /// session index is: it names a tab that is gone.
+    pub fn select_terminal(&mut self, index: usize) {
+        if index < self.terminals.len() {
+            self.terminal = index;
+        }
+    }
+
+    /// Spawns a shell for a new terminal tab, in the active session's worktree, and shows it.
+    ///
+    /// This blocks until the emulator exists, so it is called when a tab is opened and never from
+    /// a frame.
+    pub fn open_terminal(&mut self) -> std::result::Result<usize, String> {
+        let Some(session) = self.sessions.get(self.active) else {
+            return Err("no session to open a shell for".to_string());
+        };
+        let cwd = session.worktree.clone();
+        let title = cwd.file_name().map_or_else(
+            || cwd.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let (cols, rows) = self.grid.get();
+        let spawned = TermSession::spawn(&cwd, cols, rows);
+        let (handle, frames) = match spawned {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                // The dock says why there is no shell, in words, rather than showing an empty
+                // grid as if one were starting.
+                let words = format!("no shell: {error}");
+                self.terminals
+                    .push(TerminalTab::failed(title, words.clone()));
+                self.terminal = self.terminals.len() - 1;
+                return Err(words);
+            }
+        };
+        self.terminals
+            .push(TerminalTab::live(title, handle, frames, (cols, rows)));
+        self.terminal = self.terminals.len() - 1;
+        Ok(self.terminal)
+    }
+
+    /// Sends the composer's text as a turn, and empties the box when it was sent.
+    ///
+    /// The app owns the transcript: a refusal is a turn the app refused, and the sentence saying
+    /// why is in the transcript the app keeps, not one invented here.
+    pub fn submit(&mut self) -> bool {
+        let text = self.prompt.text.trim().to_owned();
+        if text.is_empty() {
+            return false;
+        }
+        let sent = match self.live.as_mut() {
+            Some(live) => live.prompt(text),
+            None => return false,
+        };
+        self.refresh();
+        if sent.is_ok() {
+            self.prompt = TextEdit::default();
+        }
+        true
+    }
+
+    /// Stops the turn, settling whatever it is waiting on as a refusal first.
+    pub fn interrupt(&mut self) {
+        if let Some(live) = self.live.as_mut() {
+            live.cancel();
+        }
+        self.refresh();
+    }
+
+    /// Allows the call that is waiting.
+    pub fn approve(&mut self) {
+        if let Some(live) = self.live.as_mut() {
+            live.approve();
+        }
+        self.refresh();
+    }
+
+    /// Refuses the call that is waiting.
+    pub fn deny(&mut self) {
+        if let Some(live) = self.live.as_mut() {
+            live.deny();
+        }
+        self.refresh();
+    }
+
+    /// Highlights the waiting question's option at `index`.
+    pub fn select_option(&mut self, index: usize) -> bool {
+        match self.waiting {
+            Waiting::Question { options } if index < options => {
+                self.picked = Some(index);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Answers the waiting question with the highlighted option. Enter with nothing highlighted
+    /// answers nothing: a confirmation nobody chose is not an answer.
+    pub fn confirm(&mut self) -> bool {
+        let Some(index) = self
+            .picked
+            .filter(|_| matches!(self.waiting, Waiting::Question { .. }))
+        else {
+            return false;
+        };
+        self.picked = None;
+        if let Some(live) = self.live.as_mut() {
+            live.pick(index);
+        }
+        self.refresh();
+        true
+    }
+}

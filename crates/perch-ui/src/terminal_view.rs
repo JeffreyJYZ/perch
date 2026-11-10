@@ -35,6 +35,20 @@ pub struct RowRun {
     pub inverse: bool,
 }
 
+/// What one run paints, once inverse video is applied.
+///
+/// The frame reports a pair of colours and a flag; the painter draws what this says, so a run
+/// drawn inverse never has to be special-cased at the drawing site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Drawn {
+    /// The colour the run's text is drawn in.
+    pub fg: Color,
+    /// The colour drawn behind it, or [`Color::Default`] for the frame's own background.
+    pub bg: Color,
+    /// Whether a line is drawn under the run's text.
+    pub underline: bool,
+}
+
 /// Collapse a frame's cells into runs, row by row.
 ///
 /// Trailing blank cells are dropped because the painter's own background
@@ -78,6 +92,26 @@ fn paint_row(row_index: u16, row: &RowView, runs: &mut Vec<RowRun>) {
 }
 
 impl RowRun {
+    /// What this run draws: its colours with inverse video applied.
+    ///
+    /// Inverse video is the whole of the swap — a cell that asks for it draws the colour it
+    /// reports as its foreground behind its text. Both colours stay unresolved, so
+    /// [`Color::Default`] still means the painter's own background: an inverse cell that reports
+    /// no colour at all has nothing to swap, and draws as plain text.
+    #[must_use]
+    pub fn drawn(&self) -> Drawn {
+        let (fg, bg) = if self.inverse {
+            (self.bg, self.fg)
+        } else {
+            (self.fg, self.bg)
+        };
+        Drawn {
+            fg,
+            bg,
+            underline: self.underline,
+        }
+    }
+
     fn start(row: u16, col: u16, cell: &CellView) -> Self {
         Self {
             row,

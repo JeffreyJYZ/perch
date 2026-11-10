@@ -1,6 +1,6 @@
 //! The painter's view of a frame: cells collapsed into runs.
 
-use perch_term::{CellRange, replay};
+use perch_term::{CellRange, Color as TermColor, replay};
 use perch_ui::paint_rows;
 use perch_ui::terminal_view::{Clipboard, RowRun, copy_selection};
 
@@ -51,6 +51,68 @@ fn underline_and_inverse_are_reported_and_distinct_from_plain_cells() {
     let inverse = run(&runs, "c");
     assert!(inverse.inverse, "SGR 7 reaches the run: {inverse:?}");
     assert!(!inverse.underline, "{inverse:?}");
+}
+
+#[test]
+fn inverse_video_paints_the_runs_foreground_behind_its_text() {
+    let frame = replay(b"\x1b[31mred\x1b[7mhot", 10, 1);
+    let runs = paint_rows(&frame);
+    let hot = run(&runs, "hot");
+
+    assert!(hot.inverse, "SGR 7 reaches the run: {hot:?}");
+    let drawn = hot.drawn();
+    assert_eq!(
+        drawn.bg, hot.fg,
+        "an inverse cell draws its foreground as its background: {hot:?}"
+    );
+    assert_ne!(
+        drawn.bg,
+        TermColor::Default,
+        "so there is a colour to paint behind it: {hot:?}"
+    );
+    assert_eq!(
+        drawn.fg,
+        TermColor::Default,
+        "and the pair really was swapped: {hot:?}"
+    );
+}
+
+#[test]
+fn a_background_colour_survives_into_what_the_run_draws() {
+    let frame = replay(b"\x1b[44mblue", 8, 1);
+    let runs = paint_rows(&frame);
+    let blue = run(&runs, "blue");
+
+    assert_ne!(
+        blue.bg,
+        TermColor::Default,
+        "SGR 44 reaches the run: {blue:?}"
+    );
+    let drawn = blue.drawn();
+    assert_eq!(drawn.bg, blue.bg, "without inverse the pair is unchanged");
+    assert_eq!(drawn.fg, blue.fg);
+    assert!(!drawn.underline, "a background is not an underline");
+}
+
+#[test]
+fn underline_reaches_what_the_run_draws() {
+    let frame = replay(b"\x1b[4mlinked", 8, 1);
+    let runs = paint_rows(&frame);
+    let run = run(&runs, "linked");
+
+    assert!(run.underline, "SGR 4 reaches the run: {run:?}");
+    assert!(run.drawn().underline, "and it is drawn: {run:?}");
+}
+
+#[test]
+fn cells_that_share_a_background_stay_one_run() {
+    let frame = replay(b"\x1b[41maaa\x1b[0mbbb", 10, 1);
+    let runs = paint_rows(&frame);
+
+    assert_eq!(runs.len(), 2, "one styled cell costs one run: {runs:?}");
+    assert_eq!(runs[0].text, "aaa");
+    assert_ne!(runs[0].bg, TermColor::Default);
+    assert_eq!(runs[0].drawn().bg, runs[0].bg);
 }
 
 #[test]
