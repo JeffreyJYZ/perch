@@ -27,6 +27,14 @@ use crate::frame::{Frame, FrameBuilder, MAX_SCROLLBACK};
 /// How long `spawn` waits for the terminal thread to create its emulator.
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How long a key press waits for the terminal thread to answer.
+///
+/// The key must be encoded with the terminal's modes, and only the terminal
+/// thread may touch it. If that thread is busy with a flood of shell output the
+/// wait is abandoned and the stateless encoding is used instead, so a keystroke
+/// never hangs the UI on the one thing that can always answer it.
+const KEY_TIMEOUT: Duration = Duration::from_millis(250);
+
 /// A key press the terminal should turn into bytes for the shell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyEvent {
@@ -66,6 +74,13 @@ pub enum TermError {
 enum Cmd {
     /// Write bytes to the shell.
     Write(Vec<u8>),
+    /// Encode a key press against the live terminal and answer with the bytes.
+    Key {
+        /// The press to encode.
+        event: KeyEvent,
+        /// Where the encoded bytes go.
+        reply: Sender<Vec<u8>>,
+    },
     /// Resize the PTY and the grid together.
     Resize { cols: u16, rows: u16 },
     /// Stop the thread and let the shell go.
@@ -105,30 +120,24 @@ impl TermHandle {
 
     /// Encode a key press into the bytes the shell expects.
     ///
-    /// This covers the keys whose encoding is unambiguous without terminal
-    /// state. Modifier folding, function keys, bracketed paste and the
-    /// application-cursor/application-keypad sequences depend on modes the
-    /// terminal owns, so they belong on the terminal thread and land in Task 4
-    /// with libghostty's own `key::Encoder`.
+    /// The encoding is done on the terminal thread, because the escape
+    /// sequence for a modified key depends on modes the terminal owns —
+    /// application cursor keys, the keypad set, `modifyOtherKeys`, the Kitty
+    /// keyboard protocol. The wait is bounded by [`KEY_TIMEOUT`]; a timeout
+    /// falls back to the stateless encoding in [`crate::keys::encode_key`],
+    /// which is right for every key the modes do not change.
     #[must_use]
     pub fn key(&self, event: KeyEvent) -> Vec<u8> {
-        let mut out = Vec::new();
-        if event.mods.contains(Mods::ALT) {
-            out.push(0x1b);
+        let (reply, encoded) = mpsc::channel();
+        if self
+            .tx
+            .send(Inbound::Cmd(Cmd::Key { event, reply }))
+            .is_ok()
+            && let Ok(bytes) = encoded.recv_timeout(KEY_TIMEOUT)
+        {
+            return bytes;
         }
-        match event.key {
-            Key::Enter => out.push(b'\r'),
-            Key::Tab => out.push(b'\t'),
-            Key::Backspace => out.push(0x7f),
-            Key::Escape => out.push(0x1b),
-            Key::Space => out.push(b' '),
-            Key::ArrowUp => out.extend_from_slice(b"\x1b[A"),
-            Key::ArrowDown => out.extend_from_slice(b"\x1b[B"),
-            Key::ArrowRight => out.extend_from_slice(b"\x1b[C"),
-            Key::ArrowLeft => out.extend_from_slice(b"\x1b[D"),
-            _ => {}
-        }
-        out
+        crate::keys::encode_key(event)
     }
 
     /// Whether a frame has been published since the last call.
@@ -313,20 +322,19 @@ fn run(
                     }
                     let _ = writer.flush();
                 }
+                Inbound::Cmd(Cmd::Key { event, reply }) => {
+                    let bytes = crate::keys::encode_key_for_terminal(event, &terminal);
+                    let _ = reply.send(bytes);
+                }
                 Inbound::Cmd(Cmd::Resize { cols, rows }) => {
-                    let size = PtySize {
-                        rows,
-                        cols,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    };
-                    let _ = master.resize(size);
-                    // Cell pixel size is the painter's business; zero means
-                    // "unknown", which the emulator accepts.
-                    if terminal.resize(cols, rows, 0, 0).is_err() {
-                        return;
+                    // The PTY first, so the shell's SIGWINCH sees the size its
+                    // next prompt will wrap at, then the grid. A frame is built
+                    // only after both, which is why this loop marks the batch
+                    // touched instead of publishing here: a frame published in
+                    // between would carry the old width with a new prompt.
+                    if resize(master.as_ref(), &mut terminal, cols, rows) {
+                        touched = true;
                     }
-                    touched = true;
                 }
                 Inbound::Cmd(Cmd::Shutdown) => return,
             }
@@ -336,6 +344,26 @@ fn run(
             return;
         }
     }
+}
+
+/// Tell the PTY and then the grid about a new size.
+///
+/// The order is the contract: a shell that is told second may wrap its prompt
+/// for the new width while the grid still holds the old one, and the frame the
+/// UI then reads shows text the user never sees in a real terminal. Returns
+/// whether the grid accepted the size, because a frame is only worth building
+/// when it did; a refused PTY resize is reported by the shell's next prompt and
+/// must not stop the grid from following.
+fn resize(master: &dyn MasterPty, terminal: &mut Terminal<'_, '_>, cols: u16, rows: u16) -> bool {
+    let _ = master.resize(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    });
+    // Cell pixel size is the painter's business; zero means "unknown", which
+    // the emulator accepts.
+    terminal.resize(cols, rows, 0, 0).is_ok()
 }
 
 /// Build a frame and hand it to the UI. `Err` means the UI is gone.

@@ -7,6 +7,7 @@
 use libghostty_vt::{
     Error, RenderState, Terminal,
     render::{CellIteration, CellIterator, RowIterator},
+    screen::CellWide,
     style::{StyleColor, Underline},
 };
 
@@ -45,6 +46,12 @@ pub struct CellView {
     /// The cell's text. Empty for a blank cell and for the tail of a wide
     /// character, which occupies two columns but holds no glyph of its own.
     pub text: String,
+    /// How the cell takes part in the grid.
+    ///
+    /// The painter needs this to place text by column: a wide glyph covers two
+    /// columns but is one character, and the empty cell after it must not be
+    /// mistaken for a space.
+    pub kind: CellKind,
     /// Foreground colour.
     pub fg: Color,
     /// Background colour.
@@ -55,6 +62,18 @@ pub struct CellView {
     pub italic: bool,
     /// Any underline style, flattened to a bool because the painter draws one.
     pub underline: bool,
+}
+
+/// Whether a cell is a normal column, a wide glyph, or the spacer after one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CellKind {
+    /// A one-column cell.
+    #[default]
+    Narrow,
+    /// The leading half of a wide glyph, covering this column and the next.
+    Wide,
+    /// The spacer that follows a wide glyph. Draws nothing.
+    Spacer,
 }
 
 /// One visible row of cells.
@@ -164,10 +183,21 @@ fn cell_view(cell: &CellIteration<'_, '_>, text: &mut String) -> Result<CellView
     let style = cell.style().unwrap_or_default();
     Ok(CellView {
         text: text.clone(),
+        kind: kind(cell),
         fg: Color::from_style(style.fg_color),
         bg: Color::from_style(style.bg_color),
         bold: style.bold,
         italic: style.italic,
         underline: style.underline != Underline::None,
     })
+}
+
+/// A cell's width class, read from the raw cell because the render iteration
+/// reports an empty string for the spacer half of a wide glyph.
+fn kind(cell: &CellIteration<'_, '_>) -> CellKind {
+    match cell.raw_cell().and_then(|raw| raw.wide()) {
+        Ok(CellWide::Wide) => CellKind::Wide,
+        Ok(CellWide::SpacerTail | CellWide::SpacerHead) => CellKind::Spacer,
+        Ok(CellWide::Narrow) | Err(_) => CellKind::Narrow,
+    }
 }
