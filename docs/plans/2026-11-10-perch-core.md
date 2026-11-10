@@ -36,7 +36,7 @@
 ### Task 1: Workspace, settings and session log
 
 **Files:**
-- Create: `Cargo.toml` (workspace), `crates/perch-store/Cargo.toml`, `crates/perch-store/src/lib.rs`, `crates/perch-store/src/settings.rs`, `crates/perch-store/src/session.rs`
+- Create: `Cargo.toml` (workspace), `crates/perch-store/Cargo.toml`, `crates/perch-store/src/lib.rs`, `crates/perch-store/src/settings.rs`, `crates/perch-store/src/secret.rs`, `crates/perch-store/src/session.rs`
 - Test: `crates/perch-store/tests/session.rs`
 
 **Interfaces:**
@@ -76,7 +76,7 @@ Expected: FAIL, `SessionLog` not found.
 
 - [ ] **Step 3: Implement**
 
-`SessionEvent` is `#[serde(tag = "kind", rename_all = "snake_case")]`. `SessionLog::open` reads the file, skips any line that fails to parse, and writes new events with append mode plus a trailing newline. `meta_path(dir, id)` is `dir.join(format!("{id}.jsonl"))`. `Settings::load` returns defaults when the file is absent and writes them back.
+`SessionEvent` is `#[serde(tag = "kind", rename_all = "snake_case")]`. `SessionLog::open` writes the `SessionMeta` as line 1 when the file is empty, so a session's worktree, branch and model travel with its log; `events()` skips that line when it parses as metadata, which a `SessionEvent` can never do. Any line that fails to parse is dropped and the rest still load — that is the real rule, not "the last line", because a complete line without a trailing newline is valid. `Settings::save` exists and `load` writes defaults when the file is absent; the file is `settings.toml` and its path is exposed by `settings::path_in`. `meta_path(dir, id)` is `dir.join(format!("{id}.jsonl"))` and is public, so tests and later crates never re-spell it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
