@@ -1,16 +1,26 @@
 //! The terminal dock: the frame's runs as the grid a shell wrote.
+//!
+//! The header says what the tab is doing, and — when the grid is above the live bottom — where it
+//! is instead. The grid itself takes the pointer and the keys: a wheel or Shift+PageUp moves the
+//! history, a drag selects cells and copies them, and a press with no drag clears the selection.
 
-use rune::{Cx, El, KeyEvent, ScrollSpec, Tx, col, row, text};
+mod input;
+mod row;
+
+use rune::{Cx, El, ScrollSpec, Tx, WheelEvent, col, row, text};
 use rune_kit::Kit;
 use rune_kit::shell::{TabItem, TabOrientation, TabStrip};
 
 use super::live::Live;
-use super::paint::terminal_text;
+use super::paint::cursor_cell;
 use super::state::Shell;
-use super::terminal::TerminalTab;
+use super::terminal::{TerminalTab, scroll_words};
 use super::{DOCK, TABS};
-use crate::files::{note, section_label};
+use crate::files::section_label;
 use crate::terminal_view::{RowRun, paint_rows};
+use row::{row_height, rows_note, terminal_row};
+
+pub use input::terminal_key;
 
 /// What the dock says when there is no tab at all.
 const STOPPED: &str = "stopped";
@@ -27,11 +37,16 @@ pub(super) fn dock<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &mut Cx<Shell<L>>) 
         Some(tab) => (tab.title().to_owned(), tab.state()),
         None => (String::new(), STOPPED),
     };
-    let status = if title.is_empty() {
+    let mut status = if title.is_empty() {
         state.to_owned()
     } else {
         format!("{title} · {state}")
     };
+    // A grid that is a page into the history says where it is: a reader who scrolled back must be
+    // able to tell the frozen screen from a shell that stopped printing.
+    if let Some(words) = tab.and_then(|tab| scroll_words(tab.offset())) {
+        status = format!("{status} · {words}");
+    }
     let mut panel = col()
         .key("terminal")
         .role("region")
@@ -85,26 +100,21 @@ fn terminal_tabs<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
 
 /// The dock's grid: the frame's rows as runs, or the reason there is nothing to draw.
 fn dock_body<L: Live>(tab: Option<&TerminalTab>, kit: &Kit) -> El {
+    let wheel = row_height(kit);
     // A shell that has exited says so. Its last frame is not painted: a frozen grid reads as a
     // shell that is still printing, and the one thing the window must not do is pretend.
-    if let Some(ended) = tab.and_then(TerminalTab::ended) {
-        return col()
-            .key("terminal-rows")
-            .w_full()
-            .grow(1.0)
-            .min_h(0.0)
-            .child(note(kit, ended));
+    let Some(tab) = tab else {
+        return rows_note(kit, "no shell running");
+    };
+    if let Some(ended) = tab.ended() {
+        return rows_note(kit, ended);
     }
-    let Some(frame) = tab.and_then(TerminalTab::frame) else {
-        return col()
-            .key("terminal-rows")
-            .w_full()
-            .grow(1.0)
-            .min_h(0.0)
-            .child(note(kit, "no shell running"));
+    let Some(frame) = tab.frame() else {
+        return rows_note(kit, "no shell running");
     };
     // Follow the bottom, the way a terminal does: the newest output is the row in view. The grid
-    // takes keys, so a click into it types at the shell.
+    // takes keys, so a click into it types at the shell, and it takes the wheel so a terminal's
+    // own history moves instead of the panel's scroll bar.
     let mut grid = col()
         .key("terminal-rows")
         .w_full()
@@ -112,46 +122,30 @@ fn dock_body<L: Live>(tab: Option<&TerminalTab>, kit: &Kit) -> El {
         .min_h(0.0)
         .gap(0.0)
         .focusable(true)
-        .on_key(terminal_key::<L>)
+        .on_key(input::terminal_key::<L>)
+        .on_wheel(move |shell: &mut Shell<L>, ev: WheelEvent, tx: &mut Tx| {
+            input::terminal_wheel(shell, ev, tx, wheel)
+        })
+        .on_drag(input::terminal_drag::<L>)
         .scroll(ScrollSpec { stick_bottom: true });
+    let cursor = cursor_cell(frame);
+    let selection = tab.selection();
     // [`paint_rows`] emits runs top to bottom, so a row is one stretch of entries that name the
     // same `row`; each stretch becomes one line of the grid.
-    let mut row: Option<u16> = None;
+    let mut at: Option<u16> = None;
     let mut group: Vec<RowRun> = Vec::new();
     for run in paint_rows(frame) {
-        if row != Some(run.row) {
-            if let Some(index) = row {
-                grid = grid.child(terminal_row(index, &group, kit));
+        if at != Some(run.row) {
+            if let Some(index) = at {
+                grid = grid.child(terminal_row(index, &group, frame, cursor, selection, kit));
             }
             group.clear();
-            row = Some(run.row);
+            at = Some(run.row);
         }
         group.push(run);
     }
-    if let Some(index) = row {
-        grid = grid.child(terminal_row(index, &group, kit));
+    if let Some(index) = at {
+        grid = grid.child(terminal_row(index, &group, frame, cursor, selection, kit));
     }
     grid
-}
-
-/// One row of the grid: its runs side by side, keyed by the row index so a repaint keeps the
-/// lines above it.
-fn terminal_row(index: u16, runs: &[RowRun], kit: &Kit) -> El {
-    let mut line = row().key(format!("terminal-row-{index}")).w_full().gap(0.0);
-    for run in runs {
-        line = line.child(terminal_text(run, kit));
-    }
-    line
-}
-
-/// Sends one press to the shown terminal tab. True when the shell was handed it.
-pub fn terminal_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, _: &mut Tx) -> bool {
-    // Cmd chords are the window's own: a terminal never wants ⌘Q as text.
-    if ev.mods.cmd {
-        return false;
-    }
-    match shell.terminals.get_mut(shell.terminal) {
-        Some(tab) => tab.type_key(ev),
-        None => false,
-    }
 }

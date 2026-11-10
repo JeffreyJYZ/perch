@@ -1,17 +1,24 @@
 //! One terminal tab: the last frame its thread published and the shell behind it.
+//!
+//! A tab also holds the view state the dock reads back: how far the grid is scrolled above the
+//! live bottom, and the cells a drag selected. Both belong to one shell's screen, so switching
+//! tabs must not carry either across. The code that changes them is split by what it is about:
+//! [`io`] is the process side (keys, paste, frames), [`scroll`] the history position in words,
+//! and [`pick`] the drag-to-cells mapping and the copy.
 
 use std::sync::mpsc::Receiver;
 
-use perch_term::{Frame, TermHandle};
-use rune::{Key, KeyEvent};
+use perch_term::{CellRange, Frame, TermHandle};
 
-use super::term_keys::{control, term_event};
+mod io;
+mod pick;
+mod scroll;
+
+pub(crate) use pick::cell_at;
+pub(crate) use scroll::scroll_words;
 
 /// The grid a tab starts at, before the dock has been measured once.
 pub const GRID: (u16, u16) = (100, 12);
-/// How many frames one tab may take in one pump. A burst of output is one frame plus whatever
-/// queued behind it, and a tab that flooded must not spend the whole frame draining.
-const FRAMES_PER_PUMP: usize = 8;
 /// What the dock says when the shell on the other end of the pty has exited.
 pub const EXITED: &str = "the shell exited";
 /// What the dock says about a tab whose shell has not printed anything yet.
@@ -27,18 +34,16 @@ pub struct TerminalTab {
     title: String,
     pub(super) frame: Option<Frame>,
     /// The pty this tab drives, and the channel its frames arrive on. Seeded tabs have none.
-    session: Option<TermSlot>,
+    session: Option<io::Session>,
     /// Why the shell stopped, in words, once it has. A dead shell says so instead of leaving the
     /// last frame on screen as if it were still printing.
     ended: Option<String>,
     /// The grid the pty was last told about.
     grid: (u16, u16),
-}
-
-/// The process side of a tab: the handle the UI drives and the frames coming back.
-struct TermSlot {
-    handle: TermHandle,
-    frames: Receiver<Frame>,
+    /// Rows the grid is scrolled above the live bottom. `0` follows new output.
+    offset: usize,
+    /// The cells a drag covered, while there is one.
+    selection: Option<CellRange>,
 }
 
 impl TerminalTab {
@@ -51,6 +56,8 @@ impl TerminalTab {
             session: None,
             ended: None,
             grid: GRID,
+            offset: 0,
+            selection: None,
         }
     }
 
@@ -64,9 +71,11 @@ impl TerminalTab {
         TerminalTab {
             title: title.into(),
             frame: None,
-            session: Some(TermSlot { handle, frames }),
+            session: Some(io::Session::over(Box::new(handle), frames)),
             ended: None,
             grid,
+            offset: 0,
+            selection: None,
         }
     }
 
@@ -78,6 +87,8 @@ impl TerminalTab {
             session: None,
             ended: Some(words.into()),
             grid: GRID,
+            offset: 0,
+            selection: None,
         }
     }
 
@@ -118,70 +129,9 @@ impl TerminalTab {
         self.session.is_some() && self.ended.is_none()
     }
 
-    /// Takes the newest frames the tab's thread published, tells the pty about a new grid, and
-    /// notices a shell that has exited. Never waits: a tab with nothing new costs one `try_recv`.
-    ///
-    /// Returns the newest frame, which the shell installs through [`Shell::set_frame`], and
-    /// whether the shell has just been found dead.
-    ///
-    /// [`Shell::set_frame`]: super::Shell::set_frame
-    pub(super) fn pump(&mut self, grid: (u16, u16)) -> (Option<Frame>, bool) {
-        let Some(slot) = self.session.as_mut() else {
-            return (None, false);
-        };
-        let mut newest = None;
-        for _ in 0..FRAMES_PER_PUMP {
-            match slot.frames.try_recv() {
-                Ok(frame) => newest = Some(frame),
-                Err(_) => break,
-            }
-        }
-        if self.grid != grid {
-            slot.handle.resize(grid.0, grid.1);
-            self.grid = grid;
-        }
-        let ended = self.ended.is_none() && slot.handle.exited();
-        if ended {
-            self.ended = Some(EXITED.to_string());
-        }
-        (newest, ended)
-    }
-
-    /// Turns one key press into the bytes the shell expects.
-    ///
-    /// Printable text goes through as the bytes it is; everything a terminal mode can change —
-    /// Return, the arrows, Delete, the function keys — is encoded by the terminal's own encoder,
-    /// which is the only thing that knows whether the program asked for application cursor keys.
-    pub(super) fn type_key(&mut self, ev: &KeyEvent) -> bool {
-        if self.ended.is_some() {
-            return false;
-        }
-        let Some(slot) = self.session.as_mut() else {
-            return false;
-        };
-        match &ev.key {
-            Key::Modifier { .. } => false,
-            Key::Text(text) => {
-                if ev.mods.ctrl {
-                    for character in text.chars() {
-                        slot.handle.write(&[control(character)]);
-                    }
-                } else if ev.mods.alt {
-                    // Option is Meta: the same escape prefix a real terminal sends.
-                    slot.handle.write(b"\x1b");
-                    slot.handle.write(text.as_bytes());
-                } else {
-                    slot.handle.write(text.as_bytes());
-                }
-                true
-            }
-            key => match term_event(key, ev.mods) {
-                Some(event) => {
-                    slot.handle.write(&slot.handle.key(event));
-                    true
-                }
-                None => false,
-            },
-        }
+    /// Whether this tab's shell has one of its own: the dock's pointer and paste work only on a
+    /// tab that can take them.
+    pub(super) fn driving(&self) -> Option<&io::Session> {
+        self.session.as_ref().filter(|_| self.ended.is_none())
     }
 }

@@ -1,29 +1,85 @@
 //! What one run of a terminal row looks like: its text, colour, background, weight and slant.
+//!
+//! A run is drawn twice over: its own style, and what sits on top of the cells a drag or the
+//! cursor names. The cell maths lives in [`over`] and the colour table in [`ink`], so this file
+//! is only the element a run becomes.
+
+mod ink;
+mod over;
+
+#[cfg(test)]
+mod tests;
 
 use perch_term::Color as TermColor;
-use rune::{Color, El, Span, TextStyle, text};
+use rune::{El, Span, TextStyle, text};
 use rune_kit::Kit;
 
 use crate::terminal_view::{Drawn, RowRun};
+use ink::{halo, ink};
+use over::marked;
+
+pub(super) use over::{cols_used, cursor_cell, selection_cols};
+
+/// What is drawn over a row's cells: the cursor cell, and the columns a drag selected.
+///
+/// The row's own cells come along because a span is a byte range in the run's text, and only the
+/// grid knows how many bytes each cell took: a wide glyph is one cell of several bytes and the
+/// spacer after it is one cell of none.
+#[derive(Clone, Copy)]
+pub(super) struct Over<'a> {
+    /// The row the run was painted from.
+    pub row: &'a perch_term::RowView,
+    /// The column the cursor sits in, when it is on this row and drawn.
+    pub cursor: Option<u16>,
+    /// The columns the selection covers on this row, inclusive.
+    pub selected: Option<(u16, u16)>,
+}
 
 /// One run of one row, drawn as the cell it came from.
 ///
 /// A run is contiguous by construction, so a row's runs can be laid out as siblings and still
 /// read as the line the shell wrote. Its background and underline ride on a span over the run's
 /// own text, so a styled cell is still one element.
-pub(super) fn terminal_text(run: &RowRun, kit: &Kit) -> El {
+pub(super) fn terminal_text(run: &RowRun, over: Over<'_>, kit: &Kit) -> El {
     let drawn = run.drawn();
-    let mut el = text(run.text.clone())
+    let el = text(run.text.clone())
         .font(TextStyle {
             weight: if run.bold { 600.0 } else { kit.ty.mono.weight },
             italic: run.italic,
             ..kit.ty.mono
         })
         .color(ink(drawn.fg, kit));
-    if let Some(span) = span_for(run, &drawn, kit) {
-        el = el.spans([span]).span_radius(0.0);
+    let mut spans = span_for(run, &drawn, kit).into_iter().collect::<Vec<_>>();
+    if let Some((from, to)) = over.selected
+        && let Some(span) = marked(over.row, run, from, to)
+    {
+        spans.push(span.bg(halo(kit), 0.0));
     }
-    el
+    if let Some(col) = over.cursor
+        && let Some(span) = marked(over.row, run, col, col)
+    {
+        // A block cursor is the text turned inside out: the cell's ink becomes the plate.
+        spans.push(span.color(kit.c.bg_base).bg(kit.c.text_base, 0.0));
+    }
+    if spans.is_empty() {
+        return el;
+    }
+    el.spans(spans).span_radius(0.0)
+}
+
+/// The block cursor, for a cell the row has no glyph in: a prompt's end is the usual place.
+///
+/// A blank cell draws nothing, so there is no run to turn inside out; this is the plate on its
+/// own, one mono space wide.
+pub(super) fn cursor_block(kit: &Kit) -> El {
+    text(" ")
+        .font(kit.ty.mono)
+        .spans([Span::new(0, 1)
+            .color(kit.c.bg_base)
+            .bg(kit.c.text_base, 0.0)])
+        .span_radius(0.0)
+        // The block is a caret, not a word: a reader hearing "space" has learned nothing.
+        .a11y_hidden()
 }
 
 /// The span carrying a run's background and underline, when it has either.
@@ -42,64 +98,4 @@ fn span_for(run: &RowRun, drawn: &Drawn, kit: &Kit) -> Option<Span> {
         any = true;
     }
     any.then_some(span)
-}
-
-/// A cell colour as the painter draws it; the frame's default is the kit's body ink.
-fn ink(color: TermColor, kit: &Kit) -> Color {
-    match color {
-        TermColor::Default => kit.c.text_base,
-        TermColor::Rgb(r, g, b) => rgb(r, g, b),
-        TermColor::Indexed(index) => indexed(index),
-    }
-}
-
-fn rgb(r: u8, g: u8, b: u8) -> Color {
-    Color {
-        r: f32::from(r) / 255.0,
-        g: f32::from(g) / 255.0,
-        b: f32::from(b) / 255.0,
-        a: 1.0,
-    }
-}
-
-/// A 256-colour palette entry, as xterm defines it: sixteen named colours, a 6×6×6 cube, then
-/// twenty-four greys. The frame carries the palette index, so the table lives at the painter.
-fn indexed(index: u8) -> Color {
-    const BASE: [(u8, u8, u8); 16] = [
-        (0, 0, 0),
-        (205, 49, 49),
-        (13, 188, 121),
-        (229, 229, 16),
-        (36, 114, 200),
-        (188, 63, 188),
-        (17, 168, 205),
-        (229, 229, 229),
-        (102, 102, 102),
-        (241, 76, 76),
-        (35, 209, 139),
-        (245, 245, 67),
-        (59, 142, 234),
-        (214, 112, 214),
-        (41, 184, 219),
-        (255, 255, 255),
-    ];
-    const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
-    match index {
-        0..=15 => {
-            let (r, g, b) = BASE[usize::from(index)];
-            rgb(r, g, b)
-        }
-        16..=231 => {
-            let cube = index - 16;
-            rgb(
-                LEVELS[usize::from(cube / 36)],
-                LEVELS[usize::from((cube % 36) / 6)],
-                LEVELS[usize::from(cube % 6)],
-            )
-        }
-        _ => {
-            let grey = 8 + (index - 232) * 10;
-            rgb(grey, grey, grey)
-        }
-    }
 }
