@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::{Error, Result, Tool, ToolCtx, ToolOutput, ToolSpec, builtin::builtin_tools};
+use crate::{Error, Preview, Result, Tool, ToolCtx, ToolOutput, ToolSpec, builtin::builtin_tools};
 
 /// Holds every tool the model may call, built-in or contributed by a plugin.
 ///
@@ -55,6 +55,19 @@ impl ToolRegistry {
     /// Whether the named tool asks the user before it runs.
     pub fn needs_approval(&self, name: &str) -> Result<bool> {
         Ok(self.find(name)?.needs_approval())
+    }
+
+    /// What the named tool's call would change, before it runs.
+    ///
+    /// The approval gate goes through here rather than inspecting arguments, so every tool —
+    /// built-in, plugin or test — describes its own change and no caller needs to know its shape.
+    pub fn preview(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+        ctx: &ToolCtx,
+    ) -> Result<Option<Preview>> {
+        self.find(name)?.preview(args, ctx)
     }
 
     /// Dispatches by name. No built-in gets a path a plugin could not take.

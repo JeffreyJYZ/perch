@@ -33,8 +33,9 @@ pub enum Decision {
 /// What the user did with a question.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Answer {
-    /// Picked the option at this index.
-    Pick(usize),
+    /// Picked these options, in the order they were picked: one index for a single-choice
+    /// question, several for `multiple: true`, and none for a dismissal.
+    Picks(Vec<usize>),
     /// Typed an answer of their own.
     Text(String),
     /// Dismissed the question without answering it.
@@ -105,7 +106,19 @@ impl Dispatcher {
                 // A tool already allowed for the session is not asked about again; the allowance
                 // is keyed by name, so allowing `bash` says nothing about `write`.
                 if !self.allowed.contains(&call.name) {
-                    let preview = preview_for(&call.name, &call.args);
+                    // The tool describes its own change, so nothing here has to know what a diff
+                    // is. A change that cannot be described is denied rather than approved
+                    // blind, and it is denied *before* the user is asked: offering a call whose
+                    // preview failed would ask them to approve something nobody can see.
+                    let preview = match registry.preview(&call.name, &call.args, ctx) {
+                        Ok(preview) => preview,
+                        Err(error) => {
+                            return format!(
+                                "the {} call was not run because its preview failed: {error}",
+                                call.name
+                            );
+                        }
+                    };
                     match interactor.approve(&call.name, preview.as_ref()) {
                         Decision::Allow => {}
                         Decision::AllowForSession => {
@@ -133,21 +146,5 @@ impl Dispatcher {
             Ok(output) => output.text,
             Err(error) => format!("{} failed: {error}", call.name),
         }
-    }
-}
-
-/// The preview an approval view can build from a call's arguments alone.
-///
-/// `bash` states its whole effect in `command`, so what will run can be shown before it runs.
-/// `edit` and `write` only produce a diff by running, so they are approved against their arguments
-/// rather than against a diff this function would have to invent — a preview that is not the
-/// change is worse than no preview.
-fn preview_for(name: &str, args: &serde_json::Value) -> Option<Preview> {
-    match name {
-        "bash" => args
-            .get("command")
-            .and_then(serde_json::Value::as_str)
-            .map(|command| Preview::Command(command.to_string())),
-        _ => None,
     }
 }

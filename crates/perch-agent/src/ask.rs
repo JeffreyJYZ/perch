@@ -125,14 +125,21 @@ impl Tool for AskUser {
             ))
         })?;
         match answer {
-            Answer::Pick(index) => {
-                let picked = question.options.get(index).ok_or_else(|| {
-                    Error::Message(format!(
-                        "the answer picked option {index}, but the question offered {}",
-                        question.options.len()
-                    ))
-                })?;
-                Ok(ToolOutput::text(picked.clone()))
+            // Picking nothing is a dismissal: an empty answer would read as "the user chose
+            // nothing", which the model would be free to interpret instead of asking again.
+            Answer::Picks(indexes) if indexes.is_empty() => Ok(ToolOutput::text(CANCELLED)),
+            Answer::Picks(indexes) => {
+                let mut picked = Vec::with_capacity(indexes.len());
+                for index in indexes {
+                    let option = question.options.get(index).ok_or_else(|| {
+                        Error::Message(format!(
+                            "the answer picked option {index}, but the question offered {}",
+                            question.options.len()
+                        ))
+                    })?;
+                    picked.push(option.as_str());
+                }
+                Ok(ToolOutput::text(picked.join("\n")))
             }
             Answer::Text(text) => Ok(ToolOutput::text(text)),
             Answer::Cancelled => Ok(ToolOutput::text(CANCELLED)),

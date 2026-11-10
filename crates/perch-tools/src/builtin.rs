@@ -51,6 +51,15 @@ fn path_arg(args: &Value) -> Result<&str> {
         .ok_or_else(|| Error::Message("missing string argument `path`".to_string()))
 }
 
+/// The command a `bash` call would run, validated once for both the preview and the call.
+fn command_arg(args: &Value) -> Result<String> {
+    let command = string_arg(args, "command")?;
+    if command.trim().is_empty() {
+        return Err(Error::Message("`command` must not be empty".into()));
+    }
+    Ok(command)
+}
+
 fn object_schema(properties: Value, required: &[&str], what: &str) -> Value {
     json!({
         "type": "object",
@@ -59,6 +68,15 @@ fn object_schema(properties: Value, required: &[&str], what: &str) -> Value {
         "required": required,
         "additionalProperties": false,
     })
+}
+
+/// The unified diff the approval view shows, in the same shape the edit result carries.
+fn unified(path: &str, before: &str, after: &str) -> String {
+    TextDiff::from_lines(before, after)
+        .unified_diff()
+        .context_radius(3)
+        .header(path, path)
+        .to_string()
 }
 
 /// Cuts `text` to `budget` bytes, reporting how much was dropped.
@@ -165,6 +183,22 @@ impl Tool for Write {
             line_count(&text)
         )))
     }
+
+    /// The text as a diff: against the current file when one exists, as an addition when not.
+    fn preview(&self, args: &Value, ctx: &ToolCtx) -> Result<Option<Preview>> {
+        let path = path_arg(args)?;
+        let target = confine(&ctx.root, Path::new(path))?;
+        let text = string_arg(args, "text")?;
+        // A file that is not UTF-8 is previewed lossily rather than refused: what the user
+        // approves is the text that will replace it, and refusing would leave the call both
+        // unapprovable and un-runnable.
+        let before = match std::fs::read(&target) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error.into()),
+        };
+        Ok(Some(Preview::Diff(unified(path, &before, &text))))
+    }
 }
 
 /// `edit`: replace `old` with `new` when `old` appears exactly once, returning a diff preview.
@@ -193,32 +227,54 @@ impl Tool for Edit {
     }
 
     fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
-        let path = path_arg(args)?;
-        let target = confine(&ctx.root, Path::new(path))?;
-        let old = string_arg(args, "old")?;
-        let new = string_arg(args, "new")?;
-        if old.is_empty() {
-            return Err(Error::Message("`old` must not be empty".into()));
-        }
-        let original = std::fs::read_to_string(&target)?;
-        let found = original.matches(&old).count();
-        if found != 1 {
-            return Err(Error::Message(format!(
-                "`old` must appear exactly once in {path}, found {found} occurrences"
-            )));
-        }
-        let updated = original.replacen(&old, &new, 1);
-        std::fs::write(&target, &updated)?;
-        let diff = TextDiff::from_lines(&original, &updated)
-            .unified_diff()
-            .context_radius(3)
-            .header(path, path)
-            .to_string();
+        let plan = plan_edit(args, ctx)?;
+        std::fs::write(&plan.target, &plan.updated)?;
         Ok(ToolOutput::with_preview(
-            format!("edited {path}: 1 replacement"),
-            Preview::Diff(diff),
+            format!("edited {}: 1 replacement", plan.path),
+            Preview::Diff(plan.diff),
         ))
     }
+
+    /// The same diff the call returns, produced without writing anything.
+    fn preview(&self, args: &Value, ctx: &ToolCtx) -> Result<Option<Preview>> {
+        Ok(Some(Preview::Diff(plan_edit(args, ctx)?.diff)))
+    }
+}
+
+/// One `edit` call resolved and computed, with nothing written yet.
+///
+/// `call` and `preview` both go through here, so the diff a person approves is the diff the call
+/// then returns; a second implementation of the replacement would let the two disagree.
+struct EditPlan {
+    path: String,
+    target: PathBuf,
+    updated: String,
+    diff: String,
+}
+
+fn plan_edit(args: &Value, ctx: &ToolCtx) -> Result<EditPlan> {
+    let path = path_arg(args)?;
+    let target = confine(&ctx.root, Path::new(path))?;
+    let old = string_arg(args, "old")?;
+    let new = string_arg(args, "new")?;
+    if old.is_empty() {
+        return Err(Error::Message("`old` must not be empty".into()));
+    }
+    let original = std::fs::read_to_string(&target)?;
+    let found = original.matches(&old).count();
+    if found != 1 {
+        return Err(Error::Message(format!(
+            "`old` must appear exactly once in {path}, found {found} occurrences"
+        )));
+    }
+    let updated = original.replacen(&old, &new, 1);
+    let diff = unified(path, &original, &updated);
+    Ok(EditPlan {
+        path: path.to_string(),
+        target,
+        updated,
+        diff,
+    })
 }
 
 /// `bash`: `sh -c` in the root, both streams captured, killed after `timeout`.
@@ -268,10 +324,7 @@ impl Tool for Bash {
     }
 
     fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
-        let command = string_arg(args, "command")?;
-        if command.trim().is_empty() {
-            return Err(Error::Message("`command` must not be empty".into()));
-        }
+        let command = command_arg(args)?;
         let cwd = confine(&ctx.root, Path::new("."))?;
         let mut child = Command::new("sh");
         child
@@ -296,6 +349,12 @@ impl Tool for Bash {
             truncate(text, BASH_MAX_OUTPUT),
             Preview::Command(command),
         ))
+    }
+
+    /// The command itself, which is the whole of what a shell call will do.
+    fn preview(&self, args: &Value, ctx: &ToolCtx) -> Result<Option<Preview>> {
+        let _ = ctx;
+        Ok(Some(Preview::Command(command_arg(args)?)))
     }
 }
 

@@ -90,4 +90,16 @@ pub trait Tool: Send + Sync {
     fn needs_approval(&self) -> bool;
 
     fn call(&self, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>;
+
+    /// What [`Tool::call`] would change, computed without running it.
+    ///
+    /// The approval view is shown this, not the arguments, so a person approves the change rather
+    /// than a description of it. The default is "nothing to show": a read-only tool, a plugin tool
+    /// that does not implement it, and a test tool all owe the view no preview. Anything that
+    /// mutates should implement it, and an error here denies the call — a change that cannot be
+    /// shown is not approved blind.
+    fn preview(&self, args: &serde_json::Value, ctx: &ToolCtx) -> Result<Option<Preview>> {
+        let _ = (args, ctx);
+        Ok(None)
+    }
 }
