@@ -450,7 +450,7 @@ Expected: FAIL, `Registry` not found.
 
 - [ ] **Step 3: Implement**
 
-`confine` canonicalises the root, joins and canonicalises the candidate, and rejects anything not prefixed by the root — which is what catches symlinks. `bash` runs with the root as cwd, a 30s timeout, both streams captured, output truncated at 16 KiB with a `[truncated N bytes]` marker. `read` caps at 64 KiB and numbers lines. `edit` requires `old` to appear exactly once and returns a unified diff. `grep` uses `ignore`'s walker and skips binary files.
+`confine` canonicalises the root, joins and canonicalises the candidate, and rejects anything not prefixed by the root — which is what catches symlinks. `bash` runs with the root as cwd, a 30s timeout, both streams captured, output truncated at 16 KiB with a `[truncated N bytes]` marker. `read` caps at 64 KiB and numbers lines. `edit` requires `old` to appear exactly once and returns a unified diff. `grep` launches `rg` itself — `--line-number --no-heading --color=never --json` is unnecessary, plain text with `-n` is enough — under the same 30s timeout, so patterns are real regexes, `.gitignore` is respected and binaries are skipped by the tool that already knows how; a missing `rg` is an error naming it, never a silent empty result.
 
 - [ ] **Step 4: Run test to verify it passes**
 
