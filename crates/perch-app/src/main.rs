@@ -9,6 +9,7 @@
 //! still moving. Nothing on the drawing thread waits for a provider, a tool or a pty.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use perch_app::AppState;
 use perch_files::Workspace;
@@ -17,7 +18,7 @@ use perch_ui::Shell;
 use rune::{AppSpec, Chrome, Env, KeyEvent, Runtime, Tx};
 
 mod window;
-use window::Window;
+use window::{Window, Zed};
 
 /// The window's size, in points.
 const WINDOW: (f32, f32) = (1280.0, 820.0);
@@ -82,13 +83,16 @@ fn init() -> Shell<Window> {
         None => (fallback_sessions(), 0),
     };
     let shell = match sessions
-        .first()
+        .get(active)
         .and_then(|session| Workspace::open(&session.worktree).ok())
     {
         Some(workspace) => Shell::with_workspace(sessions, active, workspace),
         None => Shell::new(sessions, active),
     };
-    let mut shell = shell.with_live(window);
+    let mut shell = shell
+        // The app's one editor call: the preview's button runs it, and nothing else can.
+        .with_editor(Arc::new(Zed))
+        .with_live(window);
     // One shell for the first tab: the dock is a real terminal from the first frame, and the pty
     // starts in the session's worktree.
     let _ = shell.open_terminal();
@@ -125,9 +129,9 @@ fn poll(shell: &mut Shell<Window>, _seconds: f64, tx: &mut Tx) -> bool {
     changed
 }
 
-/// Keys the focused control did not take: the window's own map, which the composer also uses.
+/// Keys the focused control did not take: a focused tool card's Enter, then the window's own map.
 fn on_key(shell: &mut Shell<Window>, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    perch_ui::shell::composer_key(shell, ev, tx)
+    perch_ui::shell::window_key(shell, ev, tx)
 }
 
 /// The app's data directory, or none when the platform gives no home directory.

@@ -1,5 +1,6 @@
 //! The app as the window sees it: one trait implementation, and nothing else in it.
 
+use std::path::Path;
 use std::time::Duration;
 
 use perch_ui::Transcript;
@@ -14,6 +15,26 @@ impl Live for AppState {
 
     fn transcript(&self) -> Option<&Transcript> {
         self.active_session().map(crate::SessionRuntime::transcript)
+    }
+
+    /// The session's own transcript, not the window's copy: a card opened here is opened for as
+    /// long as the session lives, not for as long as one frame is drawn.
+    fn transcript_mut(&mut self) -> Option<&mut Transcript> {
+        self.active_session_mut()
+            .map(|session| &mut session.transcript)
+    }
+
+    /// Starts a session on `worktree` and answers with the row the window appends.
+    fn new_session(
+        &mut self,
+        worktree: &Path,
+    ) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
+        let index = AppState::new_session(self, worktree).map_err(|error| error.to_string())?;
+        let meta = self
+            .active_session()
+            .map(|session| session.meta.clone())
+            .ok_or_else(|| "the session did not open".to_string())?;
+        Ok((index, meta))
     }
 
     fn waiting(&self) -> Waiting {

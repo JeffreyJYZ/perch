@@ -6,9 +6,11 @@ use rune_kit::glyphs;
 use rune_kit::shell::{TabItem, TabOrientation, TabStrip};
 use rune_kit::{IconButton, IconButtonVariant};
 
+use super::card::card_key;
 use super::composer::composer;
 use super::dock::dock;
 use super::live::Live;
+use super::paste::root_paste;
 use super::settings_view;
 use super::sidebar::{files, sessions};
 use super::state::Shell;
@@ -16,6 +18,10 @@ use super::{COLUMN, TABS};
 use crate::transcript::transcript_view;
 
 /// The whole window.
+///
+/// The root is also where two keys arrive that no region owns: a paste, because Rune reads the
+/// clipboard at the root only, and a focused card's Enter or Space, because an element's key
+/// handlers run before a focused control's own activation rules.
 pub fn view<L: Live>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
     let kit = Kit::neutral(cx.system_dark());
     row()
@@ -23,6 +29,8 @@ pub fn view<L: Live>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
         .w_full()
         .h_full()
         .fill(kit.c.bg_deep)
+        .on_key(card_key::<L>)
+        .on_paste(root_paste::<L>)
         .child(column(shell, &kit))
         .child(rule(&kit, "column-rule").w(1.0).h_full())
         .child(workspace(shell, &kit, cx))

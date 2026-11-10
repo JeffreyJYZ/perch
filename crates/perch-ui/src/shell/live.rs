@@ -1,6 +1,9 @@
 //! What the window asks of the app behind it, and the window that has none.
 
+use std::path::Path;
 use std::time::Duration;
+
+use perch_store::SessionMeta;
 
 use crate::settings::{DEFAULT_THEME, SettingsDraft};
 use crate::transcript::Transcript;
@@ -25,6 +28,23 @@ pub trait Live: 'static {
 
     /// The active session's transcript, when a session is open.
     fn transcript(&self) -> Option<&Transcript>;
+
+    /// The transcript a press may change — a card opened or closed — when a session is open.
+    ///
+    /// The window draws a copy of this transcript, so a change made to the copy alone would last
+    /// one frame. `None` is a window with no app behind it, or no session to change.
+    fn transcript_mut(&mut self) -> Option<&mut Transcript> {
+        None
+    }
+
+    /// Opens a session on `worktree` and answers with its index and header, so the window can add
+    /// the row without reading the directory again. The error is why it did not open, in words.
+    fn new_session(
+        &mut self,
+        _worktree: &Path,
+    ) -> std::result::Result<(usize, SessionMeta), String> {
+        Err("no app is running, so no session was opened".to_string())
+    }
 
     /// What the active session is waiting on.
     fn waiting(&self) -> Waiting;

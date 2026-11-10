@@ -14,6 +14,8 @@ mod io;
 mod pick;
 mod scroll;
 
+#[cfg(test)]
+pub(crate) use io::TermIo;
 pub(crate) use pick::cell_at;
 pub(crate) use scroll::scroll_words;
 
@@ -87,6 +89,27 @@ impl TerminalTab {
             session: None,
             ended: Some(words.into()),
             grid: GRID,
+            offset: 0,
+            selection: None,
+        }
+    }
+
+    /// A tab over a terminal thread the caller owns, without a pty.
+    ///
+    /// This is how a test drives the dock's paste and scroll rules: the thread is a fake that
+    /// answers [`TermIo`], so nothing has to spawn a shell to see what a tab writes.
+    #[cfg(test)]
+    pub(crate) fn over(
+        io: Box<dyn TermIo>,
+        frames: Receiver<Frame>,
+        grid: (u16, u16),
+    ) -> TerminalTab {
+        TerminalTab {
+            title: String::new(),
+            frame: None,
+            session: Some(io::Session::over(io, frames)),
+            ended: None,
+            grid,
             offset: 0,
             selection: None,
         }

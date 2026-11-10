@@ -8,10 +8,11 @@
 use std::path::Path;
 
 use perch_files::{PREVIEW_MAX_LINES, PreviewText};
-use rune::{El, col, row, spacer, text};
+use rune::{El, col, row, text};
 use rune_kit::{Button, ButtonVariant, Kit};
 
 use crate::files::{FilePanel, note, section_label};
+use crate::shell::{Live, Shell};
 
 /// How many lines of a preview the view draws.
 const RENDER_LINES: usize = 400;
@@ -26,7 +27,7 @@ pub fn preview_lines(text: &PreviewText) -> Vec<(usize, String)> {
 }
 
 /// The preview panel: its header, its toolbar and the selected file's numbered lines.
-pub fn preview_view(panel: &FilePanel) -> El {
+pub fn preview_view<L: Live>(panel: &FilePanel) -> El {
     let kit = Kit::neutral(true);
     let mut view = col()
         .key("preview")
@@ -39,7 +40,14 @@ pub fn preview_view(panel: &FilePanel) -> El {
         .py(16.0)
         .gap(6.0)
         .child(header(&kit, panel))
-        .child(toolbar(&kit, panel));
+        .child(toolbar::<L>(&kit, panel));
+    // Words about the handoff belong beside the file they are about, not in place of it: a
+    // refusal keeps the preview on screen so the reader can try again.
+    if panel.selected().is_some()
+        && let Some(words) = panel.message()
+    {
+        view = view.child(note(&kit, words));
+    }
     match (panel.selected_path(), panel.selected()) {
         (Some(_), Some(preview)) => view = view.child(body(&kit, preview)),
         _ => {
@@ -69,26 +77,44 @@ fn header(kit: &Kit, panel: &FilePanel) -> El {
 
 /// The selected path and the one action the panel offers: hand it to Zed.
 ///
-/// The button carries the request's path in its tooltip and is disabled without a preview, so
-/// nothing ever asks Zed to open a file that is not there. The press itself belongs to the
-/// shell that owns the panel and knows how to reach `open -a Zed`.
-fn toolbar(kit: &Kit, panel: &FilePanel) -> El {
+/// The path and the button stack, because the preview sits in the left column: a path long
+/// enough to be useful would push the button past the column's edge, where nothing can press it.
+/// The button carries the path in its tooltip and is disabled without a preview, so nothing ever
+/// asks Zed to open a file that is not there. The press runs the app's [`Editor`], the only code
+/// in the window that touches a command line.
+///
+/// [`Editor`]: crate::files::Editor
+fn toolbar<L: Live>(kit: &Kit, panel: &FilePanel) -> El {
     let path = panel
         .selected_path()
         .map_or_else(|| "No file selected".to_string(), display);
     let mut button = Button::new("Open in Zed").variant(ButtonVariant::GhostMuted);
     button = match panel.open_in_zed_request() {
-        Some(target) => button.help(format!("Open {} in Zed", display(&target))),
+        Some(target) => button
+            .help(format!("Open {} in Zed", display(&target)))
+            .on_press(|shell: &mut Shell<L>| {
+                shell.open_in_zed();
+            }),
         None => button.disabled(true),
     };
-    row()
+    col()
         .key("preview-toolbar")
         .w_full()
-        .gap(8.0)
-        .center()
-        .child(text(path).font(kit.ty.mono).color(kit.c.text_faint))
-        .child(spacer())
-        .child(button.build(kit))
+        .gap(4.0)
+        .child(
+            text(path)
+                .font(kit.ty.mono)
+                .color(kit.c.text_faint)
+                .w_full()
+                .truncate_middle(),
+        )
+        .child(
+            row()
+                .key("preview-actions")
+                .w_full()
+                .gap(8.0)
+                .child(button.build(kit).key("open-in-zed")),
+        )
 }
 
 /// The numbered lines, capped so one huge file cannot cost a frame its budget.

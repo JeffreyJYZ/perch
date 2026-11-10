@@ -1,23 +1,62 @@
 //! What a press does to the state: a session switched, a turn sent or stopped, an answer given,
 //! a terminal tab opened or shown.
 
+use perch_files::Workspace;
 use perch_term::TermSession;
 use rune::TextEdit;
 
 use super::live::{Live, Waiting};
 use super::state::Shell;
 use super::terminal::TerminalTab;
+use crate::files::FilePanel;
 
 impl<L: Live> Shell<L> {
     /// Selects the session at `index`. An index past the end is ignored rather than clamped: it
     /// names a session that is gone, and switching to a neighbour would switch to the wrong one.
+    ///
+    /// A switch is the whole window's: the app shows the session, and the file panel is re-read
+    /// from that session's worktree, because a tab owns the tree of the directory it runs in.
     pub fn select(&mut self, index: usize) {
         if index < self.sessions.len() {
             self.active = index;
             if let Some(live) = self.live.as_mut() {
                 live.switch(index);
             }
+            self.reopen_files();
             self.refresh();
+        }
+    }
+
+    /// Re-reads the file panel for the session now shown.
+    ///
+    /// A worktree that cannot be read leaves no panel rather than the previous session's rows:
+    /// the session list already says the worktree is missing, and a stale tree would claim files
+    /// that are not this session's. The editor the app handed over outlives the panel.
+    fn reopen_files(&mut self) {
+        let Some(root) = self
+            .sessions
+            .get(self.active)
+            .map(|session| session.worktree.clone())
+        else {
+            return;
+        };
+        let editor = self.files.as_ref().and_then(FilePanel::editor);
+        let workspace = Workspace::open(&root).ok().map(|workspace| {
+            let mut panel = FilePanel::new(&workspace);
+            if let Some(editor) = editor.clone() {
+                panel.set_editor(editor);
+            }
+            (workspace, panel)
+        });
+        match workspace {
+            Some((workspace, panel)) => {
+                self.workspace = Some(workspace);
+                self.files = Some(panel);
+            }
+            None => {
+                self.workspace = None;
+                self.files = None;
+            }
         }
     }
 
