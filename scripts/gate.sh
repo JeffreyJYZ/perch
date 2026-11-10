@@ -9,6 +9,13 @@ if [ -f "$_gate_dir/zig-env.sh" ]; then
 fi
 unset _gate_dir
 
-cargo fmt --all --check
+# `cargo fmt --all` also formats local path dependencies, and Rune is not rustfmt-clean — so
+# format exactly this workspace's packages, by name.
+for _pkg in perch-app perch-store perch-ui perch-term perch-agent perch-tools perch-files \
+	perch-plugins perch-mcp; do
+	cargo fmt -p "$_pkg" -- --check
+done
+unset _pkg
+
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace

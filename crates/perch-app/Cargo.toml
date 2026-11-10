@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "perch"
+path = "src/main.rs"
+
 [dependencies]
+rune = { path = "../../../../experiments/rune/crates/rune" }
 perch-store = { path = "../perch-store" }
 perch-ui = { path = "../perch-ui" }
 perch-term = { path = "../perch-term" }
