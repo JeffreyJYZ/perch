@@ -986,22 +986,22 @@ Task 11 and 12 close the plugin story the spec promises. After they land, the re
 
 ## Status
 
-Measured against the tree at `299c655` (perch 0.1.0, nine crates), not against what the tasks intended. The task text above is left as written.
+Measured against the tree at `e473668` (perch 0.1.0, ten crates), not against what the tasks intended. The task text above is left as written.
 
-- **Task 1 — done.** `perch-store` holds `Settings` in `settings.toml`, secrets in the keychain (`dev.jyz.perch`), and the append-only JSONL session log; `Settings` later gained `mcp_servers`.
+- **Task 1 — done.** `perch-store` holds `Settings` in `settings.toml`, secrets in the keychain (`dev.jyz.perch`), and the append-only JSONL session log; `Settings` later gained `mcp_servers` and `update_check`.
 - **Task 2 — done.** `Shell` with session list and tab strip, `--tree` dumps the accessibility tree, `--offline` opens without the app.
-- **Task 3 — done.** `perch-term` owns one `Terminal` per thread; `session/` and `frame.rs` hold the split that `session.rs` became.
+- **Task 3 — done.** `perch-term` owns one `Terminal` per thread; `session/` and `frame/` hold the split that `session.rs` and `frame.rs` became.
 - **Task 4 — done.** `paint_rows`, `encode_key`, resize, the checked-in flood fixture and its budget test.
 - **Task 5 — done.** SSE client with recorded fixtures for simple, slow and cut streams.
 - **Task 6 — done.** Turn loop, cancellation with exactly one ending, tool-call assembly, and a 12-round ceiling.
 - **Task 7 — done.** Six builtins, registry dispatch by name, `confine`, diff and command previews; `grep` shells out to `rg`.
-- **Task 8 — done.** Transcript with streaming markdown, tool cards, five-line collapsed output and one selection group; the UI has a note item the app does not use yet.
-- **Task 9 — partial.** The crate does the walk, `git status --porcelain=v1 -z` status, synthetic deleted rows, capped preview and `open -a Zed`; branch, ahead/behind and a diff view were never implemented. Nothing in the window is wired to it: rows have no press, so selection, preview and the Zed handoff are unreachable from the UI.
-- **Task 10 — partial.** Sessions are wired end to end and reopen from their headers, but `branch` is stored empty, `McpHost::disconnect` is never called so a dead server keeps its tools, and `PluginHost::release` is never called because no plugin is loaded.
-- **Task 11 — partial.** The wasm host, tool registration, fuel/time bounds, trap disabling and name-collision refusal exist and are tested; the app never loads a plugin directory, so no plugin tool reaches a session.
-- **Task 12 — partial.** `PanelModel`, `dispatch_event` and `panel_view` exist; the shell never draws a panel and no session event reaches a plugin.
-- **Task 13 — partial.** Dispatch, approvals, allow-for-session and `ask_user` with multi-pick and free text are implemented and tested in `perch-agent`; the window offers one numbered pick, a dismissal, allow-once and refuse, and has no free-text or multi-pick path.
-- **Task 14 — partial.** stdio, remote HTTP, OAuth (discovery, dynamic registration, PKCE, loopback, keychain tokens), `<server>__<tool>` namespacing and per-call notes all work; a remote server without OAuth metadata fails rather than connecting anonymously, and the window shows the call as a namespaced tool card while reading only the failure notes at startup.
-- **Task 15 — partial.** The file panel's rows render in the sidebar with depth, icons, git state in words and an accessibility label, and `preview_view` exists; the preview panel is never placed in the window and the `Open in Zed` button has no press handler.
+- **Task 8 — done.** Transcript with streaming markdown, tool cards, collapsed output with a stated cap, expandable cards, system notes, a per-turn summary, and a note item the app uses.
+- **Task 9 — done except the git extras.** Walk, `git status --porcelain=v1 -z`, synthetic deleted rows, capped preview, `open -a Zed`; rows press, the preview is placed, and the handoff goes through a seam the app supplies. Branch, ahead/behind and a diff view were never implemented.
+- **Task 10 — done except branch.** Sessions are wired end to end and reopen from their headers; `McpHost::disconnect` runs from `Sources::settle`, and a dead server's tools leave. `branch` is still stored empty.
+- **Task 11 — done.** The wasm host, tool registration, fuel/time bounds, trap disabling and name-collision refusal are tested, and the app loads a plugin directory (`--plugins`, default under the data dir).
+- **Task 12 — done.** `PanelModel`, `dispatch_event`, `panel_view` and the interaction ABI: the column draws panels, session events reach plugins, and presses report back.
+- **Task 13 — done.** Dispatch, approvals, allow-for-session and `ask_user` with multi-pick and free text; the window toggles digits, types an answer, allows for the session with ⌘Enter, and states each control in words.
+- **Task 14 — done except a live remote test.** stdio, remote HTTP, OAuth (discovery, dynamic registration, PKCE, loopback, keychain tokens), `<server>__<tool>` namespacing and per-call notes all work; a remote server without OAuth metadata fails rather than connecting anonymously, and reconciliation drops servers whose config disappeared.
+- **Task 15 — done.** Rows render with depth, icons and git state in words; the preview is placed; the Open in Zed button presses.
 
 Landed since: the updater — a manifest check on a thread of its own, an offer drawn in the right-hand column, and a download that verifies its SHA-256 and stages an archive the person installs after perch quits; the settings panel's `update_check` field starts or stops that check with no restart. Not started, from "After this plan": notarization and a distributable (non-ad-hoc, non-arm64-only) bundle, wheel page scrolling of the file tree, per-cell accessibility, and git branch, ahead/behind and a diff view. Packaging exists as `scripts/bundle.sh` plus `scripts/verify-bundle.sh`, ad-hoc signed.
