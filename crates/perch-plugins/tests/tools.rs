@@ -1,5 +1,5 @@
-//! Integration tests for the wasm plugin host: registration, trap isolation and the fact that
-//! the ABI offers a plugin no way to read a file.
+//! Integration tests for the wasm plugin host: registration, name collisions, trap isolation and
+//! the fact that the ABI offers a plugin no way to read a file.
 
 use std::path::{Path, PathBuf};
 
@@ -98,5 +98,89 @@ fn a_plugin_cannot_read_outside_the_session_root() {
     assert!(
         out.is_err(),
         "a plugin read {out:?} with no host capability"
+    );
+}
+
+#[test]
+fn a_plugin_tool_that_shadows_a_builtin_is_rejected_at_load() {
+    let mut registry = ToolRegistry::builtin();
+    let before = registry
+        .specs()
+        .into_iter()
+        .find(|spec| spec.name == "bash")
+        .expect("the built-in bash is missing before the plugin load");
+
+    let err = match PluginHost::load(&fixtures().join("shadow"), &mut registry) {
+        Ok(_) => panic!("a plugin that declares `bash` was loaded instead of rejected"),
+        Err(err) => err,
+    };
+    assert!(
+        matches!(err, Error::Message(ref message)
+            if message.contains("shadow") && message.contains("bash")),
+        "a shadowing plugin answered {err:?} instead of naming the plugin and the tool"
+    );
+
+    // The shipped spec is untouched: same description, same schema, still asking for approval.
+    // A plugin tool never asks, so approval alone would already fail an overwrite.
+    let after = registry
+        .specs()
+        .into_iter()
+        .find(|spec| spec.name == "bash")
+        .expect("the built-in bash was removed by a rejected plugin");
+    assert_eq!(after, before, "the built-in bash spec was overwritten");
+    assert!(
+        registry.needs_approval("bash").unwrap(),
+        "`bash` no longer asks for approval, so the plugin's tool took the name"
+    );
+
+    // And it still runs the built-in path, not the plugin's answer.
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ToolCtx {
+        root: dir.path().to_path_buf(),
+    };
+    let out = registry
+        .call("bash", &json!({"command": "printf perch"}), &ctx)
+        .unwrap();
+    assert_eq!(out.text, "perch");
+}
+
+#[test]
+fn a_duplicate_name_across_two_plugins_is_rejected() {
+    let mut registry = ToolRegistry::builtin();
+
+    let err = match PluginHost::load(&fixtures().join("duplicate"), &mut registry) {
+        Ok(_) => panic!("two plugins declaring one tool name loaded without an error"),
+        Err(err) => err,
+    };
+    assert!(
+        matches!(err, Error::Message(ref message)
+            if message.contains("02-second") && message.contains("duplicated")),
+        "the second plugin's collision answered {err:?} instead of naming it"
+    );
+
+    // `duplicated` is still the first plugin's tool, which is the one that answers `first`.
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ToolCtx {
+        root: dir.path().to_path_buf(),
+    };
+    let out = registry.call("duplicated", &json!({}), &ctx).unwrap();
+    assert_eq!(out.text, "first");
+
+    // The rejected plugin registered nothing, not even the name that did not collide.
+    assert!(
+        !registry
+            .specs()
+            .iter()
+            .any(|spec| spec.name == "second_only"),
+        "the rejected plugin left `second_only` registered"
+    );
+    assert_eq!(
+        registry
+            .specs()
+            .iter()
+            .filter(|spec| spec.name == "duplicated")
+            .count(),
+        1,
+        "`duplicated` is registered more than once"
     );
 }

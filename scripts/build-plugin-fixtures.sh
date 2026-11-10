@@ -1,13 +1,14 @@
 #!/bin/sh
-# Builds the wasm plugin fixture checked into crates/perch-plugins/fixtures.
+# Builds the wasm plugin fixtures checked into crates/perch-plugins/fixtures.
 #
-# The wasm is committed so the plugin tests need no wasm toolchain; run this only after editing
-# the fixture plugin or the WIT world.
+# The wasm is committed so the plugin tests need no wasm toolchain; run this only after editing a
+# fixture plugin or the WIT world. `example.wasm` is the only plugin the happy-path tests load;
+# the colliding fixtures live in subdirectories their own tests point at, which the host's
+# `*.wasm` scan of the fixtures root never reaches.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-crate="$root/crates/perch-plugins/fixtures/example-plugin"
-out="$root/crates/perch-plugins/fixtures/example.wasm"
+fixtures="$root/crates/perch-plugins/fixtures"
 target_dir="${CARGO_TARGET_DIR:-$root/target-plugins}"
 
 if ! rustup target list --installed | grep -qx wasm32-wasip2; then
@@ -15,10 +16,18 @@ if ! rustup target list --installed | grep -qx wasm32-wasip2; then
 	rustup target add wasm32-wasip2
 fi
 
-CARGO_TARGET_DIR="$target_dir" cargo build \
-	--manifest-path "$crate/Cargo.toml" \
-	--target wasm32-wasip2 \
-	--release
+# build <fixture crate dir> <crate's wasm stem> <path under fixtures/>
+build() {
+	CARGO_TARGET_DIR="$target_dir" cargo build \
+		--manifest-path "$fixtures/$1/Cargo.toml" \
+		--target wasm32-wasip2 \
+		--release
+	mkdir -p "$(dirname "$fixtures/$3")"
+	cp "$target_dir/wasm32-wasip2/release/$2.wasm" "$fixtures/$3"
+	echo "wrote $fixtures/$3"
+}
 
-cp "$target_dir/wasm32-wasip2/release/example_plugin.wasm" "$out"
-echo "wrote $out"
+build example-plugin example_plugin example.wasm
+build shadow-plugin shadow_plugin shadow/shadow.wasm
+build dupe-plugin-a dupe_plugin_a duplicate/01-first.wasm
+build dupe-plugin-b dupe_plugin_b duplicate/02-second.wasm

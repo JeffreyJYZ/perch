@@ -45,6 +45,14 @@ impl PluginHost {
     /// A component that cannot be compiled or instantiated fails the whole load with its path in
     /// the message: a plugin the user installed must not disappear silently. A plugin that traps
     /// *while running* is a different case and is disabled in place.
+    ///
+    /// A declared name that is already taken — by a built-in or by an earlier plugin in the same
+    /// directory — fails the load with an error naming the plugin and the tool. Nothing is
+    /// overwritten and nothing is renamed: `registry.register` replaces in place, so registering a
+    /// `bash` would silently take the shipped tool away from the model, and `release` would never
+    /// give it back because it only removes names a disabled plugin owns. Rejection is per
+    /// plugin, so a colliding plugin adds none of its tools while the plugins loaded before it
+    /// keep theirs; the caller still holds the registry and can unregister by name.
     pub fn load(dir: &Path, registry: &mut ToolRegistry) -> Result<Self> {
         let mut wasm_files = wasm_files(dir)?;
         wasm_files.sort();
@@ -160,6 +168,18 @@ fn load_plugin(
         .call_tool_specs(&mut store)
         .map_err(|err| Error::Message(format!("{}: {err}", path.display())))?;
 
+    // Names are checked before a single registration, so a plugin that collides contributes
+    // nothing — not the tools that happened to come earlier in its spec list either. Every name
+    // it declares must be free against what the registry already holds and against its own specs.
+    let taken: Vec<String> = registry.specs().into_iter().map(|spec| spec.name).collect();
+    let mut declared: Vec<String> = Vec::new();
+    for spec in &specs {
+        if taken.contains(&spec.name) || declared.contains(&spec.name) {
+            return Err(collision_error(path, &plugin_name, &spec.name));
+        }
+        declared.push(spec.name.clone());
+    }
+
     let inner = Arc::new(Mutex::new(PluginInner {
         store,
         bindings,
@@ -265,6 +285,14 @@ impl Tool for PluginTool {
 fn disabled_error(plugin: &str, tool: &str) -> Error {
     Error::Message(format!(
         "plugin `{plugin}` is disabled, so `{tool}` is gone"
+    ))
+}
+
+/// The one error a name collision produces, naming the plugin and the tool it tried to take.
+fn collision_error(path: &Path, plugin: &str, tool: &str) -> Error {
+    Error::Message(format!(
+        "{}: plugin `{plugin}` declares tool `{tool}`, which is already registered",
+        path.display()
     ))
 }
 
