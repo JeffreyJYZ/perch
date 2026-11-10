@@ -9,6 +9,9 @@ if [ -f "$_gate_dir/zig-env.sh" ]; then
 fi
 unset _gate_dir
 
+# A source file has a budget: 200 lines, and a file already over it may only shrink.
+"$_gate_dir/check-file-size.sh"
+
 # `cargo fmt --all` also formats local path dependencies, and Rune is not rustfmt-clean — so
 # format exactly this workspace's packages, by name.
 for _pkg in perch-app perch-store perch-ui perch-term perch-agent perch-tools perch-files \

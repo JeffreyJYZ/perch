@@ -1,0 +1,17 @@
+# Files over the 200-line budget, with their size when the budget was introduced.
+# This list may only shrink: a new offender fails the gate, and a listed file that grows fails it.
+crates/perch-agent/src/provider.rs 537
+crates/perch-agent/src/turn.rs 228
+crates/perch-app/src/app.rs 718
+crates/perch-app/src/bridge.rs 231
+crates/perch-app/src/main.rs 248
+crates/perch-mcp/src/lib.rs 402
+crates/perch-mcp/src/oauth.rs 308
+crates/perch-plugins/src/host.rs 423
+crates/perch-term/src/frame.rs 203
+crates/perch-term/src/keys.rs 238
+crates/perch-term/src/session.rs 393
+crates/perch-tools/src/builtin.rs 610
+crates/perch-ui/src/files.rs 253
+crates/perch-ui/src/shell.rs 1406
+crates/perch-ui/src/transcript.rs 428
