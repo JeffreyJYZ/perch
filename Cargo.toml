@@ -9,6 +9,7 @@ members = [
 	"crates/perch-tools",
 	"crates/perch-files",
 	"crates/perch-plugins",
+	"crates/perch-mcp",
 ]
 
 [workspace.package]

@@ -1,0 +1,45 @@
+[package]
+name = "perch-mcp"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+perch-store = { path = "../perch-store" }
+perch-tools = { path = "../perch-tools" }
+rmcp = { version = "3.9.0", features = [
+	"client",
+	"reqwest",
+	"transport-child-process",
+	"transport-streamable-http-client-reqwest",
+	"auth",
+	"transport-io",
+] }
+tokio = { version = "1", features = [
+	"rt",
+	"rt-multi-thread",
+	"macros",
+	"time",
+	"process",
+	"io-util",
+	"net",
+	"sync",
+] }
+reqwest = { version = "0.13", features = ["json", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+async-trait = "0.1"
+url = "2"
+base64 = "0.22"
+sha2 = "0.10"
+oauth2 = "5"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+url = "2"
+
+[[bin]]
+name = "mcp-fixture"
+path = "src/bin/mcp_fixture.rs"
