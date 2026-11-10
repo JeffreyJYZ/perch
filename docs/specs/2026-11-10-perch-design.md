@@ -66,6 +66,8 @@ Sessions: the first version carries a session list and tabs, not one session per
 
 ## Components
 
+Layout: one column to the left, full window height, holding the session list above the file tree; the transcript fills the centre; the terminal dock sits under the transcript only, so it belongs to the session it shows. State is written in words — "waiting", "done", "failed", "approval needed" — never a colour alone; colour reinforces, it never carries meaning by itself.
+
 ### Agent loop
 
 Turn state machine: idle → requesting → streaming → tool calls → waiting for approval → next request → done, plus cancelled and errored. The provider client is one OpenAI-compatible streaming implementation over SSE, reading `choices[].delta`, tool-call deltas and usage. Base URL, key and model come from settings, so OpenRouter, Command Code and local servers all work with no extra code.
