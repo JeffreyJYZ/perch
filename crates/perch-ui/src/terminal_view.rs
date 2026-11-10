@@ -6,7 +6,7 @@
 //! the blank tail of each row. The result is usually one run per coloured
 //! stretch, which is a few dozen elements per screen instead of a grid.
 
-use perch_term::{CellKind, CellView, Color, Frame, RowView};
+use perch_term::{CellKind, CellRange, CellView, Color, Frame, RowView, selection_text};
 
 /// A stretch of one row whose cells all share one style.
 ///
@@ -31,6 +31,8 @@ pub struct RowRun {
     pub italic: bool,
     /// Underlined.
     pub underline: bool,
+    /// Inverse video: the painter draws `fg` on `bg` swapped.
+    pub inverse: bool,
 }
 
 /// Collapse a frame's cells into runs, row by row.
@@ -86,6 +88,7 @@ impl RowRun {
             bold: cell.bold,
             italic: cell.italic,
             underline: cell.underline,
+            inverse: cell.inverse,
         }
     }
 }
@@ -96,6 +99,7 @@ fn shares_style(run: &RowRun, cell: &CellView) -> bool {
         && run.bold == cell.bold
         && run.italic == cell.italic
         && run.underline == cell.underline
+        && run.inverse == cell.inverse
 }
 
 /// Columns up to and including the last one that draws something.
@@ -108,4 +112,32 @@ fn visible_width(row: &RowView) -> usize {
 
 fn is_blank(cell: &CellView) -> bool {
     cell.kind != CellKind::Wide && cell.text.is_empty() && cell.bg == Color::Default
+}
+
+/// Somewhere a copied selection can go.
+///
+/// The shell owns the clipboard and rune carries the write out after the handler returns, so
+/// the copy is a request rather than a call. This trait is that seam: [`rune::Tx`] implements
+/// it, and a test can record the text instead of touching the real clipboard.
+pub trait Clipboard {
+    /// Put `text` on the clipboard.
+    fn copy(&mut self, text: &str);
+}
+
+impl Clipboard for rune::Tx {
+    fn copy(&mut self, text: &str) {
+        rune::Tx::copy(self, text);
+    }
+}
+
+/// Copy the text `range` covers, and return it so the caller can say what it copied.
+///
+/// A blank selection is a drag over empty grid, so it writes nothing: putting an empty string
+/// on the clipboard would replace whatever it already held with nothing.
+pub fn copy_selection(frame: &Frame, range: CellRange, clipboard: &mut impl Clipboard) -> String {
+    let text = selection_text(frame, range);
+    if !text.is_empty() {
+        clipboard.copy(&text);
+    }
+    text
 }

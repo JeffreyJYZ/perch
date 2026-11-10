@@ -62,6 +62,8 @@ pub struct CellView {
     pub italic: bool,
     /// Any underline style, flattened to a bool because the painter draws one.
     pub underline: bool,
+    /// Inverse video: the painter swaps this cell's foreground and background.
+    pub inverse: bool,
 }
 
 /// Whether a cell is a normal column, a wide glyph, or the spacer after one.
@@ -98,9 +100,8 @@ pub struct CursorView {
 
 /// A complete snapshot of the visible screen.
 ///
-/// The plan's interface block lists both `rows: Vec<RowView>` and `rows: u16`
-/// on this type, which cannot compile. `rows` is the cells; the height is
-/// [`Frame::height`], and it always equals `rows.len()`.
+/// The plan lists both `rows: Vec<RowView>` and `rows: u16` here, which cannot compile: `rows`
+/// is the cells, the height is [`Frame::height`], and it always equals `rows.len()`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Frame {
     /// One entry per visible row, top to bottom.
@@ -113,8 +114,7 @@ pub struct Frame {
     pub height: u16,
 }
 
-/// Reusable render state, so a terminal thread updates one state per frame
-/// instead of allocating a new one on every write.
+/// Reusable render state: one per terminal thread, updated per frame, never reallocated.
 #[derive(Debug)]
 pub struct FrameBuilder<'alloc> {
     state: RenderState<'alloc>,
@@ -171,9 +171,8 @@ impl<'alloc> FrameBuilder<'alloc> {
 }
 
 fn cell_view(cell: &CellIteration<'_, '_>, text: &mut String) -> Result<CellView, Error> {
-    // A spacer (the tail of a wide character) and an empty cell both answer
-    // `InvalidValue` here, which is not an error worth reporting: the cell
-    // simply has no glyph.
+    // A spacer (the tail of a wide character) and an empty cell both answer `InvalidValue`,
+    // which is not an error worth reporting: the cell simply has no glyph.
     text.clear();
     if cell.graphemes_utf8(text).is_err() {
         text.clear();
@@ -189,6 +188,7 @@ fn cell_view(cell: &CellIteration<'_, '_>, text: &mut String) -> Result<CellView
         bold: style.bold,
         italic: style.italic,
         underline: style.underline != Underline::None,
+        inverse: style.inverse,
     })
 }
 

@@ -8,9 +8,12 @@
 
 mod frame;
 mod keys;
+mod paste;
+mod selection;
 mod session;
 
 pub use libghostty_vt::key::{Key, Mods};
+pub use libghostty_vt::screen::Screen;
 
 use std::time::{Duration, Instant};
 
@@ -20,6 +23,8 @@ pub use frame::{
     CellKind, CellView, Color, CursorView, Frame, FrameBuilder, MAX_SCROLLBACK, RowView,
 };
 pub use keys::{encode_key, encode_key_for_terminal};
+pub use paste::{PASTE_END, PASTE_START, encode_paste};
+pub use selection::{CellRange, selection_text};
 pub use session::{KeyEvent, TermError, TermHandle, TermSession};
 
 /// How a replay's time was spent.

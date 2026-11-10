@@ -9,8 +9,8 @@ use std::{
 };
 
 use perch_term::{
-    Frame, Key, KeyEvent, Mods, TermSession, Terminal, TerminalOptions, encode_key,
-    encode_key_for_terminal, replay_stages,
+    Frame, FrameBuilder, Key, KeyEvent, Mods, Screen, TermSession, Terminal, TerminalOptions,
+    encode_key, encode_key_for_terminal, replay_stages,
 };
 
 /// The frame budget the plan states, for the build that ships.
@@ -146,6 +146,54 @@ fn resize_reaches_the_pty_then_the_grid_and_then_a_frame() {
         resized.rows.iter().all(|row| row.cells.len() == 70),
         "every row of the resized grid is 70 cells wide"
     );
+}
+
+#[test]
+fn a_resize_leaves_the_alternate_screen_whole() {
+    let mut terminal = Terminal::new(TerminalOptions {
+        cols: 40,
+        rows: 10,
+        max_scrollback: 0,
+    })
+    .expect("create a terminal");
+    let mut builder = FrameBuilder::new().expect("create a render state");
+
+    // A full-screen program: alternate screen on (DECSET 1049), one known line, then the
+    // cursor parked a few rows below it.
+    terminal.vt_write(b"\x1b[?1049h\x1b[3;5Hhello\x1b[7;9H");
+    let before = builder.build(&terminal).expect("frame before the resize");
+    assert_eq!((before.cols, before.height), (40, 10));
+    assert_eq!(line(&before, 2), "hello");
+    assert_eq!((before.cursor.row, before.cursor.col), (6, 8));
+
+    terminal.resize(72, 20, 0, 0).expect("resize the grid");
+
+    let after = builder.build(&terminal).expect("frame after the resize");
+    assert_eq!((after.cols, after.height), (72, 20));
+    assert_eq!(
+        terminal.active_screen().expect("active screen"),
+        Screen::Alternate,
+        "a resize must not fall back to the primary screen"
+    );
+    assert_eq!(
+        line(&after, 2),
+        "hello",
+        "the program's line stays at the row and column it wrote"
+    );
+    assert_eq!(
+        (after.cursor.row, after.cursor.col),
+        (6, 8),
+        "the cursor stays where the program left it"
+    );
+}
+
+/// One row's text, which is every glyph on it: blanks carry an empty string.
+fn line(frame: &Frame, row: usize) -> String {
+    frame.rows[row]
+        .cells
+        .iter()
+        .map(|cell| cell.text.as_str())
+        .collect()
 }
 
 /// Read frames until `accept` says yes, or fail after a bounded wait.
