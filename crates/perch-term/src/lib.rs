@@ -14,6 +14,7 @@ mod session;
 
 pub use libghostty_vt::key::{Key, Mods};
 pub use libghostty_vt::screen::Screen;
+pub use libghostty_vt::terminal::{Mode, ModeKind};
 
 use std::time::{Duration, Instant};
 

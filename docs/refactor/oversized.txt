@@ -10,7 +10,6 @@ crates/perch-mcp/src/oauth.rs 308
 crates/perch-plugins/src/host.rs 423
 crates/perch-term/src/frame.rs 203
 crates/perch-term/src/keys.rs 238
-crates/perch-term/src/session.rs 393
 crates/perch-tools/src/builtin.rs 610
 crates/perch-ui/src/files.rs 253
 crates/perch-ui/src/shell.rs 1406
