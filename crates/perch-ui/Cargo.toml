@@ -1,0 +1,10 @@
+[package]
+name = "perch-ui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+rune = { path = "../../../../experiments/rune/crates/rune" }
+rune-kit = { path = "../../../../experiments/rune/crates/rune-kit" }
+serde = { version = "1", features = ["derive"] }

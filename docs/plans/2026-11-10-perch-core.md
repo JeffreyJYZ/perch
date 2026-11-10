@@ -21,6 +21,7 @@
 - A path outside the session's worktree is refused, never clipped; symlinks are resolved before the check.
 - Provider keys live in the keychain; never in TOML, never in a session file, never in a log line.
 - Files are read-only in the app. Nothing but the agent writes into a worktree.
+- Every capability a plugin will need is designed as a registry from the start: tools are registered dynamically, panels are declarative, and no built-in gets a private path the plugin host cannot take.
 
 ## Review Focus
 
@@ -393,15 +394,24 @@ git add -A && git commit -m "feat(agent): turn loop with cancellation and defini
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks except the worktree path.
-- Produces: `trait Tool { fn spec(&self) -> ToolSpec; fn needs_approval(&self) -> bool; fn call(&self, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>; }`; `ToolCtx { root: PathBuf }`; `ToolOutput { text: String, preview: Option<Preview> }`; `Preview::{Diff(String), Command(String)}`; `Registry::builtin() -> Registry`; `Registry::specs(&self) -> Vec<ToolSpec>`; `Registry::call(&self, name: &str, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>`; `confine(root: &Path, candidate: &Path) -> Result<PathBuf>`.
+- Produces: `trait Tool { fn spec(&self) -> ToolSpec; fn needs_approval(&self) -> bool; fn call(&self, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>; }`; `ToolCtx { root: PathBuf }`; `ToolOutput { text: String, preview: Option<Preview> }`; `Preview::{Diff(String), Command(String)}`; `ToolRegistry::builtin() -> ToolRegistry`; `ToolRegistry::register(&mut self, tool: Arc<dyn Tool>)`; `ToolRegistry::specs(&self) -> Vec<ToolSpec>`; `ToolRegistry::call(&self, name: &str, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>`; `confine(root: &Path, candidate: &Path) -> Result<PathBuf>`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```rust
 #[test]
 fn every_builtin_tool_is_registered_with_a_schema() {
-    let names: Vec<String> = Registry::builtin().specs().into_iter().map(|s| s.name).collect();
+    let names: Vec<String> = ToolRegistry::builtin().specs().into_iter().map(|s| s.name).collect();
     assert_eq!(names, ["read", "write", "edit", "bash", "list", "grep"]);
+}
+
+#[test]
+fn a_registered_tool_appears_in_the_specs_and_is_callable() {
+    let mut registry = ToolRegistry::builtin();
+    registry.register(Arc::new(Echo));
+    assert!(registry.specs().iter().any(|s| s.name == "echo"));
+    let ctx = ToolCtx { root: std::env::temp_dir() };
+    assert_eq!(registry.call("echo", &json!({"text": "hi"}), &ctx).unwrap().text, "hi");
 }
 
 #[test]
@@ -418,16 +428,16 @@ fn edit_returns_a_diff_preview_and_write_refuses_outside_root() {
     let root = tempdir().unwrap();
     std::fs::write(root.path().join("a.rs"), "fn a() {}\n").unwrap();
     let ctx = ToolCtx { root: root.path().to_path_buf() };
-    let out = Registry::builtin().call("edit", &json!({"path": "a.rs", "old": "a", "new": "b"}), &ctx).unwrap();
+    let out = ToolRegistry::builtin().call("edit", &json!({"path": "a.rs", "old": "a", "new": "b"}), &ctx).unwrap();
     assert!(matches!(out.preview, Some(Preview::Diff(_))));
-    assert!(Registry::builtin().call("write", &json!({"path": "../x", "text": "y"}), &ctx).is_err());
+    assert!(ToolRegistry::builtin().call("write", &json!({"path": "../x", "text": "y"}), &ctx).is_err());
 }
 
 #[test]
 fn bash_output_is_truncated_to_the_stated_budget() {
     let root = tempdir().unwrap();
     let ctx = ToolCtx { root: root.path().to_path_buf() };
-    let out = Registry::builtin().call("bash", &json!({"command": "yes x | head -c 200000"}), &ctx).unwrap();
+    let out = ToolRegistry::builtin().call("bash", &json!({"command": "yes x | head -c 200000"}), &ctx).unwrap();
     assert!(out.text.len() <= 16 * 1024);
     assert!(out.text.contains("[truncated"));
 }
@@ -645,6 +655,125 @@ git add -A && git commit -m "feat(app): session tabs wired to agent, terminal an
 
 ---
 
+### Task 11: Wasm plugin host with tools
+
+**Files:**
+- Create: `crates/perch-plugins/Cargo.toml`, `crates/perch-plugins/src/lib.rs`, `crates/perch-plugins/src/host.rs`, `crates/perch-plugins/src/abi.rs`, `crates/perch-plugins/wit/perch-plugin.wit`, `crates/perch-plugins/fixtures/echo-plugin/{Cargo.toml,src/lib.rs}`, `crates/perch-plugins/fixtures/echo.wasm`, `scripts/build-plugin-fixtures.sh`
+- Test: `crates/perch-plugins/tests/tools.rs`
+
+**Interfaces:**
+- Consumes: `ToolRegistry`, `Tool`, `ToolCtx`, `ToolOutput` from Task 7.
+- Produces: `PluginHost::load(dir: &Path, registry: &mut ToolRegistry) -> Result<PluginHost>`; `PluginHost::len(&self) -> usize`; `PluginHost::names(&self) -> Vec<String>`; a `PluginTool` implementing `Tool` whose `call` invokes the guest with a 2s fuel-and-time bound and maps a trap to `Err` plus disabling that plugin.
+
+- [ ] **Step 1: Write the failing test**
+
+```rust
+#[test]
+fn a_plugin_tool_registers_and_runs() {
+    let mut registry = ToolRegistry::builtin();
+    let host = PluginHost::load(Path::new("fixtures"), &mut registry).unwrap();
+    assert_eq!(host.len(), 1);
+    assert!(registry.specs().iter().any(|s| s.name == "echo"));
+    let ctx = ToolCtx { root: tempdir().unwrap().path().to_path_buf() };
+    assert_eq!(registry.call("echo", &json!({"text": "hi"}), &ctx).unwrap().text, "hi");
+}
+
+#[test]
+fn a_trapping_plugin_is_disabled_and_its_tools_vanish() {
+    let mut registry = ToolRegistry::builtin();
+    let host = PluginHost::load(Path::new("fixtures"), &mut registry).unwrap();
+    let ctx = ToolCtx { root: tempdir().unwrap().path().to_path_buf() };
+    assert!(registry.call("explode", &json!({}), &ctx).is_err());
+    assert!(!host.names().contains(&"explode".to_string()));
+    assert!(!registry.specs().iter().any(|s| s.name == "explode"));
+}
+
+#[test]
+fn a_plugin_cannot_read_outside_the_session_root() {
+    let mut registry = ToolRegistry::builtin();
+    PluginHost::load(Path::new("fixtures"), &mut registry).unwrap();
+    let ctx = ToolCtx { root: tempdir().unwrap().path().to_path_buf() };
+    let out = registry.call("read_outside", &json!({"path": "/etc/hosts"}), &ctx);
+    assert!(out.is_err());
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cargo test -p perch-plugins`
+Expected: FAIL, `PluginHost` not found.
+
+- [ ] **Step 3: Implement**
+
+`perch-plugin.wit` declares a world exporting `tool-specs() -> list<tool-spec>`, `call(name, args-json) -> result<string, string>`, and importing only `log`. `PluginHost::load` reads each `.wasm` in the directory, instantiates it with wasmtime's component API and store limits (memory cap plus fuel), and registers one `PluginTool` per spec. Host IO is refused outright in this task — a plugin that wants a file must ask through a host import added in Task 12, so `read_outside` fails at the ABI boundary rather than by inspection. The fixture plugin is a `wasm32-wasip2` crate built by `scripts/build-plugin-fixtures.sh`, and its two wasm files are checked in so tests need no toolchain.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cargo test -p perch-plugins`
+Expected: PASS, 3 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(plugins): wasm host registering tools with trap isolation"
+```
+
+---
+
+### Task 12: Declarative panels and the event stream
+
+**Files:**
+- Create: `crates/perch-plugins/src/panel.rs`, `crates/perch-ui/src/plugin_panel.rs`
+- Modify: `crates/perch-plugins/wit/perch-plugin.wit`, `crates/perch-plugins/src/host.rs`
+- Test: `crates/perch-plugins/tests/panels.rs`, `crates/perch-ui/tests/plugin_panel.rs`
+
+**Interfaces:**
+- Consumes: `PluginHost` from Task 11, `SessionEvent` from Task 1.
+- Produces: `PanelModel { title: String, sections: Vec<PanelSection> }`; `PanelSection::{Text(String), Rows(Vec<String>), Button { id: String, label: String }, Input { id: String, label: String }}`; `PluginHost::panel_model(&self, plugin: &str) -> Option<PanelModel>`; `PluginHost::dispatch_event(&mut self, event: &SessionEvent)`; `panel_lines(model: &PanelModel) -> Vec<String>` in `perch-ui`.
+
+- [ ] **Step 1: Write the failing test**
+
+```rust
+#[test]
+fn a_panel_model_decodes_into_host_rendered_lines() {
+    let mut registry = ToolRegistry::builtin();
+    let host = PluginHost::load(Path::new("fixtures"), &mut registry).unwrap();
+    let model = host.panel_model("counter").unwrap();
+    assert_eq!(model.title, "Counter");
+    assert_eq!(panel_lines(&model), vec!["count: 0".to_string()]);
+}
+
+#[test]
+fn a_session_event_reaches_the_plugin_and_changes_its_panel() {
+    let mut registry = ToolRegistry::builtin();
+    let mut host = PluginHost::load(Path::new("fixtures"), &mut registry).unwrap();
+    host.dispatch_event(&SessionEvent::TurnEnd { reason: "done".into(), tokens_in: 1, tokens_out: 2 });
+    assert_eq!(panel_lines(&host.panel_model("counter").unwrap()), vec!["count: 1".to_string()]);
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cargo test -p perch-plugins panels`
+Expected: FAIL, `panel_model` not found.
+
+- [ ] **Step 3: Implement**
+
+The WIT world gains `panel() -> panel-model` and `on-event(event-json)`. The model is data only — rows of strings, buttons and inputs — so the host owns layout, theme and hit-testing and a plugin cannot draw over chrome. `panel_lines` flattens text and rows for the host's renderer and is what the UI test asserts, so panel content is proved without pixels. `dispatch_event` sends the serialised event to every loaded plugin; a plugin that traps is disabled by the same path as Task 11.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cargo test`
+Expected: PASS, all crates.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(plugins): declarative panels and session events"
+```
+
+---
+
 ## After this plan
 
-Plugins (wasmtime tools, then declarative panels) get their own plan, written once the tool registry in Task 7 has shipped and its shape is proven.
+Task 11 and 12 close the plugin story the spec promises. After they land, the remaining work is polish: keybindings, themes, scrollback edge cases, packaging and the updater.

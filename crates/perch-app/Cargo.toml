@@ -1,0 +1,19 @@
+[package]
+name = "perch-app"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+perch-store = { path = "../perch-store" }
+perch-ui = { path = "../perch-ui" }
+perch-term = { path = "../perch-term" }
+perch-agent = { path = "../perch-agent" }
+perch-tools = { path = "../perch-tools" }
+perch-files = { path = "../perch-files" }
+perch-plugins = { path = "../perch-plugins" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
