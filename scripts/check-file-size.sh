@@ -27,7 +27,7 @@ baselined() {
 found=$(mktemp)
 trap 'rm -f "$found"' EXIT
 
-for file in $(find crates -path '*/src/*' -name '*.rs' -type f | sort); do
+for file in $(find crates -name "*.rs" -type f | sort); do
 	lines=$(size_of "$file")
 	[ "$lines" -le "$cap" ] && continue
 
