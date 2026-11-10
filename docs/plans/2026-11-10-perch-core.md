@@ -529,6 +529,8 @@ git add -A && git commit -m "feat(ui): transcript with streaming text and tool c
 - Create: `crates/perch-files/Cargo.toml`, `crates/perch-files/src/lib.rs`, `crates/perch-files/src/tree.rs`, `crates/perch-files/src/status.rs`, `crates/perch-files/src/open.rs`
 - Test: `crates/perch-files/tests/files.rs`
 
+**Behaviour added after the first pass:** a file tracked by git and deleted from disk appears in the tree greyed out (status `Deleted`), so the panel never omits a change git knows about; clicking it reports the deletion instead of previewing nothing.
+
 **Interfaces:**
 - Consumes: nothing.
 - Produces: `Workspace::open(root: &Path) -> Result<Workspace>`; `Workspace::tree(&self) -> Vec<Node>`; `Node { path: PathBuf, name: String, kind: NodeKind, status: Option<FileStatus>, children: Vec<Node> }`; `NodeKind::{Dir, File}`; `FileStatus::{Added, Modified, Deleted, Untracked, Conflicted}`; `Workspace::preview(&self, path: &Path) -> Result<PreviewText>`; `PreviewText { lines: Vec<String>, language: Option<String> }`; `open_in_zed(path: &Path) -> Result<()>`.
@@ -572,7 +574,7 @@ Expected: FAIL, `Workspace` not found.
 
 - [ ] **Step 3: Implement**
 
-The walker is `ignore::WalkBuilder` with standard filters, sorted directories-first then alphabetically. Status comes from `gix`'s status API against HEAD, mapped into `FileStatus`. Icons map by extension through one table, returning a Material Symbols glyph name. `open_in_zed` runs `open -a Zed <path>` with an argument, never a shell string.
+The walker is `ignore::WalkBuilder` with standard filters, sorted directories-first then alphabetically. Status comes from `git status --porcelain=v1 -z --untracked-files=all` under a 30s timeout, mapped into `FileStatus` — porcelain output is the contract the spec states, so parsing it is the direct proof. After the walk, every path git reports as deleted gets a synthetic node under its parent, with any missing parent directories created along that path only, marked `FileStatus::Deleted`; `preview` on a deleted path returns an error naming the deletion rather than an empty file. Icons map by extension through one table, returning a Material Symbols glyph name. `open_in_zed` runs `open -a Zed <path>` with an argument, never a shell string.
 
 - [ ] **Step 4: Run test to verify it passes**
 
