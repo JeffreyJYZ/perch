@@ -4,12 +4,16 @@
 //! over decoded events, so a caller with no async runtime can consume a live reply.
 
 pub mod chunk;
+pub mod event;
 pub mod provider;
+pub mod turn;
 
 pub use chunk::Chunk;
+pub use event::{AgentEvent, EndReason, ToolCall, Usage};
 pub use provider::{
     ChatRequest, ChunkStream, Message, Role, SecretString, ToolCallRecord, ToolSpec, stream,
 };
+pub use turn::{Agent, AgentConfig, AgentHandle};
 
 /// Every failure perch-agent can produce.
 #[derive(Debug, thiserror::Error)]
