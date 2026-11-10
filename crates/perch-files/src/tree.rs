@@ -75,6 +75,25 @@ impl Workspace {
         Ok(canonical)
     }
 
+    /// `candidate` as a path relative to the root, resolved lexically.
+    ///
+    /// A tree node's path may no longer exist on disk (a deleted file), so nothing here
+    /// touches the filesystem.
+    pub(crate) fn relative(&self, candidate: &Path) -> Option<PathBuf> {
+        if candidate.is_absolute() {
+            candidate
+                .strip_prefix(&self.root)
+                .ok()
+                .map(Path::to_path_buf)
+        } else {
+            Some(candidate.to_path_buf())
+        }
+    }
+
+    pub(crate) fn status_of(&self, relative: &Path) -> Option<FileStatus> {
+        self.statuses.get(relative).copied()
+    }
+
     /// Directories first, then alphabetically; ignored and hidden paths are absent.
     pub fn tree(&self) -> Vec<Node> {
         let mut root = Node {
@@ -113,16 +132,35 @@ impl Workspace {
                 NodeKind::File => self.statuses.get(relative).copied(),
                 NodeKind::Dir => None,
             };
-            let parts: Vec<String> = relative
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                .collect();
+            let parts = path_parts(relative);
             insert(&mut root, &parts, kind, status);
+        }
+
+        // A tracked file that is gone from disk still belongs in the tree; the caller greys
+        // it from its status. Only the paths git names may invent ancestors, so this never
+        // conjures an empty directory.
+        for (relative, status) in &self.statuses {
+            if *status != FileStatus::Deleted {
+                continue;
+            }
+            insert(
+                &mut root,
+                &path_parts(relative),
+                NodeKind::File,
+                Some(FileStatus::Deleted),
+            );
         }
 
         sort_children(&mut root.children);
         root.children
     }
+}
+
+fn path_parts(relative: &Path) -> Vec<String> {
+    relative
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect()
 }
 
 fn insert(parent: &mut Node, parts: &[String], kind: NodeKind, status: Option<FileStatus>) {

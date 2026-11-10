@@ -3,6 +3,7 @@
 use std::io::Read;
 use std::path::Path;
 
+use crate::status::FileStatus;
 use crate::tree::Workspace;
 use crate::{Error, Result, language};
 
@@ -20,7 +21,13 @@ pub struct PreviewText {
 impl Workspace {
     /// Reads one file, refusing anything whose canonical path leaves the root.
     pub fn preview(&self, path: &Path) -> Result<PreviewText> {
-        let target = self.confine(path)?;
+        let target = match self.confine(path) {
+            Ok(target) => target,
+            // A tracked file that is gone from disk is the one case where the confinement
+            // failure is not the useful answer: the caller asked about a path the tree is
+            // still showing, so say why it cannot be read.
+            Err(error) => return Err(self.deletion_error(path).unwrap_or(error)),
+        };
         let file = std::fs::File::open(&target)?;
         if !file.metadata()?.is_file() {
             return Err(Error::Message(format!(
@@ -40,5 +47,18 @@ impl Workspace {
             lines,
             language: language::language_for(&target).map(str::to_string),
         })
+    }
+
+    /// Why `path` cannot be read because git reports it deleted, if that is the reason.
+    fn deletion_error(&self, path: &Path) -> Option<Error> {
+        let relative = self.relative(path)?;
+        if self.status_of(&relative) == Some(FileStatus::Deleted) {
+            Some(Error::Message(format!(
+                "{} is deleted in the worktree",
+                relative.display()
+            )))
+        } else {
+            None
+        }
     }
 }
