@@ -55,7 +55,7 @@ One binary, one window, four teams of threads.
 - **UI (Rune, main thread).** Draws the frame, owns focus, keybindings and panels. Reads the latest state through live values; never blocks on IO.
 - **Agent.** Owns the turn: message list, provider request, streamed deltas, tool calls, approvals, cancellation, token counts. Emits events; never touches UI state directly.
 - **Tools.** Execute in worker threads; each returns a result plus the diff or output the approval view needs. Bounded by timeouts, never by a bare blocking call.
-- **Terminal.** One PTY reader thread per terminal tab, feeding the Ghostty grid; the UI paints the visible rows on each frame.
+- **Terminal.** One thread per terminal tab owns both the PTY reader and the Ghostty grid, because `libghostty-vt` is neither `Send` nor `Sync`; it publishes plain frame snapshots that the UI paints.
 - **Plugins.** wasmtime instances on their own thread; calls into them are bounded, and a trap disables that plugin without taking the app down.
 
 Events are typed enums on a channel. The UI keeps the last known value per panel; nothing re-derives state from scratch per frame.
