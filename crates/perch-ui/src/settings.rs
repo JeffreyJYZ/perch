@@ -25,6 +25,8 @@ pub enum Field {
     Model,
     /// One of [`THEMES`].
     Theme,
+    /// The release manifest the app checks, when one is named.
+    UpdateCheck,
 }
 
 impl Field {
@@ -34,6 +36,7 @@ impl Field {
             Field::BaseUrl => "base URL",
             Field::Model => "model",
             Field::Theme => "theme",
+            Field::UpdateCheck => "update check URL",
         }
     }
 }
@@ -68,6 +71,8 @@ pub struct SettingsDraft {
     pub model: String,
     /// One of [`THEMES`].
     pub theme: String,
+    /// The release manifest to check, empty when the app must not reach the network.
+    pub update_check: String,
     /// A key to store, empty when the person typed none.
     pub api_key: String,
 }
@@ -78,7 +83,9 @@ impl SettingsDraft {
     /// An address has to parse as a URL with an HTTP scheme and a host, because the provider
     /// client appends `/chat/completions` to it: anything else would save and then fail every
     /// turn. A model has to be named, because an empty one is not a model the server knows. The
-    /// theme has to be one of [`THEMES`], because anything else cannot be drawn.
+    /// theme has to be one of [`THEMES`], because anything else cannot be drawn. The update check
+    /// is allowed to be empty, which is the app never reaching the network, and otherwise is held
+    /// to the same URL rule as the provider's address.
     pub fn validate(&self) -> Result<(), Invalid> {
         let address = self.base_url.trim();
         let Ok(url) = Url::parse(address) else {
@@ -107,6 +114,27 @@ impl SettingsDraft {
                 Field::Theme,
                 format!("must be one of {}", THEMES.join(", ")),
             ));
+        }
+        let manifest = self.update_check.trim();
+        if !manifest.is_empty() {
+            let Ok(url) = Url::parse(manifest) else {
+                return Err(Invalid::new(
+                    Field::UpdateCheck,
+                    "this is not a URL, for example https://release.example.com/latest.json",
+                ));
+            };
+            if !matches!(url.scheme(), "http" | "https") {
+                return Err(Invalid::new(
+                    Field::UpdateCheck,
+                    format!("a {} address is not reachable over HTTP", url.scheme()),
+                ));
+            }
+            if url.host_str().is_none_or(str::is_empty) {
+                return Err(Invalid::new(
+                    Field::UpdateCheck,
+                    "it names no host to reach",
+                ));
+            }
         }
         Ok(())
     }

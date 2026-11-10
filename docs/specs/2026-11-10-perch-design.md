@@ -28,7 +28,7 @@ Everything is Rust, and the UI is Rune.
 - LSP, debuggers, run configurations, build panes.
 - Provider-specific APIs beyond OpenAI-compatible streaming.
 - Windows and Linux.
-- Notarization, DMG layout and auto-update in this version.
+- Notarization, DMG layout and an updater that installs itself in this version.
 
 ## Constraints as they turned out
 
@@ -90,13 +90,13 @@ Permissions: `write`, `edit` and `bash` require approval with a preview (diff fo
 
 ### Question answering, as the window does it
 
-The dispatch thread posts the question, then blocks up to 300 s on the answer channel; a timeout is a dismissal, never an invented choice. The window shows the question in the transcript with numbered options: a digit highlights one, Enter confirms it, Escape dismisses it. So the window produces one pick or a dismissal. `multiple` and free-text answers are implemented in the agent layer and are not reachable from the window yet.
+The dispatch thread posts the question, then blocks up to 300 s on the answer channel; a timeout is a dismissal, never an invented choice. The window shows the question in the transcript with numbered options: a digit toggles that option, Enter confirms the set, Escape dismisses it, and `t` opens a field for a free-text answer. A single-choice question keeps one pick; a `multiple` one sends every option toggled on, in the order it was picked.
 
-Approvals work the same way: the call card shows the preview, Enter allows once, Escape refuses, and a timeout is a refusal. The window does not offer "allow for session".
+Approvals work the same way: the call card shows the preview, Enter allows once, ⌘⏎ allows the tool for the rest of the session, Escape refuses, and a timeout is a refusal.
 
 ### Transcript
 
-One card per tool call with a name, a status word and an output collapsed to its first five lines plus a count of the rest. `Transcript::toggle` can expand a card to its whole output, but nothing in the window is wired to it yet, so a card stays collapsed. Assistant text is one growing item per open turn, rendered through `rune-kit`'s markdown view in streaming mode, so an unclosed fence or emphasis never flashes its markers; a finished turn renders whole. User turns and notes are plain text. Tool cards key on call id, so a late result updates only its own card. The whole transcript column is one selection group, so a drag spans turns. The transcript has a note item, but the app does not use it yet: a startup note (a failed MCP server, a refused prompt) is written as assistant text.
+One card per tool call with a name, a status word and an output collapsed to its first five lines plus a count of the rest. `Transcript::toggle` expands a card to its whole output: a press focuses the card, and Enter or Space toggles it. Assistant text is one growing item per open turn, rendered through `rune-kit`'s markdown view in streaming mode, so an unclosed fence or emphasis never flashes its markers; a finished turn renders whole. User turns and notes are plain text. Tool cards key on call id, so a late result updates only its own card. The whole transcript column is one selection group, so a drag spans turns. The transcript has a note item, but the app does not use it yet: a startup note (a failed MCP server, a refused prompt) is written as assistant text.
 
 ### Terminal
 
@@ -107,7 +107,7 @@ One card per tool call with a name, a status word and an output collapsed to its
 - Keys: presses go through libghostty's key encoder so modifiers, arrows, function keys and page keys produce what a shell expects; a resize propagates to the PTY and the grid.
 - Inline images and Kitty graphics are not drawn: the frame builder publishes cells and a cursor, and there is no image path.
 
-No wheel handler is attached to the transcript or the sidebar, so a long transcript cannot be paged; only the terminal's grid takes a wheel.
+The transcript takes the wheel and keeps a scrolled position while output arrives, following new output again at the bottom; the terminal's grid takes its own wheel for history. The file tree still does not take the wheel.
 
 ### Files and git
 
@@ -115,15 +115,23 @@ A walk of the session's worktree with the `ignore` crate's rules, directories fi
 
 A file git reports as deleted gets a synthetic greyed-out row under its parent, so the panel never omits a change git knows about.
 
-The left column draws those rows with their depth, icon, git state in words and colour as reinforcement. The rows are display only: no row has a press handler, so clicking a file does nothing. Selection, the read-only preview with numbered lines (capped at 256 KiB and 4 000 lines) and the "Open in Zed" action exist in `perch-files` and `perch-ui` — `FilePanel::select`, `preview_view`, `open_in_zed` — but the preview panel is never placed in the window, the toolbar button has no press, and nothing calls `open -a Zed` from the app. Directories are always drawn expanded. Branch, ahead/behind and a diff view are not implemented.
+The left column draws those rows with their depth, icon, git state in words and colour as reinforcement. A press on a row selects that file, which fills the read-only preview under the tree — numbered lines, capped at 256 KiB and 4 000 lines — and arms the "Open in Zed" button, whose press hands the selected path to the app's editor and says a refusal in words. A file git reports deleted is named as deleted instead of previewed. Directories are always drawn expanded. Branch, ahead/behind and a diff view are not implemented.
 
 ### Settings and secrets
 
-`settings.toml` in the app data directory holds `provider_base_url`, `model`, `theme` and `mcp_servers`. Every field has a default, so an older file still loads, and the defaults are written on first run. The panel (⌘, or the gear) replaces the transcript while it is open and validates the base URL (must parse as http/https with a host, because `/chat/completions` is appended to it), the model (must be named) and the theme (one of `dark`, `light`). A rejected field keeps the panel open with the reason beside it and writes nothing. `mcp_servers` is configuration only, edited in the file; the panel does not show it.
+`settings.toml` in the app data directory holds `provider_base_url`, `model`, `theme`, `update_check` and `mcp_servers`. Every field has a default, so an older file still loads, and the defaults are written on first run. The panel (⌘, or the gear) replaces the transcript while it is open and validates the base URL (must parse as http/https with a host, because `/chat/completions` is appended to it), the model (must be named), the theme (one of `dark`, `light`) and the update check (empty, or an http/https URL with a host). A rejected field keeps the panel open with the reason beside it and writes nothing. `mcp_servers` is configuration only, edited in the file; the panel does not show it.
 
 The provider key is not part of `Settings` at all, so it has no path into the file: it goes to the keychain under service `dev.jyz.perch`, account `provider`, and the panel only shows `stored` or `missing`. An empty key on save keeps the stored one. Saving folds the new provider into the app's defaults, so the next session uses it without a restart; a session already running keeps the provider it was spawned with.
 
 MCP OAuth tokens are keychain entries too, one JSON value per server under `mcp:<server>`.
+
+### Updates
+
+`Settings::update_check` is the release manifest. Empty is the default and means no request is ever made; a non-empty value is validated like the provider address, and the app starts one check at launch. A save that changes the URL restarts that check, and an empty one stops it, so the panel's field applies with no restart. The check, the download and the verification run on a thread of their own; the frame only reads the status the thread last published, so no frame waits on a socket.
+
+A release newer than this build becomes one line in the right-hand column: "update X available" with the notes flattened to one line. That panel belongs to the app, not a plugin — its owner is `perch/update`, which a wasm stem can never be — and it declares one control, `stage`. A press travels the same road as a plugin control, through `Panels::panel_action`, and the app answers it by queueing the download instead of reaching a guest; `AppState::panel_action` recognises the owner and refuses a press that no standing offer can address.
+
+The download is verified against the manifest's SHA-256 and written to `<data>/updates/perch-<version>.zip`. Installing is deliberately not wired: the bundle being replaced is the one this process is running from, so the person quits perch and unpacks the staged archive over it. The crate's boundary is check and stage, never install.
 
 ### MCP
 
@@ -137,13 +145,15 @@ A failed server is skipped at startup and recorded by name, so a later reconcili
 
 ### Plugins
 
-A plugin is a `wasm32-wasip2` component built against `crates/perch-plugins/wit/perch-plugin.wit` (world `perch-plugin` 0.1.0). It exports `tools` (`tool-specs`, `call`) and `panels` (`panel`, `on-event`) and imports exactly one host interface, `log`. There is no host file API at all: a plugin has no import to read a file with, so the refusal is the interface rather than a runtime check.
+A plugin is a `wasm32-wasip2` component built against `crates/perch-plugins/wit/perch-plugin.wit` (world `perch-plugin` 0.1.0). It exports `tools` (`tool-specs`, `call`), `panels` (`panel`, `on-event`) and `actions` (`action`) and imports exactly one host interface, `log`. There is no host file API at all: a plugin has no import to read a file with, so the refusal is the interface rather than a runtime check.
 
 The host owns every instance, bounds each call at 50 million fuel and 2 s, disables a plugin that traps, and refuses a tool name another tool already holds — a collision names both rather than silently overwriting a builtin. A disabled plugin's tools are removed through the registry by `release`, which is idempotent.
 
 A panel is data: a title and sections of text, rows, named buttons and named inputs. `perch-ui` turns that model into elements with the app's own fonts, spacing and surfaces, so a plugin cannot position itself, colour itself or draw over the chrome, and hit-testing stays with the shell. `dispatch_event` serialises a session event to every loaded plugin through `on-event`; a trap there takes the same disabling path.
 
-None of this is attached to the app yet: the app never loads a plugin directory (there is no setting for one), so no plugin tool is in the registry a session sees, no panel is drawn in the window, and no session event reaches a plugin.
+A control in a panel is reported back through `actions`: one function, `action(id, value)`, where `id` is the control's name and `value` is the text an input was submitted with, or nothing for a button. `PluginHost::panel_action` reads the plugin's panel first and refuses an id it does not declare, so a press for a control that has gone is words rather than a call the guest would ignore. The rejection is a second guest call per press, which is the price of never holding a copy of the panel that could be one frame stale.
+
+The window presses through `Panels::panel_action`: a button's press and an input's submit both reach the app, which checks the drawn panel and hands the press to the worker that owns the plugin host. The panel is re-read into the next snapshot, so a plugin's answer is drawn a pump later and the window never waits on a guest. `AppState` refuses a press the drawn panel cannot address, and says it in the column; a press that traps on the worker's thread disables the plugin exactly as a trapping tool does and its words join the column.
 
 ### Packaging
 
@@ -174,13 +184,12 @@ The gap is deliberate and is not hidden: an ad-hoc signature means Gatekeeper re
 
 ## Shipped and not shipped
 
-Shipped: session list and tabs over JSONL logs; a streaming markdown transcript with tool cards and a single selection group; the six builtins with confinement, previews and approvals; `ask_user` in the agent layer; a worktree tree in the left column with git state in words; Ghostty terminal with scrollback, selection copy, bracketed paste and a drawn cursor; settings screen with keychain-backed key; MCP over stdio and HTTP with OAuth, namespaced tools and per-call notes; the wasm plugin host with tools, panels, events and trap isolation; the bundle scripts and the live probe.
+Shipped: session list and tabs over JSONL logs; a streaming markdown transcript with tool cards and a single selection group; the six builtins with confinement, previews and approvals; `ask_user` in the agent layer; a worktree tree in the left column with git state in words; Ghostty terminal with scrollback, selection copy, bracketed paste and a drawn cursor; settings screen with keychain-backed key; MCP over stdio and HTTP with OAuth, namespaced tools and per-call notes; the wasm plugin host with tools, panels, events, reported control presses and trap isolation; the updater wired end to end — a manifest check on its own thread, an offer in the right-hand column, a SHA-256-verified download staged for a manual install; the bundle scripts and the live probe.
 
-Not shipped: an updater; a notarized or universal bundle; a DMG; loading plugins in the app, and drawing a plugin panel in the window; free-text and multi-pick answers from the window; "allow for session" in the window; expanding a tool card from the window (`toggle` exists, no press is wired); clicking a file to select it, the preview panel, and the Zed handoff (all implemented below the window, none wired into it); wheel paging of the transcript or the sidebar; cursor-level and per-cell accessibility (the tree names regions and text rows); git branch, ahead/behind and a diff view; using the transcript's note item for app notes (only MCP failures are said, and they are said as assistant text at startup); showing MCP connection and call notes in the window; pruning a dead MCP server's tools from a running window.
+Not shipped: a notarized or universal bundle; a DMG; an updater that installs itself; git branch, ahead/behind and a diff view; wheel paging of the file tree; per-cell accessibility (the tree names regions, text rows, and the terminal's caret and selection); using the transcript's note item for app notes (only MCP failures are said, and they are said as assistant text at startup); showing MCP connection and call notes in the window.
 
 ## Open questions
 
 - Whether the transcript should keep full tool output on disk for replay, and for how long.
 - How a plugin is discovered and enabled (a directory setting, a prompts-on-first-use rule, or a manifest in the session's worktree) once plugins attach to the app.
 - Which wasmtime component-model features to permit (WASI clock and randomness, nothing else) before a plugin needs more.
-- Whether the window should answer questions with multi-pick and free text by growing the composer, or by a dedicated question card.

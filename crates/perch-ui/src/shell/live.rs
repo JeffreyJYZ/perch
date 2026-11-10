@@ -127,6 +127,8 @@ pub struct SettingsSnapshot {
     pub model: String,
     /// The saved theme.
     pub theme: String,
+    /// The saved update check URL, empty when the app checks nothing.
+    pub update_check: String,
     /// Whether a key is stored for the provider account.
     pub key: KeyStatus,
 }
@@ -137,6 +139,7 @@ impl Default for SettingsSnapshot {
             base_url: String::new(),
             model: String::new(),
             theme: DEFAULT_THEME.to_string(),
+            update_check: String::new(),
             key: KeyStatus::Missing,
         }
     }

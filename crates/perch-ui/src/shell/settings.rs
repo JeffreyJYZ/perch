@@ -22,6 +22,8 @@ pub struct Panel {
     pub(super) api_key: TextEdit,
     /// One of [`THEMES`].
     pub(super) theme: String,
+    /// The release manifest to check, empty when the app checks nothing.
+    pub(super) update_check: TextEdit,
     /// The field that refused the last save, when one did.
     pub(super) error: Option<Invalid>,
     /// Whether a key is stored, as the panel says it after the last save.
@@ -38,6 +40,7 @@ impl Panel {
             model: edit(&snapshot.model),
             api_key: TextEdit::default(),
             theme: snapshot.theme.clone(),
+            update_check: edit(&snapshot.update_check),
             error: None,
             key: snapshot.key,
             notice: None,
@@ -50,6 +53,7 @@ impl Panel {
             base_url: self.base_url.text.trim().to_string(),
             model: self.model.text.trim().to_string(),
             theme: self.theme.clone(),
+            update_check: self.update_check.text.trim().to_string(),
             api_key: self.api_key.text.trim().to_string(),
         }
     }
@@ -117,6 +121,7 @@ impl<L: Live> Shell<L> {
         panel.model = edit(&draft.model);
         panel.api_key = edit(&draft.api_key);
         panel.theme = draft.theme;
+        panel.update_check = edit(&draft.update_check);
         panel.error = None;
         panel.notice = None;
     }

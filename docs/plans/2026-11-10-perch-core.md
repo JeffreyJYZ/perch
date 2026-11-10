@@ -980,7 +980,7 @@ git add -A && git commit -m "feat(ui): file panel, git state in words, numbered 
 
 ## After this plan
 
-Task 11 and 12 close the plugin story the spec promises. After they land, the remaining work is polish: keybindings, themes, scrollback edge cases, packaging and the updater.
+Task 11 and 12 close the plugin story the spec promises. After they land, the remaining work is polish: keybindings, themes, scrollback edge cases and packaging.
 
 ---
 
@@ -1004,4 +1004,4 @@ Measured against the tree at `299c655` (perch 0.1.0, nine crates), not against w
 - **Task 14 — partial.** stdio, remote HTTP, OAuth (discovery, dynamic registration, PKCE, loopback, keychain tokens), `<server>__<tool>` namespacing and per-call notes all work; a remote server without OAuth metadata fails rather than connecting anonymously, and the window shows the call as a namespaced tool card while reading only the failure notes at startup.
 - **Task 15 — partial.** The file panel's rows render in the sidebar with depth, icons, git state in words and an accessibility label, and `preview_view` exists; the preview panel is never placed in the window and the `Open in Zed` button has no press handler.
 
-Not started, from "After this plan": the updater, notarization and a distributable (non-ad-hoc, non-arm64-only) bundle, wheel page scrolling, and cursor-level or per-cell accessibility. Packaging exists as `scripts/bundle.sh` plus `scripts/verify-bundle.sh`, ad-hoc signed.
+Landed since: the updater — a manifest check on a thread of its own, an offer drawn in the right-hand column, and a download that verifies its SHA-256 and stages an archive the person installs after perch quits; the settings panel's `update_check` field starts or stops that check with no restart. Not started, from "After this plan": notarization and a distributable (non-ad-hoc, non-arm64-only) bundle, wheel page scrolling of the file tree, per-cell accessibility, and git branch, ahead/behind and a diff view. Packaging exists as `scripts/bundle.sh` plus `scripts/verify-bundle.sh`, ad-hoc signed.

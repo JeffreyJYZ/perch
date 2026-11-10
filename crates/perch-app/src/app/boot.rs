@@ -40,7 +40,14 @@ impl AppState {
         let live = Live::new(snapshot.registry.clone());
         let watch = watch::watch(&settings_file::path_in(dir), plugins);
         // The check is posted to its own thread here and not waited for: a manifest that takes
-        // thirty seconds to answer must not be one the window spends not drawing.
+        // thirty seconds to answer must not be one the window spends not drawing. The URL and
+        // transport are kept so a save that changes the manifest restarts the thread instead of
+        // waiting for the app to be reopened.
+        let update_url = update
+            .as_ref()
+            .map(|plan| plan.url.clone())
+            .unwrap_or_default();
+        let update_transport = update.as_ref().map(|plan| Arc::clone(&plan.transport));
         let update =
             update.map(|plan| UpdateWorker::start(plan.url, dir.to_path_buf(), plan.transport));
         let update_status = update.as_ref().map(UpdateWorker::latest);
@@ -62,6 +69,8 @@ impl AppState {
             snapshot,
             watch,
             update,
+            update_url,
+            update_transport,
             update_status,
             defaults,
             stated,

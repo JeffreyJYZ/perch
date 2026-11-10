@@ -8,7 +8,7 @@
 use rune::{El, LiveRegion, ScrollSpec, Tx, col, row, text};
 use rune_kit::glyphs;
 use rune_kit::{
-    Button, ButtonVariant, Field, IconButton, IconButtonVariant, Kit, SegmentedControl, TextInput,
+    Button, ButtonVariant, IconButton, IconButtonVariant, Kit, SegmentedControl, TextInput,
 };
 
 use crate::files::{note, section_label};
@@ -16,6 +16,7 @@ use crate::settings::THEMES;
 
 use super::live::Live;
 use super::settings::settings_key;
+use super::settings_fields::{field, key_field};
 use super::state::Shell;
 
 /// The panel itself, in the centre of the window where the transcript was.
@@ -91,6 +92,29 @@ pub(super) fn panel<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
                     .build(kit),
                 ),
         )
+        .child(field(
+            kit,
+            "Update check URL",
+            "settings-update-check",
+            TextInput::new(&panel.update_check)
+                .label("Update check URL")
+                .placeholder("empty means no check")
+                .width(None)
+                .invalid(refused.is_some_and(|e| e.field == crate::settings::Field::UpdateCheck))
+                .on_edit(|shell: &mut Shell<L>| {
+                    &mut shell
+                        .settings
+                        .as_mut()
+                        .expect("the panel is open")
+                        .update_check
+                })
+                .on_key(settings_key::<L>)
+                .build(kit),
+        ))
+        .child(note(
+            kit,
+            "Empty is no check: perch stays off the network until a manifest is named.",
+        ))
         .child(key_field::<L>(panel, kit))
         .child(note(
             kit,
@@ -136,42 +160,6 @@ fn header<L: Live>(kit: &Kit) -> El {
                 .on_press(|shell: &mut Shell<L>| shell.close_settings())
                 .build(kit)
                 .key("settings-close"),
-        )
-}
-
-/// One labelled control, as the kit's form row. `key` names it for a test and for a press.
-fn field(kit: &Kit, label: &str, key: &str, control: El) -> El {
-    Field::new()
-        .label(label)
-        .control(control)
-        .build(kit)
-        .key(key)
-}
-
-/// The key field, with the word the panel says instead of the key beside it.
-fn key_field<L: Live>(panel: &super::settings::Panel, kit: &Kit) -> El {
-    let input = TextInput::new(&panel.api_key)
-        .label("API key")
-        .placeholder("paste a key")
-        // The word beside it needs its own room, so the field does not take the row.
-        .width(Some(420.0))
-        .on_edit(|shell: &mut Shell<L>| {
-            &mut shell.settings.as_mut().expect("the panel is open").api_key
-        })
-        .on_key(settings_key::<L>)
-        .build(kit);
-    col()
-        .key("settings-key")
-        .w_full()
-        .gap(6.0)
-        .child(section_label(kit, "API key", "settings-key-label"))
-        .child(
-            row().w_full().gap(10.0).center_y().child(input).child(
-                text(panel.key_words().to_string())
-                    .key("settings-key-state")
-                    .font(kit.ty.small_medium)
-                    .color(kit.c.text_muted),
-            ),
         )
 }
 

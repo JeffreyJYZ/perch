@@ -32,12 +32,18 @@ fn a_panel_column_is_composed_from_the_host_and_gone_without_a_plugin() {
         find(&runtime.accessibility_json(), "plugins").is_some(),
         "the column has no region of its own: {drawn}"
     );
-    for word in ["Plugins", "Counter", "count: 0"] {
+    for word in ["Panels", "Counter", "count: 0"] {
         assert!(
             drawn.contains(word),
             "the column is missing {word}: {drawn}"
         );
     }
+    // The column draws the app's own update offer beside plugin panels, so its heading covers
+    // both: claiming "Plugins" would be false the moment an update is offered.
+    assert!(
+        !drawn.contains("Plugins"),
+        "the column still claims it only holds plugins: {drawn}"
+    );
 
     // One panel per plugin: two plugins load, and the one that declares a panel is the one drawn.
     let both = dir_with(&[

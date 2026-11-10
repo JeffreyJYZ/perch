@@ -6,6 +6,7 @@ use perch_ui::settings::SettingsDraft;
 use perch_ui::shell::{KeyStatus, SettingsSnapshot};
 
 use super::{AppState, ProviderDefaults};
+use crate::update::{Plan, Worker as UpdateWorker};
 
 impl AppState {
     /// The provider a new session would be given: what a settings save changes.
@@ -18,16 +19,39 @@ impl AppState {
         crate::settings::snapshot(&self.dir, &*self.secrets)
     }
 
-    /// Writes the panel's draft and folds it into the provider defaults, with no restart.
+    /// Writes the panel's draft, folds it into the provider defaults, and follows the manifest URL
+    /// it names — all without a restart.
     ///
     /// A session that is already running keeps the provider it was spawned with; the next session
     /// gets these values, which is what "applies immediately" can mean without restarting a turn.
+    /// The update thread is replaced only when the URL actually changed, so saving a theme does not
+    /// start a network check.
     pub fn save_settings(
         &mut self,
         draft: SettingsDraft,
     ) -> std::result::Result<KeyStatus, String> {
-        crate::settings::apply(&self.dir, &mut self.defaults, &*self.secrets, draft)
-            .map_err(|error| error.to_string())
+        let status = crate::settings::apply(&self.dir, &mut self.defaults, &*self.secrets, draft)
+            .map_err(|error| error.to_string())?;
+        self.follow_update().map_err(|error| error.to_string())?;
+        Ok(status)
+    }
+
+    /// Restarts the update thread when `settings.toml` now names a different manifest.
+    ///
+    /// An empty URL is no thread at all, so clearing the field stops the check as well as starting
+    /// one: dropping the worker closes the channel its thread waits on, and that thread ends after
+    /// the job it is in.
+    fn follow_update(&mut self) -> crate::Result<()> {
+        let url = Settings::load(&self.dir)?.update_check;
+        if url == self.update_url {
+            return Ok(());
+        }
+        let plan = Plan::new(&url, self.update_transport.clone())?;
+        self.update =
+            plan.map(|plan| UpdateWorker::start(plan.url, self.dir.clone(), plan.transport));
+        self.update_url = url;
+        self.update_status = self.update.as_ref().map(UpdateWorker::latest);
+        Ok(())
     }
 
     /// Rebuilds the tools from disk and swaps them in: the plugin directory, `settings.toml`, and

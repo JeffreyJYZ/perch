@@ -28,6 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use perch_store::secret::SecretStore;
+use perch_update::Transport;
 
 use crate::live_registry::Live;
 use crate::session::SessionRuntime;
@@ -95,6 +96,10 @@ pub struct AppState {
     pub(crate) watch: Option<Watch>,
     /// The update check on its own thread, when `settings.toml` names a manifest.
     pub(crate) update: Option<UpdateWorker>,
+    /// The manifest URL that worker was started for, so a save can tell whether it changed.
+    pub(crate) update_url: String,
+    /// The transport every update worker is built with: the real client, or a test's table.
+    pub(crate) update_transport: Option<Arc<dyn Transport>>,
     /// The status the frame last read, and therefore the line the column shows.
     pub(crate) update_status: Option<Arc<Status>>,
     defaults: ProviderDefaults,

@@ -13,12 +13,9 @@ fn a_saved_key_is_worded_and_never_held_by_the_panel() {
         saved: None,
     });
     shell.toggle_settings();
-    shell.stage_settings(draft(
-        "https://example.com/v1",
-        "test/model",
-        "dark",
-        "sk-secret",
-    ));
+    let mut draft = draft("https://example.com/v1", "test/model", "dark", "sk-secret");
+    draft.update_check = "https://release.example.com/latest.json".to_string();
+    shell.stage_settings(draft);
 
     assert!(shell.save_settings(), "the app took the draft");
     let panel = shell.settings_panel().expect("the panel stays open");
@@ -37,6 +34,10 @@ fn a_saved_key_is_worded_and_never_held_by_the_panel() {
     assert_eq!(
         saved.api_key, "sk-secret",
         "the key went to the app, not the panel"
+    );
+    assert_eq!(
+        saved.update_check, "https://release.example.com/latest.json",
+        "the update check is saved with the other fields"
     );
 
     let tree = layout(shell).accessibility_json().to_string();

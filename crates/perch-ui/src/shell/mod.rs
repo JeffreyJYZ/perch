@@ -39,6 +39,7 @@ mod paste;
 mod pump;
 mod session;
 mod settings;
+mod settings_fields;
 mod settings_view;
 mod sidebar;
 mod state;

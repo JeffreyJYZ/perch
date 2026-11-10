@@ -11,7 +11,14 @@ fn the_panel_draws_every_field_and_the_key_as_a_word() {
     let runtime = layout(shell);
     let tree = runtime.accessibility_json().to_string();
     for word in [
-        "Settings", "Base URL", "Model", "Theme", "API key", "Save", "missing",
+        "Settings",
+        "Base URL",
+        "Model",
+        "Theme",
+        "Update check URL",
+        "API key",
+        "Save",
+        "missing",
     ] {
         assert!(tree.contains(word), "the panel is missing {word}:\n{tree}");
     }
@@ -20,6 +27,7 @@ fn the_panel_draws_every_field_and_the_key_as_a_word() {
     for key in [
         "settings-base-url",
         "settings-model",
+        "settings-update-check",
         "settings-key",
         "settings-key-state",
         "settings-save",

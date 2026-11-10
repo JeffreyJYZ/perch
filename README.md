@@ -35,6 +35,7 @@ cargo run -p perch-app --bin perch
 
 - `--tree` prints the window's accessibility tree as JSON and exits; it reads no settings and starts no shell.
 - `--offline` opens the window with the session list and the dock only, skipping the app.
+- `--plugins <dir>` loads plugins from that directory instead of `<data>/plugins`.
 - With no saved session, the first launch creates one bound to the current directory. A session never creates or clones a worktree; it attaches to one that already exists.
 - `dist/Perch.app` is the bundled build (see below); its executable is the same binary.
 
@@ -92,6 +93,8 @@ This runs the real turn loop against OpenRouter's free models, one at a time: `c
 provider_base_url = "https://openrouter.ai/api/v1"
 model = "deepseek/deepseek-v4.1-flash"
 theme = "dark"
+# Empty means perch never checks for a release. A URL here is the manifest it reads.
+update_check = ""
 
 [[mcp_servers]]
 name = "fixture"
@@ -103,11 +106,17 @@ name = "remote"
 url = "https://example.com/mcp"
 ```
 
-The first-run defaults are written when the file is absent, and every field has a default so an older file still loads. The settings panel (⌘, or the gear) edits the provider address, model, theme and key, and validates the first three before writing anything; a rejected field keeps the panel open and names itself. `mcp_servers` is hand-edited in the file, not in the panel.
+The first-run defaults are written when the file is absent, and every field has a default so an older file still loads. The settings panel (⌘, or the gear) edits the provider address, model, theme, update check URL and key; the four file-backed values are validated before anything is written, and a rejected field keeps the panel open and names itself. `mcp_servers` is hand-edited in the file, not in the panel.
 
 The provider key is written to the macOS keychain under service `dev.jyz.perch`, account `provider`. It is never a field of `Settings`, never appears in `settings.toml`, a session file or a log line, and the panel only ever says `stored` or `missing` — it never reads the value back. An empty key on save keeps the one already stored, so changing a theme does not sign you out.
 
 MCP OAuth tokens live in the same keychain, one entry per server under `mcp:<server>`.
+
+### Updates
+
+The app checks for a release only when `update_check` names a manifest, and the field is in the settings panel too: empty is the default and means "do not check". The check runs on a thread of its own, started at launch and restarted by a save that changes the URL, so a slow server never holds a frame and a new address applies without a restart. The manifest's URL is the only thing that starts a request.
+
+A release newer than this build becomes one line in the right-hand column with a Download button. A press fetches the archive, verifies its SHA-256 against the manifest, and writes it to `<data>/updates/perch-<version>.zip`. Installing is a manual step: quit perch, then unpack the archive over the bundle. The app never replaces the bundle it is running from.
 
 ### Reloading without a restart
 
@@ -115,16 +124,14 @@ The tools are rebuilt rather than restarted. `settings.toml`, the plugin directo
 
 A call reads the registry when it starts, so a change lands on the next call: a turn already in flight finishes its current call against the tools it began with and sees the new list for its next one. No message is rewritten and no turn is rewound. Deleting a plugin or a server removes its tools from `specs()` and from dispatch at that point; nothing is left to resurrect it. A plugin that will not load is one line in the right-hand column, never a failure to open the window. MCP connections outlive a rebuild: `McpHost::reconcile` keeps a server whose name and configuration are unchanged, connects a new or changed one, and drops one that is no longer configured or has died — including a server that never connected at startup, which the host now records. A crashed server's tools leave the registry at the next frame.
 
-The model's tool list is still fixed when a session starts (`AgentConfig.tools` is passed to `perch-agent` at spawn). A plugin installed mid-session answers immediately when called and appears in `specs()`, but the model is offered it from the next session, not the next turn.
+The model's tool list is read from the live registry when each request starts, so a plugin installed mid-session is offered to the model on its next request, with no new session and no restart. A request already out carries the list it was sent with.
 
 A remote `url` server is always authorized: a stored token is reused, and otherwise perch runs the browser flow (discovery, dynamic client registration, PKCE, loopback callback) before connecting. A remote server with no OAuth metadata fails and is reported, rather than being reached anonymously.
 
 ## What is not there yet
 
-- No updater wired into the app: `perch-update` checks a manifest, orders prerelease versions, verifies a SHA-256 download and stages it, but nothing in the window calls it yet. No notarized or universal bundle — the build is arm64 and ad-hoc signed.
-- The plugin host loads from `<data>/plugins` (or `--plugins <dir>`), and its tools and panels are live: a file added, edited or deleted is picked up by the directory watcher.
-- The worktree tree is display-only: clicking a file does nothing, the preview panel is not placed in the window, and the "Open in Zed" button has no press. The crate underneath (`perch-files`) does have the walk, status, preview and `open -a Zed`.
-- A question can be answered in the window only by picking one numbered option; multi-pick and free text exist in the agent layer, not in the window. "Allow for session" is likewise not offered by the window (Enter allows once, Escape refuses).
-- Tool cards stay collapsed: the transcript can expand one, but no press is wired to a card.
-- No wheel handler is attached to the transcript, so a long transcript cannot be scrolled with the wheel; only the terminal grid takes a wheel. The accessibility tree names regions and text rows rather than individual cells or the cursor.
-- A session's branch is stored empty, and the model's tool list is fixed when a session starts, so a plugin installed mid-session answers on the next call but is offered to the model only from a new session.
+- The bundle is `arm64` and ad-hoc signed: no notarization and no universal build, so Gatekeeper rejects it on any Mac but the one that built it (see Bundle).
+- The provider key's round trip is exercised against an in-memory store in every test. A real keychain write and read is checked by hand, because it needs a signed-in session and a human approval.
+- A session's `branch` is stored empty: the app does not read the worktree's git branch, so the row says "no branch".
+- The file tree does not take the wheel; only the transcript and the terminal's grid scroll with it.
+- The accessibility tree names regions, text rows, and the terminal's caret and selection; it does not name individual cells.

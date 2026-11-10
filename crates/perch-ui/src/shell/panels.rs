@@ -1,9 +1,10 @@
-//! The plugin column: one panel per loaded plugin, and the words for the ones that are not there.
+//! The right-hand column: one panel per source, and the words for the ones that are not there.
 //!
-//! A plugin's panel is data the app decoded ([`PanelEntry`]); [`panel_view`] is the only thing that
-//! turns it into elements, so this module decides only where the column goes and whether it exists.
-//! It does not exist when the app has no plugin and nothing to say about one — the window a person
-//! sees without plugins is the window they had before there were any.
+//! A source is a plugin, whose panel is data the app decoded ([`PanelEntry`]), or the app itself,
+//! which draws its update offer here. [`panel_view`] is the only thing that turns a panel into
+//! elements, so this module decides only where the column goes and whether it exists. It does not
+//! exist when the app has no panel and nothing to say about one — the window a person sees without
+//! plugins is the window they had before there were any.
 //!
 //! [`Panels`] is what the window asks the app for. It is a second trait beside
 //! [`Live`](super::live::Live) because a panel is not a transcript or a prompt: an app with no
@@ -23,7 +24,7 @@ use crate::plugin_panel::panel_view;
 /// The column's width, in points.
 pub(super) const PANEL: f32 = 260.0;
 
-/// What the window asks of the app for the plugin column.
+/// What the window asks of the app for the right-hand column.
 pub trait Panels {
     /// The panels to draw, in load order. Empty when no plugin is loaded.
     fn panels(&self) -> Vec<PanelEntry> {
@@ -72,7 +73,7 @@ pub(super) fn column<L: Live + Panels>(shell: &Shell<L>, kit: &Kit) -> Option<El
     let mut body = col()
         .key("plugins")
         .role("region")
-        .label("Plugins")
+        .label("Panels")
         .w(PANEL)
         .h_full()
         .min_h(0.0)
@@ -81,7 +82,7 @@ pub(super) fn column<L: Live + Panels>(shell: &Shell<L>, kit: &Kit) -> Option<El
         .pt(12.0)
         .pb(10.0)
         .gap(8.0)
-        .child(section_label(kit, "Plugins", "plugins-label"));
+        .child(section_label(kit, "Panels", "plugins-label"));
     for word in &words {
         body = body.child(note(kit, word));
     }

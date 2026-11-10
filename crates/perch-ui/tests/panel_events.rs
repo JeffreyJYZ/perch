@@ -53,7 +53,7 @@ fn a_plugin_that_traps_leaves_the_column_saying_which_one() {
         "the column does not say which plugin went: {drawn}"
     );
     assert!(
-        drawn.contains("Plugins"),
+        drawn.contains("Panels"),
         "the column itself is still there: {drawn}"
     );
 

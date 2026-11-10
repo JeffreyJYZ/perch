@@ -1,10 +1,10 @@
 //! Reading and writing the settings the window edits, and the one secret stored beside them.
 //!
-//! The provider's address, model, theme and MCP servers live in `settings.toml`; the key lives in
-//! whatever [`SecretStore`] the app was opened with, and never in the file. A save folds the
-//! provider into the app's [`ProviderDefaults`], which is what a new session reads, and the MCP
-//! entries are picked up by the reload the settings watcher triggers — so both apply without the
-//! app being restarted.
+//! The provider's address, model, theme, update check URL and MCP servers live in `settings.toml`;
+//! the key lives in whatever [`SecretStore`] the app was opened with, and never in the file. A save
+//! folds the provider into the app's [`ProviderDefaults`], which is what a new session reads,
+//! restarts the update thread when the manifest URL changed, and the MCP entries are picked up by
+//! the reload the settings watcher triggers — so all of them apply without the app being restarted.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -94,12 +94,14 @@ pub fn snapshot(dir: &Path, secrets: &dyn SecretStore) -> SettingsSnapshot {
         provider_base_url,
         model,
         theme,
+        update_check,
         ..
     } = Settings::load(dir).unwrap_or_default();
     SettingsSnapshot {
         base_url: provider_base_url,
         model,
         theme,
+        update_check,
         key: status(secrets),
     }
 }
@@ -119,6 +121,7 @@ pub fn apply(
     settings.provider_base_url = draft.base_url;
     settings.model = draft.model;
     settings.theme = draft.theme;
+    settings.update_check = draft.update_check;
     settings.save(dir)?;
     if !draft.api_key.is_empty() {
         secrets.store(KEY_ACCOUNT, &draft.api_key)?;

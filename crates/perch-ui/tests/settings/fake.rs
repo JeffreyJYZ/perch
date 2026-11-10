@@ -40,6 +40,7 @@ impl Live for Fake {
             base_url: "https://example.com/v1".to_string(),
             model: "test/model".to_string(),
             theme: "dark".to_string(),
+            update_check: String::new(),
             key: self.key,
         })
     }

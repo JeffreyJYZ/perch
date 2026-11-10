@@ -43,6 +43,68 @@ fn each_bad_field_is_named_in_words() {
 }
 
 #[test]
+fn the_update_check_is_optional_and_a_bad_one_is_named() {
+    // Empty is allowed on purpose: it is the app never reaching the network, which is the default
+    // a fresh install gets.
+    for empty in ["", "   "] {
+        let mut allowed = draft("https://example.com/v1", "test/model", "dark", "");
+        allowed.update_check = empty.to_string();
+        allowed
+            .validate()
+            .expect("an empty update check means no check, so it is valid");
+    }
+
+    for bad in [
+        "not a url",
+        "ftp://example.com/latest.json",
+        "https://",
+        "release.perch.test/latest.json",
+    ] {
+        let mut refused = draft("https://example.com/v1", "test/model", "dark", "");
+        refused.update_check = bad.to_string();
+        let invalid = refused
+            .validate()
+            .expect_err(&format!("`{bad}` is not a manifest URL"));
+        assert_eq!(
+            invalid.field,
+            perch_ui::Field::UpdateCheck,
+            "`{bad}` must be refused as the update check field: {}",
+            invalid.words
+        );
+        assert!(
+            invalid.words.contains("update check URL"),
+            "the refusal names the field: {}",
+            invalid.words
+        );
+    }
+
+    let mut manifest = draft("https://example.com/v1", "test/model", "dark", "");
+    manifest.update_check = "https://release.perch.test/latest.json".to_string();
+    manifest
+        .validate()
+        .expect("an http(s) manifest URL is what the field is for");
+
+    // The panel is where the refusal has to land: a bad value keeps it open and names the field.
+    let mut shell = Shell::idle(Vec::new(), 0);
+    shell.toggle_settings();
+    let mut bad = draft("https://example.com/v1", "test/model", "dark", "");
+    bad.update_check = "not a url".to_string();
+    shell.stage_settings(bad);
+    assert!(!shell.save_settings(), "the panel refused the save");
+    assert!(shell.settings_open(), "the panel stays open on a refusal");
+    let refused = shell
+        .settings_panel()
+        .and_then(|panel| panel.error())
+        .expect("the panel says which field refused");
+    assert_eq!(
+        refused.field,
+        perch_ui::Field::UpdateCheck,
+        "the update check field is the one named: {}",
+        refused.words
+    );
+}
+
+#[test]
 fn a_bad_field_keeps_the_panel_open_and_nothing_is_written() {
     let mut shell = Shell::idle(Vec::new(), 0);
     shell.toggle_settings();

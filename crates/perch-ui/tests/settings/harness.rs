@@ -11,6 +11,7 @@ pub fn draft(base_url: &str, model: &str, theme: &str, api_key: &str) -> Setting
         base_url: base_url.to_string(),
         model: model.to_string(),
         theme: theme.to_string(),
+        update_check: String::new(),
         api_key: api_key.to_string(),
     }
 }
