@@ -5,6 +5,7 @@
 //! The editor is a fake, so no test starts a command; the app's own `Zed` is the only place an
 //! `open -a` can run.
 
+mod answer;
 mod card;
 mod harness;
 mod preview;

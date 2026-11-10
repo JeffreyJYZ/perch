@@ -19,33 +19,54 @@ pub enum Intent {
     Cancel,
     /// Allow the call that is waiting.
     Approve,
+    /// Allow it for the rest of the session.
+    AllowForSession,
     /// Refuse it.
     Deny,
     /// Highlight the waiting question's option at this index (zero-based).
     Select(usize),
-    /// Answer the question with the option [`Intent::Select`] highlighted.
+    /// Answer the question with every option picked.
     Confirm,
+    /// Open the field a question is answered in, with text.
+    Type,
     /// Show the settings panel, or hide it when it is open: ⌘,.
     Settings,
     /// Nothing this window does with that key.
     Ignore,
 }
 
+/// What a press asks while the text field is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Typing {
+    /// Send what was typed as the answer.
+    Send,
+    /// Go back to the options without answering.
+    Back,
+}
+
 /// What `ev` asks for, given what the session is waiting on: Enter sends, Shift+Enter breaks the
 /// line, Ctrl+C interrupts, ⌘, shows the settings, and while an approval or a question is up a
-/// number key picks an option, Enter confirms it and Escape refuses or dismisses it.
+/// number key picks an option, `t` opens the answer field, Enter confirms, ⌘Enter allows the call
+/// for the session and Escape refuses or dismisses it.
 pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
     // Ctrl+C is the shell's interrupt, not a character: it stops the turn whatever is on screen.
     // On macOS a Control chord arrives as text with `ctrl` set, so this is where it lands.
-    if ev.mods.ctrl
-        && !ev.mods.cmd
-        && matches!(&ev.key, Key::Text(text) if text.eq_ignore_ascii_case("c"))
-    {
+    if interrupts(ev) {
         return Intent::Cancel;
     }
     // ⌘, is the settings panel, the window's own chord rather than a menu's.
     if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command(',')) {
         return Intent::Settings;
+    }
+    // ⌘Enter is the second approval key, read before the chord guard below: it is the window's
+    // chord, and only an approval has anything to allow for the session.
+    if ev.mods.cmd
+        && !ev.mods.alt
+        && !ev.mods.shift
+        && matches!(&ev.key, Key::Enter)
+        && waiting == Waiting::Approval
+    {
+        return Intent::AllowForSession;
     }
     // A chord with Cmd or Option belongs to a shortcut or to the input method, never to a turn.
     if ev.mods.cmd || ev.mods.alt {
@@ -55,6 +76,9 @@ pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
         Key::Enter if ev.mods.shift => Intent::Newline,
         Key::Enter => match waiting {
             Waiting::Approval => Intent::Approve,
+            // A question that offers nothing is answered in the person's own words, so Enter
+            // opens the field rather than confirming a pick there is none of.
+            Waiting::Question { options: 0, .. } => Intent::Type,
             Waiting::Question { .. } => Intent::Confirm,
             Waiting::Nothing => Intent::Submit,
         },
@@ -64,13 +88,37 @@ pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
             Waiting::Nothing => Intent::Ignore,
         },
         Key::Text(text) => match (waiting, number(text)) {
-            (Waiting::Question { options }, Some(index)) if index < options => {
+            (Waiting::Question { options, .. }, Some(index)) if index < options => {
                 Intent::Select(index)
             }
+            (Waiting::Question { .. }, None) if text.eq_ignore_ascii_case("t") => Intent::Type,
             _ => Intent::Ignore,
         },
         _ => Intent::Ignore,
     }
+}
+
+/// What `ev` asks while the answer field is open, or `None` when the field keeps the press.
+///
+/// This is a map of its own rather than a branch of [`intent`] because every other key belongs to
+/// the field: a digit that picked an option a moment ago is a character in the answer now.
+pub fn typing_intent(ev: &KeyEvent) -> Option<Typing> {
+    if ev.mods.cmd || ev.mods.alt {
+        return None;
+    }
+    match &ev.key {
+        Key::Enter if !ev.mods.shift => Some(Typing::Send),
+        Key::Escape => Some(Typing::Back),
+        _ => None,
+    }
+}
+
+/// Whether `ev` is the shell's interrupt. Only Ctrl+C is: a bare Escape is a question's cancel
+/// and an approval's refusal, and means nothing at all while a turn is simply running.
+pub fn interrupts(ev: &KeyEvent) -> bool {
+    ev.mods.ctrl
+        && !ev.mods.cmd
+        && matches!(&ev.key, Key::Text(text) if text.eq_ignore_ascii_case("c"))
 }
 
 /// The zero-based option a digit key names, when it names one.
@@ -84,116 +132,4 @@ fn number(text: &str) -> Option<usize> {
         .to_digit(10)
         .filter(|digit| (1..=9).contains(digit))
         .map(|digit| digit as usize - 1)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Intent, Waiting, intent};
-    use rune::{Key, KeyEvent, Mods};
-
-    fn press(key: Key, shift: bool) -> KeyEvent {
-        KeyEvent {
-            key,
-            mods: Mods {
-                shift,
-                ..Mods::default()
-            },
-        }
-    }
-
-    fn text(value: &str) -> KeyEvent {
-        KeyEvent {
-            key: Key::Text(value.to_string()),
-            mods: Mods::default(),
-        }
-    }
-
-    const QUESTION: Waiting = Waiting::Question { options: 3 };
-
-    #[test]
-    fn enter_sends_and_shift_enter_breaks_the_line() {
-        assert_eq!(
-            intent(&press(Key::Enter, false), Waiting::Nothing),
-            Intent::Submit
-        );
-        assert_eq!(
-            intent(&press(Key::Enter, true), Waiting::Nothing),
-            Intent::Newline
-        );
-        // A turn that is already running takes the same pair: send, or break the line.
-        assert_eq!(
-            intent(&press(Key::Enter, false), Waiting::Approval),
-            Intent::Approve
-        );
-    }
-
-    #[test]
-    fn a_number_key_picks_and_enter_confirms() {
-        assert_eq!(intent(&text("2"), QUESTION), Intent::Select(1));
-        assert_eq!(
-            intent(&text("9"), QUESTION),
-            Intent::Ignore,
-            "past the last option"
-        );
-        assert_eq!(
-            intent(&text("0"), QUESTION),
-            Intent::Ignore,
-            "options count from one"
-        );
-        assert_eq!(intent(&press(Key::Enter, false), QUESTION), Intent::Confirm);
-        // With nothing waiting, a digit is typing: the field keeps it.
-        assert_eq!(intent(&text("2"), Waiting::Nothing), Intent::Ignore);
-    }
-
-    #[test]
-    fn escape_refuses_an_approval_and_dismisses_a_question() {
-        assert_eq!(
-            intent(&press(Key::Escape, false), Waiting::Approval),
-            Intent::Deny
-        );
-        assert_eq!(intent(&press(Key::Escape, false), QUESTION), Intent::Cancel);
-        assert_eq!(
-            intent(&press(Key::Escape, false), Waiting::Nothing),
-            Intent::Ignore
-        );
-    }
-
-    #[test]
-    fn cmd_comma_asks_for_the_settings() {
-        let settings = KeyEvent {
-            key: Key::Command(','),
-            mods: Mods {
-                cmd: true,
-                ..Mods::default()
-            },
-        };
-        for waiting in [Waiting::Nothing, Waiting::Approval, QUESTION] {
-            assert_eq!(intent(&settings, waiting), Intent::Settings, "{waiting:?}");
-        }
-        // Without ⌘ a comma is a character in the field, not a shortcut.
-        assert_eq!(intent(&text(","), Waiting::Nothing), Intent::Ignore);
-    }
-
-    #[test]
-    fn ctrl_c_interrupts_whatever_is_on_screen() {
-        let interrupt = KeyEvent {
-            key: Key::Text("c".to_string()),
-            mods: Mods {
-                ctrl: true,
-                ..Mods::default()
-            },
-        };
-        for waiting in [Waiting::Nothing, Waiting::Approval, QUESTION] {
-            assert_eq!(intent(&interrupt, waiting), Intent::Cancel, "{waiting:?}");
-        }
-        // ⌘C is a copy, not an interrupt.
-        let copy = KeyEvent {
-            key: Key::Command('c'),
-            mods: Mods {
-                cmd: true,
-                ..Mods::default()
-            },
-        };
-        assert_eq!(intent(&copy, Waiting::Nothing), Intent::Ignore);
-    }
 }

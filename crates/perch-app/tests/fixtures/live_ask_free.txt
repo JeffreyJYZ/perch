@@ -1,0 +1,17 @@
+: a free-text question, with no options at all
+
+data: {"id":"chatcmpl-f","object":"chat.completion.chunk","created":1762730016,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Tell me:"}}]}
+
+data: {"id":"chatcmpl-f","object":"chat.completion.chunk","created":1762730016,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_f1","type":"function","function":{"name":"ask_user","arguments":"{\"prompt\":\"how should this work?\"}"}}]}}]}
+
+data: {"id":"chatcmpl-f","object":"chat.completion.chunk","created":1762730016,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+: next request
+
+data: {"id":"chatcmpl-f2","object":"chat.completion.chunk","created":1762730017,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Understood."}}]}
+
+data: {"id":"chatcmpl-f2","object":"chat.completion.chunk","created":1762730017,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]

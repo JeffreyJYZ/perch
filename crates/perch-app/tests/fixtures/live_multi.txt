@@ -1,0 +1,19 @@
+: a question with several options
+
+data: {"id":"chatcmpl-m","object":"chat.completion.chunk","created":1762730014,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Pick any:"}}]}
+
+data: {"id":"chatcmpl-m","object":"chat.completion.chunk","created":1762730014,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_m1","type":"function","function":{"name":"ask_user","arguments":"{\"prompt\":\"which ones?\",\"multiple\":true,"}}]}}]}
+
+data: {"id":"chatcmpl-m","object":"chat.completion.chunk","created":1762730014,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[\"a\",\"b\",\"c\"]}"}}]}}]}
+
+data: {"id":"chatcmpl-m","object":"chat.completion.chunk","created":1762730014,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+: next request
+
+data: {"id":"chatcmpl-m2","object":"chat.completion.chunk","created":1762730015,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Taking those."}}]}
+
+data: {"id":"chatcmpl-m2","object":"chat.completion.chunk","created":1762730015,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]

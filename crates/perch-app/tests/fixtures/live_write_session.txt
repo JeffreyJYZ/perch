@@ -1,0 +1,43 @@
+: two writes in one round, then a third in a later turn
+
+data: {"id":"chatcmpl-s1","object":"chat.completion.chunk","created":1762730018,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Writing both."}}]}
+
+data: {"id":"chatcmpl-s1","object":"chat.completion.chunk","created":1762730018,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_s1","type":"function","function":{"name":"write","arguments":"{\"path\":\"made.txt\","}}]}}]}
+
+data: {"id":"chatcmpl-s1","object":"chat.completion.chunk","created":1762730018,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"text\":\"first\"}"}}]}}]}
+
+data: {"id":"chatcmpl-s1","object":"chat.completion.chunk","created":1762730018,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_s2","type":"function","function":{"name":"write","arguments":"{\"path\":\"more.txt\","}}]}}]}
+
+data: {"id":"chatcmpl-s1","object":"chat.completion.chunk","created":1762730018,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"\"text\":\"second\"}"}}]}}]}
+
+data: {"id":"chatcmpl-s1","object":"chat.completion.chunk","created":1762730018,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+: next request
+
+data: {"id":"chatcmpl-s2","object":"chat.completion.chunk","created":1762730019,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Wrote both."}}]}
+
+data: {"id":"chatcmpl-s2","object":"chat.completion.chunk","created":1762730019,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+: next request
+
+data: {"id":"chatcmpl-s3","object":"chat.completion.chunk","created":1762730020,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Writing the third."}}]}
+
+data: {"id":"chatcmpl-s3","object":"chat.completion.chunk","created":1762730020,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_s3","type":"function","function":{"name":"write","arguments":"{\"path\":\"third.txt\","}}]}}]}
+
+data: {"id":"chatcmpl-s3","object":"chat.completion.chunk","created":1762730020,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"text\":\"third\"}"}}]}}]}
+
+data: {"id":"chatcmpl-s3","object":"chat.completion.chunk","created":1762730020,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+: next request
+
+data: {"id":"chatcmpl-s4","object":"chat.completion.chunk","created":1762730021,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Wrote the third too."}}]}
+
+data: {"id":"chatcmpl-s4","object":"chat.completion.chunk","created":1762730021,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]

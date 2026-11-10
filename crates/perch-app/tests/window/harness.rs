@@ -96,3 +96,18 @@ pub fn asked(shell: &Shell<AppState>) -> Vec<String> {
         })
         .collect()
 }
+
+/// What the question's own call answered with, once it did. The card exists from the moment the
+/// call is asked for, so an answer is a card with something in it.
+pub fn answered(shell: &Shell<AppState>) -> Option<String> {
+    shell
+        .transcript()
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            Item::Tool { name, output, .. } if name == "ask_user" && !output.is_empty() => {
+                Some(output.clone())
+            }
+            _ => None,
+        })
+}

@@ -23,6 +23,8 @@
 //! open, and [`editor`] hands the selected file to the app's Zed call.
 
 mod actions;
+mod answer;
+mod answer_view;
 mod card;
 mod composer;
 mod dock;
@@ -41,11 +43,12 @@ mod sidebar;
 mod state;
 mod term_keys;
 mod terminal;
+mod waiting;
 
 pub use card::window_key;
 pub use composer::composer_key;
 pub use dock::terminal_key;
-pub use keymap::{Intent, intent};
+pub use keymap::{Intent, Typing, intent, typing_intent};
 pub use layout::view;
 pub use live::{BUDGET, Idle, KeyStatus, Live, SHELL_TICK, SettingsSnapshot, TURN_TICK, Waiting};
 pub use panels::Panels;

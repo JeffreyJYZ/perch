@@ -5,7 +5,7 @@ use perch_files::Workspace;
 use perch_term::TermSession;
 use rune::TextEdit;
 
-use super::live::{Live, Waiting};
+use super::live::Live;
 use super::state::Shell;
 use super::terminal::TerminalTab;
 use crate::files::FilePanel;
@@ -157,33 +157,5 @@ impl<L: Live> Shell<L> {
             live.deny();
         }
         self.refresh();
-    }
-
-    /// Highlights the waiting question's option at `index`.
-    pub fn select_option(&mut self, index: usize) -> bool {
-        match self.waiting {
-            Waiting::Question { options } if index < options => {
-                self.picked = Some(index);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Answers the waiting question with the highlighted option. Enter with nothing highlighted
-    /// answers nothing: a confirmation nobody chose is not an answer.
-    pub fn confirm(&mut self) -> bool {
-        let Some(index) = self
-            .picked
-            .filter(|_| matches!(self.waiting, Waiting::Question { .. }))
-        else {
-            return false;
-        };
-        self.picked = None;
-        if let Some(live) = self.live.as_mut() {
-            live.pick(index);
-        }
-        self.refresh();
-        true
     }
 }

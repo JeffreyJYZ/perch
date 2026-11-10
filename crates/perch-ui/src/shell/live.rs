@@ -62,11 +62,20 @@ pub trait Live: 'static {
     /// Allows the call that is waiting.
     fn approve(&mut self);
 
+    /// Allows it, and stops the same tool asking again for the rest of the session.
+    fn allow_for_session(&mut self) {}
+
     /// Refuses it.
     fn deny(&mut self);
 
     /// Answers the waiting question with the option at `index`, counted from zero.
     fn pick(&mut self, index: usize);
+
+    /// Answers the waiting question with several options, in the order they were picked.
+    fn pick_many(&mut self, _picks: &[usize]) {}
+
+    /// Answers the waiting question with text the person typed.
+    fn answer_text(&mut self, _text: String) {}
 
     /// Shows the session at `index`.
     fn switch(&mut self, index: usize);
@@ -162,27 +171,4 @@ impl Live for Idle {
 }
 
 /// What the active session is waiting on, as the key map needs it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Waiting {
-    /// Nothing: a turn is running, or none has started.
-    #[default]
-    Nothing,
-    /// A call that needs the user's decision.
-    Approval,
-    /// The model's question, with `options` choices.
-    Question {
-        /// How many options the question offered.
-        options: usize,
-    },
-}
-
-impl Waiting {
-    /// The words the window says while this is what it waits on.
-    pub fn words(self) -> &'static str {
-        match self {
-            Waiting::Nothing => "",
-            Waiting::Approval => "approval needed",
-            Waiting::Question { .. } => "answer needed",
-        }
-    }
-}
+pub use super::waiting::Waiting;

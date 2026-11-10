@@ -114,6 +114,12 @@ impl Live for Window {
         }
     }
 
+    fn allow_for_session(&mut self) {
+        if let Some(app) = self.app_mut() {
+            Live::allow_for_session(app);
+        }
+    }
+
     fn deny(&mut self) {
         if let Some(app) = self.app_mut() {
             Live::deny(app);
@@ -123,6 +129,18 @@ impl Live for Window {
     fn pick(&mut self, index: usize) {
         if let Some(app) = self.app_mut() {
             Live::pick(app, index);
+        }
+    }
+
+    fn pick_many(&mut self, picks: &[usize]) {
+        if let Some(app) = self.app_mut() {
+            Live::pick_many(app, picks);
+        }
+    }
+
+    fn answer_text(&mut self, text: String) {
+        if let Some(app) = self.app_mut() {
+            Live::answer_text(app, text);
         }
     }
 

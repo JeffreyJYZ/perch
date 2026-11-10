@@ -7,6 +7,7 @@ use perch_files::Workspace;
 use perch_store::SessionMeta;
 use rune::TextEdit;
 
+use super::answer::Answering;
 use super::live::{Idle, Live, Waiting};
 use super::settings::Panel;
 use super::terminal::{GRID, TerminalTab};
@@ -30,8 +31,8 @@ pub struct Shell<L: Live = Idle> {
     pub(super) live: Option<L>,
     /// What the app said it was waiting on at the last pump.
     pub(super) waiting: Waiting,
-    /// The option a number key highlighted while a question waits; Enter answers with it.
-    pub(super) picked: Option<usize>,
+    /// The answer being given to a waiting question: what is picked, and the text field.
+    pub(super) answer: Answering,
     pub(super) terminals: Vec<TerminalTab>,
     pub(super) terminal: usize,
     /// The grid the dock measured last, as the pty is told it.
@@ -68,7 +69,7 @@ impl<L: Live> Shell<L> {
             transcript: Transcript::default(),
             live: None,
             waiting: Waiting::Nothing,
-            picked: None,
+            answer: Answering::default(),
             terminals: Vec::new(),
             terminal: 0,
             grid: Cell::new(GRID),
@@ -173,11 +174,6 @@ impl<L: Live> Shell<L> {
     /// What the app said it was waiting on at the last pump.
     pub fn waiting(&self) -> Waiting {
         self.waiting
-    }
-
-    /// The option a number key highlighted, while a question waits.
-    pub fn picked(&self) -> Option<usize> {
-        self.picked
     }
 
     /// Every terminal tab, in strip order.

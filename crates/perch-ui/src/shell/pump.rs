@@ -41,7 +41,7 @@ impl<L: Live> Shell<L> {
             if self.waiting != waiting {
                 // A new question starts with nothing picked, so Enter can never answer the
                 // previous one by accident.
-                self.picked = None;
+                self.clear_answer();
             }
             self.waiting = waiting;
             if let Some(transcript) = transcript {
@@ -89,7 +89,7 @@ impl<L: Live> Shell<L> {
             None => return,
         };
         if self.waiting != waiting {
-            self.picked = None;
+            self.clear_answer();
         }
         self.waiting = waiting;
         self.transcript = transcript.unwrap_or_default();

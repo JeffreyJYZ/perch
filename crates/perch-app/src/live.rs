@@ -48,8 +48,11 @@ impl Live for AppState {
             .and_then(crate::SessionRuntime::pending)
         {
             Some(Pending::Approval { .. }) => Waiting::Approval,
-            Some(Pending::Question { options, .. }) => Waiting::Question {
+            Some(Pending::Question {
+                options, multiple, ..
+            }) => Waiting::Question {
                 options: options.len(),
+                multiple: *multiple,
             },
             None => Waiting::Nothing,
         }
@@ -71,12 +74,24 @@ impl Live for AppState {
         AppState::allow(self);
     }
 
+    fn allow_for_session(&mut self) {
+        AppState::allow_for_session(self);
+    }
+
     fn deny(&mut self) {
         AppState::refuse(self);
     }
 
     fn pick(&mut self, index: usize) {
         AppState::choose(self, index);
+    }
+
+    fn pick_many(&mut self, picks: &[usize]) {
+        AppState::choose_many(self, picks);
+    }
+
+    fn answer_text(&mut self, text: String) {
+        AppState::answer_text(self, text);
     }
 
     fn switch(&mut self, index: usize) {
