@@ -7,19 +7,20 @@
 //! can never race a frame. Everything a turn needs from a person blocks that dispatch thread and
 //! nothing else; the answer comes back through [`AppState::answer`].
 //!
-//! The tools are the one part that is not fixed when the app opens. [`Sources`] rebuilds them from
-//! the plugin directory and the configured MCP servers, [`AppState::reload`] swaps the result into
-//! the live registry, and every dispatch reads the registry when its call starts — so a change
-//! lands at the next call without a turn being rewound.
+//! The tools are the one part that is not fixed when the app opens. [`Worker`] rebuilds them from
+//! the plugin directory and the configured MCP servers on its own thread, and the frame only reads
+//! the snapshot it publishes: the live registry every dispatch reads, the panels and the words. A
+//! change therefore lands at the next call, without a turn being rewound and without a frame
+//! waiting for a server to answer.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use perch_agent::{Agent, AgentConfig, AgentEvent, Answer, Decision, Dispatcher, SecretString};
-use perch_plugins::PanelEntry;
+use perch_agent::{
+    Agent, AgentConfig, AgentEvent, Answer, Decision, Dispatcher, SecretString, Tools,
+};
 use perch_store::Settings;
 use perch_store::secret::{self, SecretStore};
 use perch_store::settings::{self as settings_file, McpServerConfig};
@@ -27,14 +28,15 @@ use perch_store::{SessionLog, SessionMeta};
 use perch_tools::{ToolCtx, ToolOutput, ToolSpec};
 use perch_ui::Transcript;
 use perch_ui::settings::SettingsDraft;
-use perch_ui::shell::{KeyStatus, Panels, SettingsSnapshot};
+use perch_ui::shell::{KeyStatus, SettingsSnapshot};
 
 use crate::bridge;
 use crate::live_registry::Live;
 use crate::session::SessionRuntime;
 use crate::sources::Sources;
-use crate::turn::{Pending, Pumped};
+use crate::turn::Pending;
 use crate::watch::{self, Watch};
+use crate::worker::{Snapshot, Worker};
 
 pub use crate::session::CANCELLED;
 
@@ -80,15 +82,17 @@ pub struct ProviderDefaults {
 
 /// Every open session, which one the window shows, and the tools they share.
 pub struct AppState {
-    dir: PathBuf,
-    sessions: Vec<SessionRuntime>,
-    active: usize,
+    pub(crate) dir: PathBuf,
+    pub(crate) sessions: Vec<SessionRuntime>,
+    pub(crate) active: usize,
     /// The tools every session's model may call, swapped as a whole when the sources change.
-    live: Live,
-    /// What a registry is built from: the plugin directory and the MCP servers.
-    sources: Sources,
+    pub(crate) live: Live,
+    /// The registry built off the frame thread, and the panels and words that came with it.
+    pub(crate) worker: Worker,
+    /// The snapshot the frame last absorbed: what it draws and what every call dispatches through.
+    pub(crate) snapshot: Arc<Snapshot>,
     /// The debounced filesystem watcher, when the platform gave one.
-    watch: Option<Watch>,
+    pub(crate) watch: Option<Watch>,
     defaults: ProviderDefaults,
     /// Whether the provider was stated by the caller rather than read from settings. A stated one
     /// is never overwritten by a reload, which is what lets a fixture server stay pinned.
@@ -147,11 +151,13 @@ impl AppState {
         plugins: &Path,
     ) -> Result<AppState> {
         let sources = Sources::open(plugins.to_path_buf(), servers)?;
-        let live = Live::new(sources.registry().clone());
+        let worker = Worker::start(sources);
+        let snapshot = worker.latest();
+        let live = Live::new(snapshot.registry.clone());
         let watch = watch::watch(&settings_file::path_in(dir), plugins);
         // A failure is the user's business, and the transcript is the only place the window ever
         // says things: it is a note in every session's column, never a window that will not open.
-        let words = sources.words();
+        let words = snapshot.words.clone();
         let mut sessions = Vec::new();
         for meta in headers(dir)? {
             sessions.push(runtime(dir, meta, &live, &defaults, &words)?);
@@ -163,7 +169,8 @@ impl AppState {
             sessions,
             active,
             live,
-            sources,
+            worker,
+            snapshot,
             watch,
             defaults,
             stated,
@@ -189,7 +196,7 @@ impl AppState {
             model: self.defaults.model.clone(),
             created,
         };
-        let words = self.sources.words();
+        let words = self.snapshot.words.clone();
         let runtime = runtime(&self.dir, meta, &self.live, &self.defaults, &words)?;
         self.sessions.push(runtime);
         self.active = self.sessions.len() - 1;
@@ -248,7 +255,7 @@ impl AppState {
 
     /// The MCP servers whose tools loaded, in configuration order.
     pub fn mcp_servers(&self) -> Vec<String> {
-        self.sources.mcp_servers()
+        self.snapshot.servers.clone()
     }
 
     /// The provider a new session would be given: what a settings save changes.
@@ -277,20 +284,40 @@ impl AppState {
     /// the MCP servers it names.
     ///
     /// The rebuild starts from an empty registry, so what comes back is exactly what is on disk —
-    /// a deleted plugin has nothing left to resurrect it. A turn already in flight is untouched:
-    /// its calls read the registry when they start, so the next one sees the new list. Answers
-    /// whether the settings file could be read; a file a person broke by hand leaves the tools
-    /// alone rather than losing the ones that work.
+    /// a deleted plugin has nothing left to resurrect it. It runs on the worker, so this call may
+    /// wait for a server that has to be spawned while no frame ever does; the answer is what a
+    /// save and a test need, and the watcher uses [`AppState::reload_soon`] instead. A turn
+    /// already in flight is untouched: its calls read the registry when they start, so the next
+    /// one sees the new list. Answers whether the settings file could be read; a file a person
+    /// broke by hand leaves the tools alone rather than losing the ones that work.
     pub fn reload(&mut self) -> bool {
-        let Ok(settings) = Settings::load(&self.dir) else {
+        let Some(servers) = self.settings_servers() else {
             return false;
         };
+        self.worker.rebuild(servers);
+        self.absorb();
+        true
+    }
+
+    /// The same rebuild, asked for and not waited for: what a frame does when the watcher fires.
+    ///
+    /// A save that names a new server costs the worker the handshake and costs this frame
+    /// nothing. Answers whether the settings file could be read, so a broken one says so.
+    pub fn reload_soon(&mut self) -> bool {
+        let Some(servers) = self.settings_servers() else {
+            return false;
+        };
+        self.worker.rebuild_soon(servers);
+        true
+    }
+
+    /// The servers to rebuild against, after folding the settings file's provider in.
+    fn settings_servers(&mut self) -> Option<Vec<McpServerConfig>> {
+        let settings = Settings::load(&self.dir).ok()?;
         if !self.stated {
             self.follow(&settings);
         }
-        self.sources.rebuild(&settings.mcp_servers);
-        self.refresh_live();
-        true
+        Some(settings.mcp_servers)
     }
 
     /// Sends the composer's text as a turn: the question is recorded, logged, and handed to the
@@ -370,14 +397,6 @@ impl AppState {
         index < options.len() && self.answer(Answer::Picks(vec![index]))
     }
 
-    /// Whether any session has a turn in flight. A session waiting on the user does not count:
-    /// nothing can arrive until the answer does, so the window has nothing to poll for.
-    pub fn busy(&self) -> bool {
-        self.sessions
-            .iter()
-            .any(|session| session.is_running() && !session.is_waiting())
-    }
-
     /// Every session's header, in tab order: what the window's session list is built from.
     pub fn metas(&self) -> Vec<SessionMeta> {
         self.sessions
@@ -399,132 +418,11 @@ impl AppState {
         sent
     }
 
-    /// Folds what the dispatch thread has posted into the active transcript, waiting at most
-    /// `budget` in total and at most [`QUIET`] between two events.
-    ///
-    /// A session waiting for the user stops the loop: no further event can arrive until
-    /// [`AppState::answer`] is called, so the frame is the frame's.
-    ///
-    /// The watcher is serviced first, and the plugins last: a change that arrived between frames
-    /// is rebuilt before this frame draws, and the events the frame folded reach the plugins
-    /// before it returns.
-    pub fn pump(&mut self, budget: Duration) -> Pumped {
-        if self.watch.as_ref().is_some_and(Watch::changed) {
-            self.reload();
-        }
-        let mut pumped = self.pump_events(budget);
-        if self.feed_plugins(pumped.changed || self.busy()) {
-            pumped.changed = true;
-        }
-        pumped
-    }
-
-    /// Pumps until `done` holds, the session waits for the user, or `budget` runs out.
-    ///
-    /// The waiting case returns false rather than spinning: nothing can change until
-    /// [`AppState::answer`] is called, so a caller that keeps pumping would only hold its frame.
-    pub fn pump_until<F>(&mut self, budget: Duration, done: F) -> bool
-    where
-        F: Fn(&SessionRuntime) -> bool,
-    {
-        let deadline = Instant::now() + budget;
-        loop {
-            match self.sessions.get(self.active) {
-                Some(runtime) if done(runtime) => return true,
-                Some(runtime) if runtime.is_waiting() => return false,
-                Some(_) => {}
-                None => return false,
-            }
-            if Instant::now() >= deadline {
-                return false;
-            }
-            self.pump(QUIET);
-        }
-    }
-
-    /// The event loop without the watcher and the plugin feed.
-    fn pump_events(&mut self, budget: Duration) -> Pumped {
-        let deadline = Instant::now() + budget;
-        let mut pumped = Pumped::default();
-        let Some(runtime) = self.sessions.get_mut(self.active) else {
-            return pumped;
-        };
-        loop {
-            // Everything already posted is folded even with a budget of zero: the budget is how
-            // long a pump may *wait* for the next event, never how much of the queue it may leave
-            // behind for the next frame.
-            let event = match runtime.bridge.events.try_recv() {
-                Ok(event) => event,
-                Err(TryRecvError::Disconnected) => {
-                    pumped.waiting = runtime.is_waiting();
-                    return pumped;
-                }
-                Err(TryRecvError::Empty) => {
-                    let now = Instant::now();
-                    if now >= deadline {
-                        pumped.waiting = runtime.is_waiting();
-                        return pumped;
-                    }
-                    match runtime
-                        .bridge
-                        .events
-                        .recv_timeout(QUIET.min(deadline - now))
-                    {
-                        Ok(event) => event,
-                        // A quiet channel is a finished batch, and a disconnected one is a
-                        // session whose thread has stopped. Neither is a reason to spin.
-                        Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
-                            pumped.waiting = runtime.is_waiting();
-                            return pumped;
-                        }
-                    }
-                }
-            };
-            pumped.changed = true;
-            if runtime.apply(event) {
-                pumped.waiting = true;
-                return pumped;
-            }
-        }
-    }
-
-    /// Hands the active session's new events to the plugins, and takes away the tools of a plugin
-    /// that trapped or a server that died. Answers whether the live registry moved and needs
-    /// swapping.
-    fn feed_plugins(&mut self, active: bool) -> bool {
-        let mut moved = false;
-        if active && let Some(session) = self.sessions.get(self.active) {
-            moved = self.sources.sync(&session.log);
-        }
-        moved |= self.sources.settle();
-        if moved {
-            self.refresh_live();
-        }
-        moved
-    }
-
     /// Folds the settings file's provider into the defaults a new session would read.
     fn follow(&mut self, settings: &Settings) {
         self.defaults.base_url = settings.provider_base_url.clone();
         self.defaults.model = settings.model.clone();
         self.defaults.api_key = crate::settings::stored_key(&*self.secrets).unwrap_or_default();
-    }
-
-    /// Makes the rebuilt registry the one every dispatch reads from now on.
-    fn refresh_live(&self) {
-        self.live.store(self.sources.registry().clone());
-    }
-}
-
-/// The plugin column, over the app's own sources: a window laid out over `AppState` alone shows
-/// the same panels as the binary's window does.
-impl Panels for AppState {
-    fn panels(&self) -> Vec<PanelEntry> {
-        self.sources.panels()
-    }
-
-    fn plugin_words(&self) -> Vec<String> {
-        self.sources.words()
     }
 }
 
@@ -547,17 +445,10 @@ fn runtime(
         api_key: SecretString::from(defaults.api_key.clone()),
         model,
         system: SYSTEM.to_string(),
-        // The list the model is offered is fixed when the session starts; the registry a call
-        // dispatches through is read at the call, so a reload lands without restarting a turn.
-        tools: live
-            .specs()
-            .into_iter()
-            .map(|spec| perch_agent::ToolSpec {
-                name: spec.name,
-                description: spec.description,
-                parameters: spec.parameters,
-            })
-            .collect(),
+        // The list is read from the live registry at the start of every request, so a plugin that
+        // arrives mid-session is offered on the next one — and a reload that lands mid-stream
+        // leaves the request already out exactly as it was sent.
+        tools: Tools::live(live_source(live)),
     });
     let dispatcher = Arc::new(Mutex::new(Dispatcher::new()));
     let ctx = ToolCtx {
@@ -579,6 +470,26 @@ fn runtime(
 /// so it never joins a reply.
 fn say(transcript: &mut Transcript, words: &str) {
     transcript.apply(&AgentEvent::TextDelta(words.to_string()));
+}
+
+/// The app's live registry as the agent's tool source: a snapshot of `specs()` each time the agent
+/// starts a request, so the next request carries whatever the last rebuild published.
+///
+/// The two `ToolSpec` types are separate because the wire shape is the agent crate's; the map here
+/// is the only conversion, and it is what keeps the model's list and the dispatch list the same
+/// list.
+fn live_source(live: &Live) -> impl Fn() -> Vec<perch_agent::ToolSpec> + Send + Sync + 'static {
+    let live = live.clone();
+    move || {
+        live.specs()
+            .into_iter()
+            .map(|spec| perch_agent::ToolSpec {
+                name: spec.name,
+                description: spec.description,
+                parameters: spec.parameters,
+            })
+            .collect()
+    }
 }
 
 /// Every session header in `dir`, oldest first.

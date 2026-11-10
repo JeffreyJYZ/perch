@@ -1,10 +1,15 @@
-//! The app as the window sees it: one trait implementation, and nothing else in it.
+//! The app as the window sees it: the two trait implementations, and nothing else in them.
+//!
+//! [`Live`] is what draws and drives a turn; [`Panels`] is the plugin column drawn from the
+//! worker's last snapshot, so the window reads the frames and words instead of asking a plugin
+//! while it draws.
 
 use std::path::Path;
 use std::time::Duration;
 
+use perch_plugins::PanelEntry;
 use perch_ui::Transcript;
-use perch_ui::shell::{Live, Waiting};
+use perch_ui::shell::{Live, Panels, Waiting};
 
 use crate::{AppState, Pending};
 
@@ -87,5 +92,17 @@ impl Live for AppState {
         draft: perch_ui::SettingsDraft,
     ) -> std::result::Result<perch_ui::shell::KeyStatus, String> {
         AppState::save_settings(self, draft)
+    }
+}
+
+/// The plugin column, over the worker's last snapshot: the frames and the words are built off the
+/// frame thread, so the window reads them rather than asking a plugin while it draws.
+impl Panels for AppState {
+    fn panels(&self) -> Vec<PanelEntry> {
+        self.snapshot.panels.clone()
+    }
+
+    fn plugin_words(&self) -> Vec<String> {
+        self.snapshot.words.clone()
     }
 }

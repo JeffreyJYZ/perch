@@ -6,7 +6,7 @@ crates/perch-agent/src/provider.rs 537
 crates/perch-agent/tests/dispatch.rs 482
 crates/perch-agent/tests/support/mod.rs 228
 crates/perch-agent/tests/turn.rs 317
-crates/perch-app/src/app.rs 536
+crates/perch-app/src/app.rs 525
 crates/perch-app/src/bridge.rs 214
 crates/perch-app/tests/live.rs 410
 crates/perch-app/tests/sessions.rs 297

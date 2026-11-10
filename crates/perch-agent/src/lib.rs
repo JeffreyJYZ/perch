@@ -11,6 +11,7 @@ pub mod event;
 pub mod provider;
 mod replies;
 mod rounds;
+mod tools;
 pub mod turn;
 
 pub use ask::{ASK_USER, AskUser};
@@ -21,6 +22,7 @@ pub use event::{AgentEvent, EndReason, ToolCall, Usage};
 pub use provider::{
     ChatRequest, ChunkStream, Message, Role, SecretString, ToolCallRecord, ToolSpec, stream,
 };
+pub use tools::Tools;
 pub use turn::{Agent, AgentConfig, AgentHandle, MAX_ROUNDS};
 
 /// Every failure perch-agent can produce.

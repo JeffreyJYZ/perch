@@ -1,0 +1,19 @@
+: two plain answers
+
+data: {"id":"chatcmpl-a","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"first answer"}}]}
+
+data: {"id":"chatcmpl-a","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-a","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}
+
+data: [DONE]
+
+: next request
+
+data: {"id":"chatcmpl-b","object":"chat.completion.chunk","created":1762730011,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"second answer"}}]}
+
+data: {"id":"chatcmpl-b","object":"chat.completion.chunk","created":1762730011,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-b","object":"chat.completion.chunk","created":1762730011,"model":"test/model","choices":[],"usage":{"prompt_tokens":6,"completion_tokens":2,"total_tokens":8}}
+
+data: [DONE]

@@ -52,7 +52,9 @@ pub(crate) fn one(
             api_key: config.api_key.clone(),
             model: config.model.clone(),
             messages: history.clone(),
-            tools: config.tools.clone(),
+            // The snapshot for this request, taken as it starts. A reload that lands while the
+            // reply streams changes the next request, never this one.
+            tools: config.tools.specs(),
         };
         let chunks = match stream(&request) {
             Ok(chunks) => chunks,

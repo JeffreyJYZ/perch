@@ -7,6 +7,10 @@
 
 use super::TerminalTab;
 
+/// The dock's header says its position with the column's words, so "where am I" reads the same
+/// in both: one function in [`crate::transcript`], not a copy per region.
+pub(crate) use crate::transcript::scroll_words;
+
 impl TerminalTab {
     /// Rows the grid is scrolled above the live bottom; `0` follows new output.
     pub(crate) fn offset(&self) -> usize {
@@ -72,29 +76,9 @@ fn moved(offset: usize, lines: isize) -> usize {
     usize::try_from(moved.max(0)).unwrap_or(usize::MAX)
 }
 
-/// How the dock's header says the scroll position, in words: `None` when it follows the bottom.
-///
-/// The dock already says "running" or "waiting"; a grid that is a page into the history says
-/// where it is instead of pretending to be live, and the count is the one thing a reader needs to
-/// know how far back they are.
-pub(crate) fn scroll_words(offset: usize) -> Option<String> {
-    match offset {
-        0 => None,
-        1 => Some("scrolled 1 line".to_string()),
-        lines => Some(format!("scrolled {lines} lines")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{moved, scroll_words};
-
-    #[test]
-    fn the_scroll_position_is_said_in_words() {
-        assert_eq!(scroll_words(0), None, "following the bottom says nothing");
-        assert_eq!(scroll_words(1).as_deref(), Some("scrolled 1 line"));
-        assert_eq!(scroll_words(12).as_deref(), Some("scrolled 12 lines"));
-    }
+    use super::moved;
 
     #[test]
     fn a_step_that_would_go_past_the_bottom_stops_at_it() {

@@ -15,8 +15,9 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use crate::cancel::{Cancel, CancelWatch};
 use crate::dispatch::ToolReply;
 use crate::event::AgentEvent;
-use crate::provider::{Message, SecretString, ToolSpec};
+use crate::provider::{Message, SecretString};
 use crate::rounds;
+use crate::tools::Tools;
 
 /// The most chat requests one turn may make.
 ///
@@ -35,7 +36,10 @@ pub struct AgentConfig {
     pub model: String,
     /// Prepended to every conversation as the system message.
     pub system: String,
-    pub tools: Vec<ToolSpec>,
+    /// The tools the model may call, read at the start of every request rather than at spawn: a
+    /// plugin that arrives mid-session is offered on the next request, and a change never edits
+    /// a request already streaming.
+    pub tools: Tools,
 }
 
 /// The agent loop.

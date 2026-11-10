@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use perch_agent::{
     Agent, AgentConfig, AgentEvent, AgentHandle, Answer, Decision, Dispatcher, EndReason,
-    Interactor, SecretString, ToolReply,
+    Interactor, SecretString, ToolReply, Tools,
 };
 use perch_tools::{Preview, ToolCtx, ToolRegistry};
 
@@ -77,15 +77,17 @@ fn run() -> i32 {
         system: SYSTEM.to_string(),
         // The registry's spec and the wire spec are separate types; the app maps them the
         // same way, so the probe offers exactly what a session would.
-        tools: registry
-            .specs()
-            .into_iter()
-            .map(|spec| perch_agent::ToolSpec {
-                name: spec.name,
-                description: spec.description,
-                parameters: spec.parameters,
-            })
-            .collect(),
+        tools: Tools::fixed(
+            registry
+                .specs()
+                .into_iter()
+                .map(|spec| perch_agent::ToolSpec {
+                    name: spec.name,
+                    description: spec.description,
+                    parameters: spec.parameters,
+                })
+                .collect(),
+        ),
     });
     handle.prompt(PROMPT.to_string());
 

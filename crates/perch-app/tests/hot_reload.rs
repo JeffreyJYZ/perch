@@ -133,7 +133,12 @@ fn a_plugin_can_be_added_edited_and_deleted_under_a_running_app() {
     );
 
     // Edited: the same file, a different component, so the tools change and the old one is gone.
-    std::fs::copy(fixtures().join("trap-panel/trap-panel.wasm"), &file).unwrap();
+    //
+    // The fixture used here must be one whose panel answers: the app asks every plugin for its
+    // panel while it builds a snapshot, and a guest that traps there is disabled in that same
+    // pass (the trap-panel fixture proves that path). This test is about the edit, so its
+    // replacement declares a working panel and a tool name the original never had.
+    std::fs::copy(fixtures().join("duplicate/02-second.wasm"), &file).unwrap();
     app.reload();
     assert!(
         !names(&app).contains(&"echo".to_string()),
@@ -141,13 +146,13 @@ fn a_plugin_can_be_added_edited_and_deleted_under_a_running_app() {
         names(&app)
     );
     assert!(
-        names(&app).contains(&"fine".to_string()),
+        names(&app).contains(&"second_only".to_string()),
         "the edited plugin's new tool is not offered: {:?}",
         names(&app)
     );
     assert_eq!(
-        app.call_tool("fine", &json!({})).unwrap().text,
-        "fine",
+        app.call_tool("second_only", &json!({})).unwrap().text,
+        "second",
         "the edited plugin answers with its new behaviour"
     );
 
@@ -156,12 +161,12 @@ fn a_plugin_can_be_added_edited_and_deleted_under_a_running_app() {
     app.reload();
     app.reload();
     assert!(
-        !names(&app).contains(&"fine".to_string()),
+        !names(&app).contains(&"second_only".to_string()),
         "the deleted plugin's tool is still offered: {:?}",
         names(&app)
     );
     assert!(
-        app.call_tool("fine", &json!({})).is_err(),
+        app.call_tool("second_only", &json!({})).is_err(),
         "a deleted plugin still answers"
     );
 }

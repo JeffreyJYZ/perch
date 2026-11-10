@@ -5,7 +5,8 @@ use perch_agent::{AgentEvent, EndReason, ToolCall, Usage};
 use perch_tools::Preview;
 use perch_ui::transcript::{cap_line, expanded_output, summary_line};
 use perch_ui::{COLLAPSED_LINES, Item, ToolStatus, Transcript, collapsed_output, transcript_view};
-use rune::{Cx, El, Env, Runtime};
+use rune::{Cx, El, Env, Key, KeyEvent, Mods, Runtime};
+use serde_json::Value;
 
 fn call(id: &str, name: &str) -> ToolCall {
     ToolCall {
@@ -133,11 +134,65 @@ fn view(t: &Transcript, _: &mut Cx<Transcript>) -> El {
     transcript_view(t)
 }
 
-/// The accessibility tree of the column, which carries every word it draws.
-fn rendered(t: Transcript) -> String {
+/// The column laid out once, unread: for a test that presses a key or the pointer.
+fn runtime(t: Transcript) -> Runtime<Transcript> {
     let mut runtime = Runtime::new(t, view, (900.0, 700.0), Env::new(true, 2.0));
     runtime.frame(0.0);
-    runtime.accessibility_json().to_string()
+    runtime
+}
+
+/// The accessibility tree of the column, which carries every word it draws.
+fn shaped(t: Transcript) -> Value {
+    runtime(t).accessibility_json()
+}
+
+/// The node keyed `key`, wherever it sits in the tree.
+fn node<'a>(tree: &'a Value, key: &str) -> Option<&'a Value> {
+    if tree["key"] == key {
+        return Some(tree);
+    }
+    tree["children"]
+        .as_array()?
+        .iter()
+        .find_map(|child| node(child, key))
+}
+
+/// The description a reader hears for the node keyed `key`.
+fn described_as(tree: &Value, key: &str) -> Option<String> {
+    node(tree, key)
+        .and_then(|node| node["description"].as_str())
+        .map(str::to_owned)
+}
+
+/// ⌘A: the group that was clicked last, else the column's only one.
+fn select_all(runtime: &mut Runtime<Transcript>) {
+    runtime.key(KeyEvent {
+        key: Key::Command('a'),
+        mods: Mods {
+            cmd: true,
+            ..Mods::default()
+        },
+    });
+    runtime.frame(0.0);
+}
+
+/// A press and release on the middle of the element keyed `key`.
+fn click(runtime: &mut Runtime<Transcript>, key: &str) {
+    let rect = runtime
+        .elements()
+        .into_iter()
+        .find(|element| element.key.as_deref() == Some(key))
+        .unwrap_or_else(|| panic!("no {key} to click"))
+        .rect;
+    let (x, y) = (rect[0] + rect[2] * 0.5, rect[1] + rect[3] * 0.5);
+    runtime.pointer_down(x, y);
+    runtime.pointer_up(x, y);
+    runtime.frame(0.0);
+}
+
+/// The accessibility tree of the column, which carries every word it draws.
+fn rendered(t: Transcript) -> String {
+    shaped(t).to_string()
 }
 
 #[test]
@@ -367,5 +422,130 @@ fn a_finished_turn_reports_its_calls_failures_and_tokens() {
     assert!(
         reply.contains("0 tool calls") && reply.contains("12 tokens"),
         "a report with no calls still labels every number: {reply}"
+    );
+}
+
+#[test]
+fn every_turn_is_one_node_that_names_its_speaker_and_state() {
+    let mut t = Transcript::default();
+    t.push_user("why is the build red?");
+    t.apply(&AgentEvent::TextDelta("Two jobs failed.".into()));
+    let tree = shaped(t.clone());
+
+    let user = node(&tree, "turn-0").expect("the user turn is a node of its own");
+    assert_eq!(
+        user["role"], "group",
+        "a turn is one readable group: {user}"
+    );
+    assert_eq!(user["name"], "You", "a turn says who spoke: {user}");
+
+    let reply = node(&tree, "turn-1").expect("the reply is a node of its own");
+    assert_eq!(reply["role"], "group");
+    assert_eq!(reply["name"], "Assistant");
+    assert_eq!(
+        reply["description"], "streaming",
+        "a live reply says it is still arriving: {reply}"
+    );
+
+    // A tool call closes the paragraph above it and adds a card of its own.
+    t.apply(&AgentEvent::ToolCall(call("a", "read")));
+    let card = shaped(t);
+    let card = node(&card, "tool-2").expect("the card is a node of its own");
+    assert_eq!(
+        card["role"], "button",
+        "a card is one pressable node: {card}"
+    );
+    let said = card["name"].as_str().unwrap_or_default();
+    assert!(
+        said.contains("read"),
+        "the card names the call that ran: {said}"
+    );
+    assert_eq!(
+        card["description"], "running",
+        "and where it got to, in words: {card}"
+    );
+}
+
+#[test]
+fn a_streaming_turn_stops_saying_so_and_a_cancelled_one_says_cancelled() {
+    let mut t = Transcript::default();
+    t.apply(&AgentEvent::TextDelta("half a thought".into()));
+    let live = shaped(t.clone());
+    assert_eq!(described_as(&live, "turn-0").as_deref(), Some("streaming"));
+
+    t.apply(&end(EndReason::Done));
+    let done = shaped(t.clone());
+    assert_eq!(
+        described_as(&done, "turn-0"),
+        None,
+        "a finished turn says nothing about arriving"
+    );
+    assert!(
+        !done.to_string().contains("streaming"),
+        "and the word is gone from the tree: {done}"
+    );
+
+    let mut cancelled = Transcript::default();
+    cancelled.apply(&AgentEvent::TextDelta("half a thought".into()));
+    cancelled.apply(&end(EndReason::Cancelled));
+    let stopped = shaped(cancelled);
+    assert_eq!(
+        described_as(&stopped, "turn-0").as_deref(),
+        Some("cancelled"),
+        "the turn itself says it was cancelled, not only the system line"
+    );
+    assert!(
+        !stopped.to_string().contains("streaming"),
+        "a cancelled turn never claims to be running: {stopped}"
+    );
+}
+
+#[test]
+fn the_plain_turns_are_one_selection_group() {
+    // Two plain-text turns and no markdown: the column is one group, so one ⌘A takes it whole.
+    let mut t = Transcript::default();
+    t.push_user("why is the build red?");
+    t.note("the shell exited");
+    let mut runtime = runtime(t);
+    select_all(&mut runtime);
+
+    let taken = runtime.selected_text().unwrap_or_default();
+    assert!(
+        taken.contains("why is the build red?"),
+        "the user turn is in the group: {taken:?}"
+    );
+    assert!(
+        taken.contains("the shell exited"),
+        "a plain system line is in the same group: {taken:?}"
+    );
+}
+
+#[test]
+fn a_markdown_reply_is_a_group_of_the_kit_s_own() {
+    // Rune-kit marks each markdown view as its own selection group, so one drag cannot cross
+    // from a plain turn into a reply. The column still groups the plain text; this states the
+    // seam instead of pretending it is not there.
+    let mut t = Transcript::default();
+    t.push_user("why is the build red?");
+    t.apply(&AgentEvent::TextDelta("Two jobs failed.".into()));
+    let mut runtime = runtime(t);
+
+    select_all(&mut runtime);
+    assert_eq!(
+        runtime.selected_text(),
+        None,
+        "two groups and nothing clicked: ⌘A picks no one"
+    );
+
+    click(&mut runtime, "turn-0-text");
+    select_all(&mut runtime);
+    let taken = runtime.selected_text().unwrap_or_default();
+    assert!(
+        taken.contains("why is the build red?"),
+        "the clicked group is the plain column: {taken:?}"
+    );
+    assert!(
+        !taken.contains("Two jobs failed."),
+        "the reply is the kit's own group: {taken:?}"
     );
 }

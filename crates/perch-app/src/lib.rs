@@ -7,18 +7,21 @@
 //!
 //! The tools are rebuilt rather than restarted: [`Sources`] builds a registry from the built-ins,
 //! the plugin directory and the configured MCP servers, [`Live`] holds the one every dispatch
-//! reads, and [`watch`] turns a save into a reload.
+//! reads, and [`watch`] turns a save into a reload. The building happens on a worker thread, so a
+//! server that is slow to answer costs the tools their seconds and never a frame.
 
 pub mod answer;
 pub mod app;
 pub mod bridge;
 mod live;
 mod live_registry;
+mod pump;
 mod session;
 pub mod settings;
 mod sources;
 mod turn;
 pub mod watch;
+mod worker;
 
 pub use app::{AppState, Error, ProviderDefaults, Result};
 pub use bridge::{BridgeEvent, Reply};

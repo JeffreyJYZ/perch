@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use perch_agent::{
     Agent, AgentConfig, AgentEvent, AgentHandle, EndReason, MAX_ROUNDS, Message, SecretString,
-    ToolCall, ToolReply, ToolSpec, Usage,
+    ToolCall, ToolReply, ToolSpec, Tools, Usage,
 };
 use serde_json::json;
 
@@ -33,7 +33,7 @@ fn agent_at(base_url: &str) -> (AgentHandle, Receiver<AgentEvent>) {
         api_key: SecretString::from("test-key"),
         model: "test/model".to_string(),
         system: "you are a test".to_string(),
-        tools: vec![ToolSpec {
+        tools: Tools::fixed(vec![ToolSpec {
             name: "read".to_string(),
             description: "read a file".to_string(),
             parameters: json!({
@@ -41,7 +41,7 @@ fn agent_at(base_url: &str) -> (AgentHandle, Receiver<AgentEvent>) {
                 "properties": { "path": { "type": "string" } },
                 "required": ["path"]
             }),
-        }],
+        }]),
     })
 }
 

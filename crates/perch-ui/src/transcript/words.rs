@@ -60,3 +60,28 @@ pub fn summary_line(tools: usize, failed: usize, tokens: Option<u32>) -> String 
     line.push('.');
     line
 }
+
+/// How far a viewport is scrolled above its end, in words; `None` when it follows the end.
+///
+/// The transcript's header and the dock's share these words, so "where am I" reads the same in
+/// both columns, and the count is the one thing a reader needs to know how far back they are.
+#[must_use]
+pub fn scroll_words(lines: usize) -> Option<String> {
+    match lines {
+        0 => None,
+        1 => Some("scrolled 1 line".to_string()),
+        count => Some(format!("scrolled {count} lines")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scroll_words;
+
+    #[test]
+    fn the_scroll_position_is_said_in_words() {
+        assert_eq!(scroll_words(0), None, "following the end says nothing");
+        assert_eq!(scroll_words(1).as_deref(), Some("scrolled 1 line"));
+        assert_eq!(scroll_words(12).as_deref(), Some("scrolled 12 lines"));
+    }
+}
