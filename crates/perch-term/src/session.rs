@@ -147,6 +147,17 @@ impl TermHandle {
     pub fn take_dirty(&self) -> bool {
         self.dirty.swap(false, Ordering::AcqRel)
     }
+
+    /// Whether the shell on the other end of the pty has exited.
+    ///
+    /// A pty outlives the process behind it: the reader sees end of file, the master
+    /// still accepts writes and no frame moves again, so nothing else on this handle
+    /// changes when the shell dies. The child is the one authority, reaped without
+    /// blocking, which is what lets the dock say the shell exited instead of painting
+    /// its last frame as if it were still printing.
+    pub fn exited(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(Some(_)))
+    }
 }
 
 impl Drop for TermHandle {

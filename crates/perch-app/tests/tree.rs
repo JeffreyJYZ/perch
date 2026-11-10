@@ -103,7 +103,7 @@ fn bounds(node: &Value) -> [f64; 4] {
 
 #[test]
 fn selecting_a_tab_changes_the_active_session() {
-    let mut shell = Shell::new(vec![meta("a"), meta("b")], 0);
+    let mut shell = Shell::idle(vec![meta("a"), meta("b")], 0);
     assert_eq!(shell.active(), 0);
     shell.select(1);
     assert_eq!(shell.active(), 1);
@@ -140,7 +140,7 @@ fn a_file_row_from_the_workspace_reaches_the_file_panel() {
 
 #[test]
 fn the_transcript_shows_text_and_a_tool_cards_status_word() {
-    let mut shell = Shell::new(vec![meta("work")], 0);
+    let mut shell = Shell::idle(vec![meta("work")], 0);
     {
         let transcript = shell.transcript_mut();
         transcript.push_user("why is the build red?");
@@ -181,7 +181,7 @@ fn the_transcript_shows_text_and_a_tool_cards_status_word() {
 fn terminal_rows_paint_in_the_dock_and_never_in_the_sidebar() {
     let frame_text = "perch-dock-marker-3141";
     let frame = replay(format!("{frame_text}\r\n$ ").as_bytes(), 40, 3);
-    let tree = tree_of(Shell::new(vec![meta("work")], 0).with_frame("zsh", frame));
+    let tree = tree_of(Shell::idle(vec![meta("work")], 0).with_frame("zsh", frame));
 
     let dock = find_key(&tree, "terminal").expect("the terminal dock is in the tree");
     assert!(
@@ -199,7 +199,7 @@ fn terminal_rows_paint_in_the_dock_and_never_in_the_sidebar() {
 #[test]
 fn each_terminal_tab_paints_only_its_own_rows() {
     let seeded = || {
-        Shell::new(vec![meta("work")], 0)
+        Shell::idle(vec![meta("work")], 0)
             .with_frame("first", replay(b"first-tab-marker", 40, 3))
             .with_frame("second", replay(b"second-tab-marker", 40, 3))
     };
@@ -238,7 +238,7 @@ fn each_terminal_tab_paints_only_its_own_rows() {
 #[test]
 fn the_dock_sits_under_the_transcript_and_the_sidebar_runs_full_height() {
     let frame = replay(b"$ echo hi", 40, 3);
-    let tree = tree_of(Shell::new(vec![meta("work")], 0).with_frame("zsh", frame));
+    let tree = tree_of(Shell::idle(vec![meta("work")], 0).with_frame("zsh", frame));
 
     let sidebar = bounds(find_key(&tree, "left-column").expect("the sidebar is in the tree"));
     let transcript = bounds(find_key(&tree, "transcript").expect("the transcript is in the tree"));

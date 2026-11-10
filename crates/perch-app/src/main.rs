@@ -1,26 +1,28 @@
 //! The `perch` binary: one window, or its accessibility tree when `--tree` asks for it.
 //!
 //! `--tree` prints the tree to stdout and exits, so "it renders" is proved by the tree. It never
-//! touches settings or the keychain, which is what `--offline` would have skipped anyway.
-//! `--offline` also skips the settings read the window would otherwise make, so no provider
-//! setup runs at all.
+//! touches settings or the keychain: the tree is the layout, with no app behind it.
+//! `--offline` also skips the app, so the window opens with the session list and the dock alone.
+//!
+//! The live window is one frame at a time: [`poll`] folds what the turn and the shells have
+//! posted into the shell with a small budget, and asks for the next frame only while something is
+//! still moving. Nothing on the drawing thread waits for a provider, a tool or a pty.
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::time::Duration;
 
+use perch_app::AppState;
 use perch_files::Workspace;
-use perch_store::{SessionMeta, Settings};
+use perch_store::SessionMeta;
 use perch_ui::Shell;
-use rune::{AppSpec, Chrome, Env, Runtime};
+use perch_ui::Transcript;
+use perch_ui::shell::{Live, Waiting};
+use rune::{AppSpec, Chrome, Env, KeyEvent, Runtime, Tx};
 
 /// The window's size, in points.
 const WINDOW: (f32, f32) = (1280.0, 820.0);
 /// The application id, shared with the keychain service name so the data directory matches it.
 const APP_ID: &str = "dev.jyz.perch";
-
-/// The sessions the window opens with. `AppSpec::init` takes a plain fn, so the list travels
-/// through a static rather than a closure.
-static SESSIONS: OnceLock<Vec<SessionMeta>> = OnceLock::new();
 
 /// The flags perch reads itself. Everything else is Rune's (`--snap`, `--size`, `--theme`, …).
 struct Flags {
@@ -47,18 +49,10 @@ impl Flags {
 
 fn main() {
     let flags = Flags::parse(std::env::args().skip(1));
-    // A headless dump reads nothing it does not have to: no settings, no keychain, no provider.
-    let settings = if flags.offline || flags.tree {
-        None
-    } else {
-        load_settings()
-    };
-    let sessions = start_sessions(settings.as_ref());
     if flags.tree {
-        print_tree(&sessions);
+        print_tree();
         return;
     }
-    let _ = SESSIONS.set(sessions);
     // A titled window keeps AppKit's traffic lights above the shell instead of over the session
     // list: the app draws no titlebar band of its own yet.
     let chrome = Chrome {
@@ -66,26 +60,151 @@ fn main() {
         traffic_lights: None,
         drag_regions: false,
     };
-    rune::App::new(AppSpec::new("perch", WINDOW, init, perch_ui::shell::view))
-        .chrome(chrome)
-        .run();
+    rune::App::new(AppSpec {
+        poll: Some(poll),
+        on_key: Some(on_key),
+        ..AppSpec::new("perch", WINDOW, init, perch_ui::shell::view)
+    })
+    .chrome(chrome)
+    .run();
 }
 
-fn init() -> Shell {
-    open_window(SESSIONS.get().cloned().unwrap_or_default())
+/// The window's live half: the app when its data directory opened, and the words when it did not.
+///
+/// A window that refuses to start is worse than one that starts without a session: the layout, the
+/// file panel and the dock all still work, and the reason the app is missing is on stderr.
+enum Window {
+    Open(AppState),
+    Offline(String),
 }
 
-/// The window over `sessions`: the active session's worktree is read once, so the file panel
-/// shows the tree the session belongs to. A worktree that cannot be opened leaves the column
-/// saying so rather than stopping the window from starting.
-fn open_window(sessions: Vec<SessionMeta>) -> Shell {
-    match sessions
+impl Window {
+    /// The app, when it opened.
+    fn app(&self) -> Option<&AppState> {
+        match self {
+            Window::Open(app) => Some(app),
+            Window::Offline(_) => None,
+        }
+    }
+}
+
+impl Live for Window {
+    fn pump(&mut self, budget: Duration) -> bool {
+        match self {
+            Window::Open(app) => Live::pump(app, budget),
+            Window::Offline(_) => false,
+        }
+    }
+
+    fn transcript(&self) -> Option<&Transcript> {
+        self.app().and_then(Live::transcript)
+    }
+
+    fn waiting(&self) -> Waiting {
+        self.app().map_or(Waiting::Nothing, Live::waiting)
+    }
+
+    fn busy(&self) -> bool {
+        self.app().is_some_and(Live::busy)
+    }
+
+    fn prompt(&mut self, text: String) -> std::result::Result<(), String> {
+        match self {
+            Window::Open(app) => Live::prompt(app, text),
+            Window::Offline(why) => Err(format!("no session is open: {why}")),
+        }
+    }
+
+    fn cancel(&mut self) {
+        if let Window::Open(app) = self {
+            Live::cancel(app);
+        }
+    }
+
+    fn approve(&mut self) {
+        if let Window::Open(app) = self {
+            Live::approve(app);
+        }
+    }
+
+    fn deny(&mut self) {
+        if let Window::Open(app) = self {
+            Live::deny(app);
+        }
+    }
+
+    fn pick(&mut self, index: usize) {
+        if let Window::Open(app) = self {
+            Live::pick(app, index);
+        }
+    }
+
+    fn switch(&mut self, index: usize) {
+        if let Window::Open(app) = self {
+            Live::switch(app, index);
+        }
+    }
+}
+
+/// Opens the app, then the window over it.
+fn init() -> Shell<Window> {
+    let offline = std::env::args().any(|arg| arg == "--offline");
+    let window = if offline {
+        Window::Offline("started with --offline".to_string())
+    } else {
+        open_app()
+    };
+    let (sessions, active) = match window.app() {
+        Some(app) => (app.metas(), app.active()),
+        None => (fallback_sessions(), 0),
+    };
+    let shell = match sessions
         .first()
         .and_then(|session| Workspace::open(&session.worktree).ok())
     {
-        Some(workspace) => Shell::with_workspace(sessions, 0, workspace),
-        None => Shell::new(sessions, 0),
+        Some(workspace) => Shell::with_workspace(sessions, active, workspace),
+        None => Shell::new(sessions, active),
+    };
+    let mut shell = shell.with_live(window);
+    // One shell for the first tab: the dock is a real terminal from the first frame, and the pty
+    // starts in the session's worktree.
+    let _ = shell.open_terminal();
+    shell
+}
+
+/// The app behind the window: its data directory, its settings, its MCP servers and its sessions.
+fn open_app() -> Window {
+    let Some(dir) = data_dir() else {
+        return Window::Offline("no data directory for this platform".to_string());
+    };
+    match AppState::open(&dir) {
+        Ok(mut app) => {
+            // A first run has no session at all, and a window with nothing to ask is a dead one:
+            // the launch directory is the worktree, which is the design's rule.
+            if app.sessions().is_empty() {
+                let worktree = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                if let Err(error) = app.new_session(&worktree) {
+                    return Window::Offline(error.to_string());
+                }
+            }
+            Window::Open(app)
+        }
+        Err(error) => Window::Offline(error.to_string()),
     }
+}
+
+/// One frame of the world: what the turn and the shells posted since the last one.
+fn poll(shell: &mut Shell<Window>, _seconds: f64, tx: &mut Tx) -> bool {
+    let changed = shell.pump(perch_ui::shell::BUDGET);
+    if let Some(wait) = shell.next_wake() {
+        tx.wake_after(wait);
+    }
+    changed
+}
+
+/// Keys the focused control did not take: the window's own map, which the composer also uses.
+fn on_key(shell: &mut Shell<Window>, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    perch_ui::shell::composer_key(shell, ev, tx)
 }
 
 /// The app's data directory, or none when the platform gives no home directory.
@@ -93,38 +212,32 @@ fn data_dir() -> Option<PathBuf> {
     rune::dirs::AppDirs::new(APP_ID).map(|dirs| dirs.data().to_path_buf())
 }
 
-/// The settings the window starts from. A failure is not fatal: the window opens with defaults
-/// rather than refusing to start.
-fn load_settings() -> Option<Settings> {
-    Settings::load(&data_dir()?).ok()
-}
-
-/// The sessions the window opens with.
+/// The session list a window with no app shows: the worktree the app was launched in.
 ///
-/// Until the session logs are read at start, this is one session bound to the worktree the app
-/// was launched in — the design's rule that a session belongs to a worktree that already exists.
-/// `settings` is `None` offline, which the row shows as the model it has: none.
-fn start_sessions(settings: Option<&Settings>) -> Vec<SessionMeta> {
+/// The design's rule is that a session belongs to a worktree that already exists, so the launch
+/// directory is the one thing that is always true without reading anything.
+fn fallback_sessions() -> Vec<SessionMeta> {
     let worktree = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let title = worktree.file_name().map_or_else(
         || "perch".to_string(),
         |name| name.to_string_lossy().into_owned(),
     );
-    let model = settings.map_or_else(|| "no model".to_string(), |settings| settings.model.clone());
     vec![SessionMeta {
         id: "current".to_string(),
         title,
         worktree,
         branch: String::new(),
-        model,
+        model: "no model".to_string(),
         created: 0,
     }]
 }
 
 /// Lays the window out once and prints its accessibility tree, then exits.
-fn print_tree(sessions: &[SessionMeta]) {
+///
+/// The tree is the layout with nothing behind it, so this reads no settings and starts no shell.
+fn print_tree() {
     let mut runtime = Runtime::new(
-        open_window(sessions.to_vec()),
+        Shell::idle(fallback_sessions(), 0),
         perch_ui::shell::view,
         WINDOW,
         Env::new(true, 2.0),

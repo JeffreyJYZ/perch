@@ -9,17 +9,19 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use perch_agent::{
-    Agent, AgentConfig, AgentEvent, AgentHandle, Dispatcher, EndReason, SecretString,
+    Agent, AgentConfig, AgentEvent, AgentHandle, Answer, Decision, Dispatcher, EndReason,
+    SecretString,
 };
-use perch_mcp::McpHost;
+use perch_mcp::{McpHost, Note};
 use perch_store::{SessionEvent, SessionLog, SessionMeta, Settings, settings::McpServerConfig};
 use perch_tools::{ToolCtx, ToolRegistry};
 use perch_ui::Transcript;
+use perch_ui::shell::{Live, Waiting};
 
 use crate::bridge::{self, Bridge, BridgeEvent, Reply};
 
@@ -60,6 +62,15 @@ pub enum Error {
 
 /// A perch-app result.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// What one [`AppState::pump`] did, so a caller can tell a quiet frame from a moving one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pumped {
+    /// Whether any event reached the transcript.
+    pub changed: bool,
+    /// Whether the session is now waiting for the user, which is where a caller stops.
+    pub waiting: bool,
+}
 
 /// What a session is waiting on, and therefore what [`AppState::answer`] settles.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +114,9 @@ pub struct SessionRuntime {
     dispatcher: Arc<Mutex<Dispatcher>>,
     bridge: Bridge,
     pending: Option<Pending>,
+    /// Whether a turn is in flight. A turn that is waiting on the user is still in flight, but
+    /// nothing can arrive until it is answered, so the window stops polling for it.
+    running: bool,
     turns: u32,
     /// The text this turn has streamed, so the log keeps the reply the transcript showed.
     open_text: String,
@@ -117,6 +131,11 @@ impl SessionRuntime {
     /// Whether the session is waiting for the user before it can go on.
     pub fn is_waiting(&self) -> bool {
         self.pending.is_some()
+    }
+
+    /// Whether a turn is in flight.
+    pub fn is_running(&self) -> bool {
+        self.running
     }
 
     /// How many turns have ended. One is the promise; a count makes a second one visible.
@@ -201,6 +220,7 @@ impl SessionRuntime {
                     tokens_out: usage.output,
                 });
                 self.pending = None;
+                self.running = false;
                 self.turns += 1;
             }
         }
@@ -218,6 +238,8 @@ pub struct AppState {
     registry: Arc<ToolRegistry>,
     /// The MCP servers that loaded, kept so their notes can be reported and their tools dropped.
     mcp: McpHost,
+    /// What each server that failed said, so a session opened later still hears about it.
+    mcp_failures: Vec<String>,
     defaults: ProviderDefaults,
 }
 
@@ -259,10 +281,18 @@ impl AppState {
         // A server that fails is reported by the host and skipped, so one broken server cannot
         // stop the app from opening.
         let mcp = McpHost::connect_all(servers, &mut registry)?;
+        // A failure is the user's business, and the transcript is the only place the window ever
+        // says things: it is a note in every session's column, never a window that will not open.
+        let mcp_failures: Vec<String> = mcp
+            .notes()
+            .iter()
+            .filter(|note| matches!(note, Note::Failed { .. }))
+            .map(Note::line)
+            .collect();
         let registry = Arc::new(registry);
         let mut sessions = Vec::new();
         for meta in headers(dir)? {
-            sessions.push(runtime(dir, meta, &registry, &defaults)?);
+            sessions.push(runtime(dir, meta, &registry, &defaults, &mcp_failures)?);
         }
         // The most recent session is the one the window opens on.
         let active = sessions.len().saturating_sub(1);
@@ -272,6 +302,7 @@ impl AppState {
             active,
             registry,
             mcp,
+            mcp_failures,
             defaults,
         })
     }
@@ -294,7 +325,13 @@ impl AppState {
             model: self.defaults.model.clone(),
             created,
         };
-        let runtime = runtime(&self.dir, meta, &self.registry, &self.defaults)?;
+        let runtime = runtime(
+            &self.dir,
+            meta,
+            &self.registry,
+            &self.defaults,
+            &self.mcp_failures,
+        )?;
         self.sessions.push(runtime);
         self.active = self.sessions.len() - 1;
         Ok(self.active)
@@ -336,16 +373,19 @@ impl AppState {
     }
 
     /// Sends the composer's text as a turn: the question is recorded, logged, and handed to the
-    /// agent.
+    /// agent. A session whose worktree has gone refuses it and says why in its own transcript.
     pub fn prompt(&mut self, text: impl Into<String>) -> Result<()> {
         let text = text.into();
         let Some(runtime) = self.sessions.get_mut(self.active) else {
             return Err(Error::NoSession);
         };
         if !runtime.meta.worktree.exists() {
-            return Err(Error::MissingWorktree(runtime.meta.worktree.clone()));
+            let error = Error::MissingWorktree(runtime.meta.worktree.clone());
+            say(&mut runtime.transcript, &format!("not sent: {error}"));
+            return Err(error);
         }
         runtime.open_text.clear();
+        runtime.running = true;
         runtime.transcript.push_user(text.clone());
         let _ = runtime
             .log
@@ -359,6 +399,75 @@ impl AppState {
         if let Some(runtime) = self.sessions.get(self.active) {
             runtime.agent.cancel();
         }
+    }
+
+    /// Stops the turn and settles whatever it is waiting on first: a question is dismissed and an
+    /// approval is refused, so no call runs on the strength of an answer nobody gave.
+    pub fn interrupt(&mut self) {
+        match self
+            .sessions
+            .get(self.active)
+            .and_then(SessionRuntime::pending)
+            .cloned()
+        {
+            Some(Pending::Approval { .. }) => {
+                self.answer(Decision::Deny);
+            }
+            Some(Pending::Question { .. }) => {
+                self.answer(Answer::Cancelled);
+            }
+            None => {}
+        }
+        self.cancel();
+    }
+
+    /// Whether the active session is waiting on an approval.
+    fn approval_waiting(&self) -> bool {
+        matches!(
+            self.sessions
+                .get(self.active)
+                .and_then(SessionRuntime::pending),
+            Some(Pending::Approval { .. })
+        )
+    }
+
+    /// Allows the call that is waiting, and reports whether one was.
+    pub fn allow(&mut self) -> bool {
+        self.approval_waiting() && self.answer(Decision::Allow)
+    }
+
+    /// Refuses it, and reports whether one was waiting.
+    pub fn refuse(&mut self) -> bool {
+        self.approval_waiting() && self.answer(Decision::Deny)
+    }
+
+    /// Answers the model's question with the option at `index`, counted from zero, and reports
+    /// whether a question with that option was waiting.
+    pub fn choose(&mut self, index: usize) -> bool {
+        let Some(Pending::Question { options, .. }) = self
+            .sessions
+            .get(self.active)
+            .and_then(SessionRuntime::pending)
+        else {
+            return false;
+        };
+        index < options.len() && self.answer(Answer::Picks(vec![index]))
+    }
+
+    /// Whether any session has a turn in flight. A session waiting on the user does not count:
+    /// nothing can arrive until the answer does, so the window has nothing to poll for.
+    pub fn busy(&self) -> bool {
+        self.sessions
+            .iter()
+            .any(|session| session.is_running() && !session.is_waiting())
+    }
+
+    /// Every session's header, in tab order: what the window's session list is built from.
+    pub fn metas(&self) -> Vec<SessionMeta> {
+        self.sessions
+            .iter()
+            .map(|session| session.meta.clone())
+            .collect()
     }
 
     /// Answers whatever the session is waiting on — an approval or a question — and reports
@@ -377,30 +486,49 @@ impl AppState {
     /// Folds what the dispatch thread has posted into the active transcript, waiting at most
     /// `budget` in total and at most [`QUIET`] between two events.
     ///
-    /// Returns whether the session is now waiting for the user, which is where a caller stops: no
-    /// further event can arrive until it is answered.
-    pub fn pump(&mut self, budget: Duration) -> bool {
+    /// A session waiting for the user stops the loop: no further event can arrive until
+    /// [`AppState::answer`] is called, so the frame is the frame's.
+    pub fn pump(&mut self, budget: Duration) -> Pumped {
         let deadline = Instant::now() + budget;
+        let mut pumped = Pumped::default();
         let Some(runtime) = self.sessions.get_mut(self.active) else {
-            return false;
+            return pumped;
         };
         loop {
-            let now = Instant::now();
-            if now >= deadline {
-                return runtime.is_waiting();
-            }
-            let wait = QUIET.min(deadline - now);
-            match runtime.bridge.events.recv_timeout(wait) {
-                Ok(event) => {
-                    if runtime.apply(event) {
-                        return true;
+            // Everything already posted is folded even with a budget of zero: the budget is how
+            // long a pump may *wait* for the next event, never how much of the queue it may leave
+            // behind for the next frame.
+            let event = match runtime.bridge.events.try_recv() {
+                Ok(event) => event,
+                Err(TryRecvError::Disconnected) => {
+                    pumped.waiting = runtime.is_waiting();
+                    return pumped;
+                }
+                Err(TryRecvError::Empty) => {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        pumped.waiting = runtime.is_waiting();
+                        return pumped;
+                    }
+                    match runtime
+                        .bridge
+                        .events
+                        .recv_timeout(QUIET.min(deadline - now))
+                    {
+                        Ok(event) => event,
+                        // A quiet channel is a finished batch, and a disconnected one is a
+                        // session whose thread has stopped. Neither is a reason to spin.
+                        Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
+                            pumped.waiting = runtime.is_waiting();
+                            return pumped;
+                        }
                     }
                 }
-                // A quiet channel is a finished batch, and a disconnected one is a session whose
-                // thread has stopped. Neither is a reason to spin.
-                Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
-                    return runtime.is_waiting();
-                }
+            };
+            pumped.changed = true;
+            if runtime.apply(event) {
+                pumped.waiting = true;
+                return pumped;
             }
         }
     }
@@ -429,12 +557,61 @@ impl AppState {
     }
 }
 
+impl Live for AppState {
+    fn pump(&mut self, budget: Duration) -> bool {
+        AppState::pump(self, budget).changed
+    }
+
+    fn transcript(&self) -> Option<&Transcript> {
+        self.active_session().map(SessionRuntime::transcript)
+    }
+
+    fn waiting(&self) -> Waiting {
+        match self.active_session().and_then(SessionRuntime::pending) {
+            Some(Pending::Approval { .. }) => Waiting::Approval,
+            Some(Pending::Question { options, .. }) => Waiting::Question {
+                options: options.len(),
+            },
+            None => Waiting::Nothing,
+        }
+    }
+
+    fn busy(&self) -> bool {
+        AppState::busy(self)
+    }
+
+    fn prompt(&mut self, text: String) -> std::result::Result<(), String> {
+        AppState::prompt(self, text).map_err(|error| error.to_string())
+    }
+
+    fn cancel(&mut self) {
+        AppState::interrupt(self);
+    }
+
+    fn approve(&mut self) {
+        AppState::allow(self);
+    }
+
+    fn deny(&mut self) {
+        AppState::refuse(self);
+    }
+
+    fn pick(&mut self, index: usize) {
+        AppState::choose(self, index);
+    }
+
+    fn switch(&mut self, index: usize) {
+        let _ = AppState::switch(self, index);
+    }
+}
+
 /// Starts one session: its log, its agent, and the thread that will run its tools.
 fn runtime(
     dir: &Path,
     meta: SessionMeta,
     registry: &Arc<ToolRegistry>,
     defaults: &ProviderDefaults,
+    notes: &[String],
 ) -> Result<SessionRuntime> {
     let log = SessionLog::open(dir, meta.clone())?;
     let model = if meta.model.is_empty() {
@@ -463,17 +640,30 @@ fn runtime(
         root: meta.worktree.clone(),
     };
     let bridge = bridge::spawn(events, Arc::clone(registry), ctx, Arc::clone(&dispatcher));
+    let mut transcript = Transcript::default();
+    // A server that did not load is said once per session, in the column the user is reading.
+    for note in notes {
+        say(&mut transcript, note);
+    }
     Ok(SessionRuntime {
         meta,
-        transcript: Transcript::default(),
+        transcript,
         log,
         agent,
         dispatcher,
         bridge,
         pending: None,
+        running: false,
         turns: 0,
         open_text: String::new(),
     })
+}
+
+/// Says `words` in a transcript as one item: the transcript has no note kind, so a note takes the
+/// path a reply's text does. Only used while no turn streams — a startup note, a refused prompt —
+/// so it never joins a reply.
+fn say(transcript: &mut Transcript, words: &str) {
+    transcript.apply(&AgentEvent::TextDelta(words.to_string()));
 }
 
 /// Every session header in `dir`, oldest first.
