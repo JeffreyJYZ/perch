@@ -642,7 +642,7 @@ Expected: FAIL, `AppState` not found.
 
 - [ ] **Step 3: Implement**
 
-`AppState` owns a vector of `SessionRuntime` plus a chat channel from each agent and terminal. Switching swaps only which runtime the view reads; nothing reloads from disk and no process is restarted. A session whose worktree no longer exists is marked missing and refuses new turns. On start, sessions are read from the JSONL headers and the most recent is active.
+`AppState` owns a vector of `SessionRuntime` plus a chat channel from each agent and terminal. Switching swaps only which runtime the view reads; nothing reloads from disk and no process is restarted. A session whose worktree no longer exists is marked missing and refuses new turns. On start, sessions are read from the JSONL headers and the most recent is active. The dispatch path is also where plugin lifetime lands: when a plugin-backed tool call fails, call `PluginHost::release` with the registry so a trapped plugin's tools stop being offered instead of sitting there unusable.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -665,7 +665,7 @@ git add -A && git commit -m "feat(app): session tabs wired to agent, terminal an
 
 **Interfaces:**
 - Consumes: `ToolRegistry`, `Tool`, `ToolCtx`, `ToolOutput` from Task 7.
-- Produces: `PluginHost::load(dir: &Path, registry: &mut ToolRegistry) -> Result<PluginHost>`; `PluginHost::len(&self) -> usize`; `PluginHost::names(&self) -> Vec<String>`; a `PluginTool` implementing `Tool` whose `call` invokes the guest with a 2s fuel-and-time bound and maps a trap to `Err` plus disabling that plugin.
+- Produces: `PluginHost::load(dir: &Path, registry: &mut ToolRegistry) -> Result<PluginHost>`; `PluginHost::len(&self) -> usize`; `PluginHost::names(&self) -> Vec<String>`; `PluginHost::release(&self, registry: &mut ToolRegistry) -> usize`, which drops a disabled plugin's tools through the registry and is idempotent; a `PluginTool` implementing `Tool` whose `call` invokes the guest with a 2s fuel-and-time bound and maps a trap to `Err` plus disabling that plugin.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -707,7 +707,7 @@ Expected: FAIL, `PluginHost` not found.
 
 - [ ] **Step 3: Implement**
 
-`perch-plugin.wit` declares a world exporting `tool-specs() -> list<tool-spec>`, `call(name, args-json) -> result<string, string>`, and importing only `log`. `PluginHost::load` reads each `.wasm` in the directory, instantiates it with wasmtime's component API and store limits (memory cap plus fuel), and registers one `PluginTool` per spec. Host IO is refused outright in this task — a plugin that wants a file must ask through a host import added in Task 12, so `read_outside` fails at the ABI boundary rather than by inspection. The fixture plugin is a `wasm32-wasip2` crate built by `scripts/build-plugin-fixtures.sh`, and its two wasm files are checked in so tests need no toolchain.
+`perch-plugin.wit` declares a world exporting `tool-specs() -> list<tool-spec>`, `call(name, args-json) -> result<string, string>`, and importing only `log`. `PluginHost::load` reads each `.wasm` in the directory, instantiates it with wasmtime's component API and store limits (memory cap plus fuel), and registers one `PluginTool` per spec. A plugin tool whose name collides with an already-registered tool is rejected at load with an error naming both — never a silent overwrite of a builtin. Host IO is refused outright in this task — a plugin that wants a file must ask through a host import added in Task 12, so `read_outside` fails at the ABI boundary rather than by inspection. The fixture plugin is a `wasm32-wasip2` crate built by `scripts/build-plugin-fixtures.sh`, and its wasm is checked in so tests need no toolchain.
 
 - [ ] **Step 4: Run test to verify it passes**
 
