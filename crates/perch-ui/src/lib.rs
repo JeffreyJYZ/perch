@@ -3,8 +3,16 @@
 //! [`shell`] is the window itself — one left column of sessions over files, the transcript in
 //! the centre, and the terminal dock under the transcript only.
 
+pub mod files;
+pub mod preview;
 pub mod shell;
 pub mod terminal_view;
+pub mod transcript;
 
+pub use files::{FilePanel, TreeRow, files_view, status_word};
+pub use preview::{preview_lines, preview_view};
 pub use shell::Shell;
 pub use terminal_view::{RowRun, paint_rows};
+pub use transcript::{
+    COLLAPSED_LINES, Item, ToolStatus, Transcript, collapsed_output, transcript_view,
+};

@@ -5,8 +5,15 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+perch-agent = { path = "../perch-agent" }
+perch-files = { path = "../perch-files" }
 perch-store = { path = "../perch-store" }
 perch-term = { path = "../perch-term" }
+perch-tools = { path = "../perch-tools" }
 rune = { path = "../../../../experiments/rune/crates/rune" }
-rune-kit = { path = "../../../../experiments/rune/crates/rune-kit" }
+rune-kit = { path = "../../../../experiments/rune/crates/rune-kit", features = ["markdown"] }
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
