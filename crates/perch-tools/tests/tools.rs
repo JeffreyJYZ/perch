@@ -402,3 +402,19 @@ fn approvals_are_required_only_for_mutating_tools() {
     assert!(!registry.needs_approval("echo").unwrap());
     assert!(registry.needs_approval("missing").is_err());
 }
+
+#[test]
+fn unregistering_removes_the_spec_and_the_call_path() {
+    let mut registry = ToolRegistry::builtin();
+    registry.register(Arc::new(Echo));
+    assert!(registry.unregister("echo"));
+    assert!(!registry.specs().iter().any(|s| s.name == "echo"));
+    let ctx = ToolCtx {
+        root: TempDir::new().unwrap().path().to_path_buf(),
+    };
+    assert!(registry.call("echo", &json!({"text": "hi"}), &ctx).is_err());
+    assert!(
+        !registry.unregister("echo"),
+        "second removal reported a change"
+    );
+}

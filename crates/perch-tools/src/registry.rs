@@ -42,6 +42,16 @@ impl ToolRegistry {
         self.tools.iter().map(|tool| tool.spec()).collect()
     }
 
+    /// Removes a tool by name, answering whether anything was removed.
+    ///
+    /// A plugin that traps has its tools dropped through here, so the model is never offered a
+    /// spec whose tool cannot run.
+    pub fn unregister(&mut self, name: &str) -> bool {
+        let before = self.tools.len();
+        self.tools.retain(|tool| tool.spec().name != name);
+        self.tools.len() != before
+    }
+
     /// Whether the named tool asks the user before it runs.
     pub fn needs_approval(&self, name: &str) -> Result<bool> {
         Ok(self.find(name)?.needs_approval())
