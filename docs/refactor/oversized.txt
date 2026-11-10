@@ -1,18 +1,3 @@
 # Every Rust file over the 200-line budget, with its size when the budget changed.
 # This list may only shrink: a new offender fails the gate and a listed file that grows fails it.
 # It covers src, tests and examples: a 500-line test file is a 500-line file.
-crates/perch-agent/tests/dispatch.rs 482
-crates/perch-agent/tests/support/mod.rs 228
-crates/perch-agent/tests/turn.rs 317
-crates/perch-app/tests/live.rs 410
-crates/perch-app/tests/sessions.rs 297
-crates/perch-app/tests/terminal.rs 233
-crates/perch-app/tests/tree.rs 287
-crates/perch-app/tests/window.rs 413
-crates/perch-files/tests/files.rs 201
-crates/perch-mcp/tests/oauth.rs 218
-crates/perch-term/tests/terminal.rs 214
-crates/perch-tools/tests/tools.rs 486
-crates/perch-ui/tests/settings.rs 280
-crates/perch-ui/tests/transcript.rs 551
-crates/perch-ui/tests/wiring.rs 336
