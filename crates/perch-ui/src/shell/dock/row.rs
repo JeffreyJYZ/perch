@@ -9,6 +9,7 @@ use rune::{El, col, row, text};
 use rune_kit::Kit;
 
 use super::super::paint::{Over, cols_used, cursor_block, selection_cols, terminal_text};
+use super::words;
 use crate::files::note;
 use crate::terminal_view::RowRun;
 
@@ -41,7 +42,27 @@ pub(super) fn terminal_row(
         cursor,
         selected: selection.and_then(|range| selection_cols(range, index, frame.cols)),
     };
-    let mut line = row().key(format!("terminal-row-{index}")).w_full().gap(0.0);
+    let mut line = row()
+        .key(format!("terminal-row-{index}"))
+        .role("row")
+        .w_full()
+        .gap(0.0);
+    // A reader hears the row's whole line, not one node per styled stretch of it: the runs are
+    // cells of one line, so the label is the line and the runs say nothing of their own.
+    let said = words::line(cells);
+    let blank = said.is_empty();
+    line = if blank {
+        // A blank line has no text to read; it stays in the tree only to carry the caret.
+        match cursor {
+            Some(_) => line.label(words::cursor(frame)),
+            None => line.a11y_hidden(),
+        }
+    } else {
+        line.label(said)
+    };
+    if let Some(col) = cursor.filter(|_| !blank) {
+        line = line.description(format!("cursor at column {}", words::one_based(col)));
+    }
     for run in runs {
         line = line.child(terminal_text(run, over, kit));
     }

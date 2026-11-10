@@ -48,7 +48,10 @@ pub(super) fn terminal_text(run: &RowRun, over: Over<'_>, kit: &Kit) -> El {
             italic: run.italic,
             ..kit.ty.mono
         })
-        .color(ink(drawn.fg, kit));
+        .color(ink(drawn.fg, kit))
+        // A run is a stretch of one line, not a word of its own: the row it belongs to says the
+        // line, so a reader hears a sentence instead of one node per colour.
+        .a11y_hidden();
     let mut spans = span_for(run, &drawn, kit).into_iter().collect::<Vec<_>>();
     if let Some((from, to)) = over.selected
         && let Some(span) = marked(over.row, run, from, to)

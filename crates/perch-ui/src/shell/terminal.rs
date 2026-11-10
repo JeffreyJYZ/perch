@@ -130,6 +130,14 @@ impl TerminalTab {
         self.ended.as_deref()
     }
 
+    /// Mark this tab's shell as stopped, saying `words` instead of painting its last frame.
+    ///
+    /// This is how a test reads what the dock says about a dead shell without spawning one.
+    #[cfg(test)]
+    pub(crate) fn stop_for_test(&mut self, words: impl Into<String>) {
+        self.ended = Some(words.into());
+    }
+
     /// The grid the pty behind this tab was last told about.
     pub fn grid(&self) -> (u16, u16) {
         self.grid

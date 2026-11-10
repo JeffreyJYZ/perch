@@ -6,6 +6,10 @@
 
 mod input;
 mod row;
+mod words;
+
+#[cfg(test)]
+mod tests;
 
 use rune::{Cx, El, ScrollSpec, Tx, WheelEvent, col, row, text};
 use rune_kit::Kit;
@@ -115,8 +119,15 @@ fn dock_body<L: Live>(tab: Option<&TerminalTab>, kit: &Kit) -> El {
     // Follow the bottom, the way a terminal does: the newest output is the row in view. The grid
     // takes keys, so a click into it types at the shell, and it takes the wheel so a terminal's
     // own history moves instead of the panel's scroll bar.
+    let cursor = cursor_cell(frame);
+    let selection = tab.selection();
     let mut grid = col()
         .key("terminal-rows")
+        .role("grid")
+        .label("Terminal output")
+        // A reader cannot see the block or the wash, so both are said here, once, on the grid
+        // that holds them.
+        .description(words::grid(frame, selection))
         .w_full()
         .grow(1.0)
         .min_h(0.0)
@@ -128,8 +139,6 @@ fn dock_body<L: Live>(tab: Option<&TerminalTab>, kit: &Kit) -> El {
         })
         .on_drag(input::terminal_drag::<L>)
         .scroll(ScrollSpec { stick_bottom: true });
-    let cursor = cursor_cell(frame);
-    let selection = tab.selection();
     // [`paint_rows`] emits runs top to bottom, so a row is one stretch of entries that name the
     // same `row`; each stretch becomes one line of the grid.
     let mut at: Option<u16> = None;
