@@ -3510,6 +3510,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "perch-update"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.13.5",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "petgraph"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

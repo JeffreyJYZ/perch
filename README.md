@@ -109,7 +109,7 @@ A remote `url` server is always authorized: a stored token is reused, and otherw
 
 ## What is not there yet
 
-- No updater, and no notarized or universal bundle.
+- No updater wired into the app: `perch-update` checks a manifest, orders prerelease versions, verifies a SHA-256 download and stages it, but nothing in the window calls it yet. No notarized or universal bundle — the build is arm64 and ad-hoc signed.
 - The plugin host is implemented and tested but the app does not load plugins, so plugin tools and panels are absent from the window.
 - The worktree tree is display-only: clicking a file does nothing, the preview panel is not placed in the window, and the "Open in Zed" button has no press. The crate underneath (`perch-files`) does have the walk, status, preview and `open -a Zed`.
 - A question can be answered in the window only by picking one numbered option; multi-pick and free text exist in the agent layer, not in the window. "Allow for session" is likewise not offered by the window (Enter allows once, Escape refuses).

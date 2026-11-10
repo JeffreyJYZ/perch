@@ -13,9 +13,9 @@ fi
 unset _gate_dir
 
 # `cargo fmt --all` also formats local path dependencies, and Rune is not rustfmt-clean — so
-# format exactly this workspace's packages, by name.
-for _pkg in perch-app perch-store perch-ui perch-term perch-agent perch-tools perch-files \
-	perch-plugins perch-mcp; do
+# format exactly this workspace's members, read from cargo itself so a new crate cannot be
+# forgotten the way perch-update was.
+for _pkg in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].name'); do
 	cargo fmt -p "$_pkg" -- --check
 done
 unset _pkg

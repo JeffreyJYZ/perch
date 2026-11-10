@@ -1,0 +1,14 @@
+[package]
+name = "perch-update"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+reqwest = { version = "0.13", features = ["blocking"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
