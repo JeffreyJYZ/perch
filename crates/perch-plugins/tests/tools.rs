@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use perch_plugins::PluginHost;
-use perch_tools::{ToolCtx, ToolRegistry};
+use perch_tools::{Error, ToolCtx, ToolRegistry};
 use serde_json::json;
 
 /// The checked-in fixtures live beside the crate, and a test's working directory is not
@@ -38,9 +38,55 @@ fn a_trapping_plugin_is_disabled_and_its_tools_vanish() {
     let mut registry = ToolRegistry::builtin();
     let host = PluginHost::load(&fixtures(), &mut registry).unwrap();
 
+    // Nothing is disabled yet, so releasing removes nothing.
+    assert_eq!(host.release(&mut registry), 0);
+
+    // Every tool the fixture declares is a real registry entry under its own name.
+    for name in ["echo", "explode", "read_outside"] {
+        let specs = registry.specs();
+        let spec = specs
+            .iter()
+            .find(|spec| spec.name == name)
+            .unwrap_or_else(|| panic!("{name} was never registered"));
+        assert!(!spec.name.is_empty());
+    }
+
     assert!(registry.call("explode", &json!({}), &ctx()).is_err());
     assert!(!host.names().contains(&"explode".to_string()));
-    assert!(!registry.specs().iter().any(|s| s.name == "explode"));
+    assert_eq!(host.len(), 0);
+
+    // A trap disables the plugin but does not touch the registry, so the tools are still there
+    // under their real names and refuse as disabled rather than vanishing silently.
+    let err = registry.call("explode", &json!({}), &ctx()).unwrap_err();
+    assert!(
+        matches!(err, Error::Message(ref message) if message.contains("disabled")),
+        "a disabled plugin answered {err:?} instead of a disabled error"
+    );
+    assert!(registry.specs().iter().any(|spec| spec.name == "explode"));
+
+    // Removal is the registry's, run by whoever owns `&mut ToolRegistry`.
+    assert_eq!(host.release(&mut registry), 3);
+    for name in ["echo", "explode", "read_outside"] {
+        assert!(
+            !registry.specs().iter().any(|spec| spec.name == name),
+            "{name} is still offered after release"
+        );
+    }
+    assert!(
+        !registry.specs().iter().any(|spec| spec.name.is_empty()),
+        "a spec with no name survived"
+    );
+
+    // Gone by name, so dispatch answers unknown-tool rather than a plugin error.
+    let err = registry.call("explode", &json!({}), &ctx()).unwrap_err();
+    assert!(
+        matches!(err, Error::UnknownTool(ref name) if name == "explode"),
+        "a released tool answered {err:?} instead of an unknown-tool error"
+    );
+
+    // The built-ins were never part of the removal.
+    assert!(registry.specs().iter().any(|spec| spec.name == "bash"));
+    assert_eq!(host.release(&mut registry), 0);
 }
 
 #[test]

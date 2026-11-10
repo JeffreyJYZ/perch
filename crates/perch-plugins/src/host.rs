@@ -30,7 +30,9 @@ const INSTANCE_CAP: usize = 4;
 /// Every plugin loaded from one directory, and the tools each contributed.
 ///
 /// The host is the only owner of the wasmtime stores: a [`PluginTool`] reaches its guest through
-/// a shared handle, so disabling a plugin and every tool it registered is one flag.
+/// a shared handle, so a trap disables a plugin with one flag. The registry still owns its own
+/// entries, so dropping the tools of a disabled plugin is [`PluginHost::release`], which the
+/// caller holding `&mut ToolRegistry` runs.
 pub struct PluginHost {
     plugins: Vec<Plugin>,
     /// Keeps the engine's epoch moving, which is what bounds a call. Held for its `Drop`.
@@ -91,6 +93,24 @@ impl PluginHost {
             .filter(|plugin| !plugin.is_disabled())
             .flat_map(|plugin| plugin.tools.iter().cloned())
             .collect()
+    }
+
+    /// Unregisters every tool contributed by a plugin a trap disabled, answering how many names
+    /// were removed.
+    ///
+    /// Removal cannot happen inside [`PluginTool::call`]: the registry owns its entries, and a
+    /// tool is handed only its own arguments and the session root, never the registry. So the
+    /// caller that holds `&mut ToolRegistry` runs this after a call has failed — until then a
+    /// disabled plugin's tools stay registered and answer the disabled error. Calling it again,
+    /// or calling it while no plugin is disabled, removes nothing and answers `0`; a plugin that
+    /// is still live keeps its tools either way.
+    pub fn release(&self, registry: &mut ToolRegistry) -> usize {
+        self.plugins
+            .iter()
+            .filter(|plugin| plugin.is_disabled())
+            .flat_map(|plugin| plugin.tools.iter())
+            .filter(|name| registry.unregister(name))
+            .count()
     }
 }
 
@@ -193,20 +213,9 @@ pub struct PluginTool {
 
 impl Tool for PluginTool {
     fn spec(&self) -> ToolSpec {
-        if !lock(&self.inner).disabled {
-            return self.spec.clone();
-        }
-        // `ToolRegistry` has no `unregister` in the committed API, and `specs()` is computed from
-        // whatever is registered, so a disabled tool reports no name rather than its own: that is
-        // what makes it vanish from both `specs()` and `call`, which looks the name up.
-        ToolSpec {
-            name: String::new(),
-            description: format!(
-                "plugin `{}` was disabled after `{}` trapped",
-                self.plugin, self.name
-            ),
-            parameters: json!({"type": "object", "properties": {}}),
-        }
+        // The real spec, disabled or not. A tool that cannot run is removed from the registry by
+        // `PluginHost::release`, never hidden behind a spec with no name.
+        self.spec.clone()
     }
 
     /// A plugin tool never needs approval: the ABI gives it no way to touch anything.
