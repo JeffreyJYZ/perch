@@ -12,7 +12,7 @@ pub mod turn;
 
 pub use ask::{ASK_USER, AskUser};
 pub use chunk::Chunk;
-pub use dispatch::{Answer, Decision, Dispatcher, Interactor};
+pub use dispatch::{Answer, Decision, Dispatcher, Interactor, ToolReply};
 pub use event::{AgentEvent, EndReason, ToolCall, Usage};
 pub use provider::{
     ChatRequest, ChunkStream, Message, Role, SecretString, ToolCallRecord, ToolSpec, stream,

@@ -162,14 +162,13 @@ fn dispatch(
         replies,
     };
     let mut dispatcher = lock(dispatcher);
-    let messages = dispatcher.run(std::slice::from_ref(&call), registry, ctx, &mut interactor);
-    for message in messages {
-        let text = message.content.unwrap_or_default();
-        let ok = ran(&call.name, &text);
+    let replies = dispatcher.run(std::slice::from_ref(&call), registry, ctx, &mut interactor);
+    for reply in replies {
+        let text = reply.message.content.unwrap_or_default();
         if out
             .send(BridgeEvent::ToolResult {
                 id: call.id.clone(),
-                ok,
+                ok: reply.ok,
                 text,
             })
             .is_err()
@@ -178,20 +177,6 @@ fn dispatch(
         }
     }
     true
-}
-
-/// Whether the dispatcher's message is a call that ran rather than one it refused.
-///
-/// The dispatcher answers with text and no outcome, so its four refusals are recognised by the
-/// sentences it writes them with: a denial, a failed preview, an unknown tool, and a call that
-/// failed. Everything else is a tool's own result. The real fix is an outcome beside the text in
-/// `perch-agent`'s message; until then this is the one place that knows the wording.
-fn ran(name: &str, text: &str) -> bool {
-    let denied = text.starts_with("the user denied the ");
-    let failed = text.starts_with(&format!("{name} failed: "));
-    let unknown = text.starts_with("no tool named ");
-    let unshown = text.starts_with("the ") && text.contains(" call was not run because");
-    !(denied || failed || unknown || unshown)
 }
 
 fn lock(dispatcher: &Mutex<Dispatcher>) -> std::sync::MutexGuard<'_, Dispatcher> {

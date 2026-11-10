@@ -100,8 +100,8 @@ fn a_denied_tool_never_runs_and_says_so() {
     );
 
     assert_eq!(out.len(), 1);
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("call_1"));
-    let text = out[0].content.clone().unwrap();
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("call_1"));
+    let text = out[0].message.content.clone().unwrap();
     assert!(
         text.contains("denied"),
         "the model must be told the call was denied, got: {text}"
@@ -131,11 +131,11 @@ fn allow_for_session_stops_asking_for_that_tool() {
             &root,
             &mut interactor,
         );
-        assert_eq!(out[0].tool_call_id.as_deref(), Some(*id));
+        assert_eq!(out[0].message.tool_call_id.as_deref(), Some(*id));
         assert!(
-            out[0].content.as_deref().unwrap().contains("ok"),
+            out[0].message.content.as_deref().unwrap().contains("ok"),
             "run {index} was not allowed to run: {:?}",
-            out[0].content
+            out[0].message.content
         );
     }
 
@@ -171,8 +171,8 @@ fn the_question_tool_returns_the_picked_option_and_free_text() {
         &root,
         &mut interactor,
     );
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("q1"));
-    assert_eq!(out[0].content.as_deref(), Some("b"));
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("q1"));
+    assert_eq!(out[0].message.content.as_deref(), Some("b"));
 
     let mut interactor = Script::answer(Answer::Text("neither, use c".into()));
     let out = dispatcher.run(
@@ -185,8 +185,8 @@ fn the_question_tool_returns_the_picked_option_and_free_text() {
         &root,
         &mut interactor,
     );
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("q2"));
-    assert_eq!(out[0].content.as_deref(), Some("neither, use c"));
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("q2"));
+    assert_eq!(out[0].message.content.as_deref(), Some("neither, use c"));
 }
 
 #[test]
@@ -202,9 +202,9 @@ fn cancelling_a_question_ends_the_turn_rather_than_answering_for_the_user() {
         &mut interactor,
     );
 
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("q1"));
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("q1"));
     assert_eq!(
-        out[0].content.as_deref(),
+        out[0].message.content.as_deref(),
         Some("the user cancelled the question")
     );
 }
@@ -226,21 +226,27 @@ fn a_failing_tool_becomes_message_content_not_a_panic() {
     );
 
     assert_eq!(out.len(), 2, "one tool message per call, whatever happened");
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("c1"));
-    assert_eq!(out[1].tool_call_id.as_deref(), Some("c2"));
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("c1"));
+    assert_eq!(out[1].message.tool_call_id.as_deref(), Some("c2"));
     assert!(
         out[0]
+            .message
             .content
             .as_deref()
             .unwrap()
             .contains("No such file or directory"),
         "the read failure reaches the model as text, got {:?}",
-        out[0].content
+        out[0].message.content
     );
     assert!(
-        out[1].content.as_deref().unwrap().contains("no tool named"),
+        out[1]
+            .message
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("no tool named"),
         "an unknown tool is reported, not panicked on, got {:?}",
-        out[1].content
+        out[1].message.content
     );
 }
 
@@ -262,9 +268,9 @@ fn a_two_option_pick_returns_both_texts_in_the_given_order() {
         &root,
         &mut interactor,
     );
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("m1"));
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("m1"));
     assert_eq!(
-        out[0].content.as_deref(),
+        out[0].message.content.as_deref(),
         Some("b\na"),
         "a multi-pick answers in the order the user picked, one option per line"
     );
@@ -281,7 +287,7 @@ fn a_two_option_pick_returns_both_texts_in_the_given_order() {
         &mut interactor,
     );
     assert_eq!(
-        out[0].content.as_deref(),
+        out[0].message.content.as_deref(),
         Some("the user cancelled the question"),
         "picking nothing is a cancellation, not an empty answer"
     );
@@ -325,12 +331,84 @@ fn denying_an_edit_shows_the_change_and_leaves_the_file_untouched() {
         b"fn alpha() {}\n",
         "a preview must not write, and a denied edit must not either"
     );
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("e1"));
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("e1"));
     assert!(
-        out[0].content.as_deref().unwrap().contains("denied"),
+        out[0]
+            .message
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("denied"),
         "got {:?}",
-        out[0].content
+        out[0].message.content
     );
+}
+
+#[test]
+fn a_denied_call_is_not_ok_and_a_call_that_ran_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = ctx(dir.path());
+    let mut dispatcher = Dispatcher::new();
+
+    let mut interactor = Script::deny_all();
+    let out = dispatcher.run(
+        &[call("d1", "bash", json!({"command": "touch pwned"}))],
+        &registry(),
+        &root,
+        &mut interactor,
+    );
+    assert!(!out[0].ok, "a denied call must be reported as not run");
+    assert!(!dir.path().join("pwned").exists(), "and it must not run");
+
+    let mut interactor = Script::answer(Answer::Cancelled);
+    let out = dispatcher.run(
+        &[call("r1", "read", json!({"path": "missing.txt"}))],
+        &registry(),
+        &root,
+        &mut interactor,
+    );
+    assert!(!out[0].ok, "a tool that returned an error is not ok");
+
+    let path = dir.path().join("a.txt");
+    std::fs::write(&path, "hello\n").unwrap();
+    let mut interactor = Script::answer(Answer::Cancelled);
+    let out = dispatcher.run(
+        &[call("r2", "read", json!({"path": "a.txt"}))],
+        &registry(),
+        &root,
+        &mut interactor,
+    );
+    assert!(
+        out[0].ok,
+        "a tool that ran is ok: {:?}",
+        out[0].message.content
+    );
+    assert!(
+        out[0].message.content.as_deref().unwrap().contains("hello"),
+        "the file's text reaches the model, got {:?}",
+        out[0].message.content
+    );
+}
+
+#[test]
+fn a_command_that_exits_non_zero_still_ran() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = ctx(dir.path());
+    let mut dispatcher = Dispatcher::new();
+    let mut interactor = Script::answer(Answer::Cancelled);
+    let out = dispatcher.run(
+        &[call("b1", "bash", json!({"command": "exit 3"}))],
+        &registry(),
+        &root,
+        &mut interactor,
+    );
+
+    assert!(
+        out[0].ok,
+        "a failing command is a result the model must see, not a failed call: {:?}",
+        out[0].message.content
+    );
+    assert_eq!(out[0].message.content.as_deref(), Some("exit 3"));
 }
 
 #[test]
@@ -371,7 +449,7 @@ fn denying_a_write_over_an_existing_file_shows_a_diff() {
         b"old line\n",
         "a denied write must not touch the file"
     );
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("w1"));
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("w1"));
 }
 
 #[test]
@@ -395,10 +473,10 @@ fn a_preview_that_fails_denies_without_asking_or_panicking() {
         interactor.prompts, 0,
         "a change that cannot be computed is never offered to the user"
     );
-    let text = out[0].content.clone().unwrap();
+    let text = out[0].message.content.clone().unwrap();
     assert!(
         text.contains("not run") && text.contains("outside the worktree root"),
         "the model must be told why the call did not run, got: {text}"
     );
-    assert_eq!(out[0].tool_call_id.as_deref(), Some("w1"));
+    assert_eq!(out[0].message.tool_call_id.as_deref(), Some("w1"));
 }
