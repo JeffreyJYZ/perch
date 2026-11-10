@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+perch-store = { path = "../perch-store" }
 perch-tools = { path = "../perch-tools" }
 wasmtime = "50"
 wasmtime-wasi = "50"

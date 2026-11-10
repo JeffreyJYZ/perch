@@ -2,18 +2,20 @@
 //!
 //! `second_only` comes first in the spec list on purpose: it does not collide, so a host that
 //! validated and registered one name at a time would leave it behind when `duplicated` fails.
-//! Registering nothing is the whole plugin's answer.
+//! Registering nothing is the whole plugin's answer. Its panel is empty: this fixture exists for
+//! the collision, not for a panel.
 
 wit_bindgen::generate!({
     path: "../../wit",
     world: "perch-plugin",
 });
 
-use exports::perch::plugin::tools::{Guest, ToolSpec};
+use exports::perch::plugin::panels::{Guest as PanelsGuest, PanelModel};
+use exports::perch::plugin::tools::{Guest as ToolsGuest, ToolSpec};
 
 struct DupePluginB;
 
-impl Guest for DupePluginB {
+impl ToolsGuest for DupePluginB {
     fn tool_specs() -> Vec<ToolSpec> {
         vec![
             ToolSpec {
@@ -35,6 +37,17 @@ impl Guest for DupePluginB {
             other => Err(format!("unknown tool `{other}`")),
         }
     }
+}
+
+impl PanelsGuest for DupePluginB {
+    fn panel() -> PanelModel {
+        PanelModel {
+            title: String::new(),
+            sections: Vec::new(),
+        }
+    }
+
+    fn on_event(_event_json: String) {}
 }
 
 export!(DupePluginB);

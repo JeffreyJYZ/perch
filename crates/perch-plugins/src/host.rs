@@ -7,12 +7,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use perch_store::SessionEvent;
 use perch_tools::{Error, Result, Tool, ToolCtx, ToolOutput, ToolRegistry, ToolSpec};
 use serde_json::{Value, json};
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, Store, StoreLimitsBuilder};
 
 use crate::abi::{self, Data};
+use crate::panel::PanelModel;
 
 /// Instructions one guest call may burn before it is interrupted.
 pub const CALL_FUEL: u64 = 50_000_000;
@@ -27,7 +29,8 @@ const MEMORY_CAP: usize = 64 * 1024 * 1024;
 /// Tables and instances one guest may create.
 const INSTANCE_CAP: usize = 4;
 
-/// Every plugin loaded from one directory, and the tools each contributed.
+/// Every plugin loaded from one directory, the tools each contributed and the panel each
+/// declares.
 ///
 /// The host is the only owner of the wasmtime stores: a [`PluginTool`] reaches its guest through
 /// a shared handle, so a trap disables a plugin with one flag. The registry still owns its own
@@ -120,6 +123,72 @@ impl PluginHost {
             .filter(|name| registry.unregister(name))
             .count()
     }
+
+    /// The panel `plugin` declares, or `None` when it has none, is unknown, or has been
+    /// disabled.
+    ///
+    /// The guest is asked every time, so the model is whatever it says now rather than a stale
+    /// copy. A guest that faults while producing the model is disabled exactly as a trapping
+    /// tool disables it — this is called on the UI's own thread, and a plugin must never be able
+    /// to take the window down with it.
+    pub fn panel_model(&self, plugin: &str) -> Option<PanelModel> {
+        let loaded = self
+            .plugins
+            .iter()
+            .find(|candidate| candidate.name == plugin && !candidate.is_disabled())?;
+
+        let mut inner = lock(&loaded.inner);
+        if inner.disabled {
+            return None;
+        }
+        let outcome = {
+            let PluginInner {
+                store, bindings, ..
+            } = &mut *inner;
+            match arm(store) {
+                Ok(()) => bindings.perch_plugin_panels().call_panel(store),
+                Err(err) => Err(err),
+            }
+        };
+        match outcome {
+            Ok(model) => Some(PanelModel::from_wit(model)),
+            Err(_) => {
+                inner.disabled = true;
+                None
+            }
+        }
+    }
+
+    /// Delivers one session event, as JSON, to every plugin still loaded.
+    ///
+    /// Every plugin is offered every event; a plugin that does not care decodes nothing and
+    /// ignores it. A guest that faults here is disabled like any other trap, so one broken
+    /// plugin cannot stop the others from seeing the event and cannot reach the app.
+    pub fn dispatch_event(&mut self, event: &SessionEvent) {
+        let Ok(event_json) = serde_json::to_string(event) else {
+            return;
+        };
+        for plugin in &self.plugins {
+            let mut inner = lock(&plugin.inner);
+            if inner.disabled {
+                continue;
+            }
+            let outcome = {
+                let PluginInner {
+                    store, bindings, ..
+                } = &mut *inner;
+                match arm(store) {
+                    Ok(()) => bindings
+                        .perch_plugin_panels()
+                        .call_on_event(store, &event_json),
+                    Err(err) => Err(err),
+                }
+            };
+            if outcome.is_err() {
+                inner.disabled = true;
+            }
+        }
+    }
 }
 
 fn wasm_files(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -203,10 +272,26 @@ fn load_plugin(
         }));
     }
 
-    Ok(Plugin { tools, inner })
+    Ok(Plugin {
+        name: plugin_name,
+        tools,
+        inner,
+    })
+}
+
+/// Re-arms a store's bounds before a guest call, so every call starts with a full budget.
+///
+/// Fuel and the epoch deadline are what bound a call; a store that ran out on the previous call
+/// would otherwise refuse the next one, or run it unbounded.
+fn arm(store: &mut Store<Data>) -> wasmtime::Result<()> {
+    store.set_fuel(CALL_FUEL)?;
+    store.set_epoch_deadline(EPOCH_TICKS);
+    Ok(())
 }
 
 struct Plugin {
+    /// The wasm file's stem, which is the name the app addresses this plugin by.
+    name: String,
     tools: Vec<String>,
     inner: Arc<Mutex<PluginInner>>,
 }

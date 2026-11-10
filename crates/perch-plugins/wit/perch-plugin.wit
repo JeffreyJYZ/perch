@@ -23,7 +23,47 @@ interface tools {
     call: func(name: string, args-json: string) -> result<string, string>;
 }
 
+/// The panel a plugin shows in the app.
+///
+/// The model is data only: text, rows of text, named buttons and named inputs. The host owns
+/// layout, theme and hit-testing and reads the model on every frame it draws, so a plugin can
+/// add content but has no way to draw over the app's chrome.
+interface panels {
+    /// A button the host draws; `id` is what a press is reported back with.
+    record panel-button {
+        id: string,
+        label: string,
+    }
+
+    /// A text field the host draws; `id` is what a submit is reported back with.
+    record panel-input {
+        id: string,
+        label: string,
+    }
+
+    /// One piece of a panel, in the order the host draws it.
+    variant panel-section {
+        text(string),
+        rows(list<string>),
+        button(panel-button),
+        input(panel-input),
+    }
+
+    /// A plugin's whole panel: a title and its sections.
+    record panel-model {
+        title: string,
+        sections: list<panel-section>,
+    }
+
+    /// The panel to draw now.
+    panel: func() -> panel-model;
+
+    /// One session event, as the JSON the host serialised it to.
+    on-event: func(event-json: string);
+}
+
 world perch-plugin {
     import log;
     export tools;
+    export panels;
 }

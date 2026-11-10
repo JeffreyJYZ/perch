@@ -1,18 +1,30 @@
 //! Fixture plugin for the perch plugin host tests.
 //!
-//! Three tools, each pinning one rule: `echo` proves registration and a round trip, `explode`
-//! traps so the host must disable the plugin, and `read_outside` genuinely tries to read a file
-//! the host never granted, so the refusal is proved by the ABI rather than by the guest being
+//! Three tools pin the tool rules: `echo` proves registration and a round trip, `explode` traps
+//! so the host must disable the plugin, and `read_outside` genuinely tries to read a file the
+//! host never granted, so the refusal is proved by the ABI rather than by the guest being
 //! polite.
+//!
+//! Its panel is a counter: `panel` reports how many turns this store has seen end and
+//! `on-event` counts them, so a test proves an event reached the guest by watching the panel
+//! change. A fresh store starts at zero, so every test sees the same first panel.
 
 wit_bindgen::generate!({
     path: "../../wit",
     world: "perch-plugin",
 });
 
-use exports::perch::plugin::tools::{Guest, ToolSpec};
+use std::sync::atomic::{AtomicU32, Ordering};
 
-struct ExamplePlugin;
+use exports::perch::plugin::panels::{
+    Guest as PanelsGuest, PanelButton, PanelInput, PanelModel, PanelSection,
+};
+use exports::perch::plugin::tools::{Guest as ToolsGuest, ToolSpec};
+
+struct CounterPlugin;
+
+/// Turns this store has seen end. Per store, so one load never sees another's count.
+static TURNS: AtomicU32 = AtomicU32::new(0);
 
 fn spec(name: &str, description: &str, parameters: &str) -> ToolSpec {
     ToolSpec {
@@ -22,7 +34,7 @@ fn spec(name: &str, description: &str, parameters: &str) -> ToolSpec {
     }
 }
 
-impl Guest for ExamplePlugin {
+impl ToolsGuest for CounterPlugin {
     fn tool_specs() -> Vec<ToolSpec> {
         vec![
             spec(
@@ -69,4 +81,34 @@ impl Guest for ExamplePlugin {
     }
 }
 
-export!(ExamplePlugin);
+impl PanelsGuest for CounterPlugin {
+    fn panel() -> PanelModel {
+        PanelModel {
+            title: "Counter".to_string(),
+            // Text only, so the flattened lines are exactly the count; the button and the
+            // input are host-drawn controls and are never part of the text lines.
+            sections: vec![
+                PanelSection::Text(format!("count: {}", TURNS.load(Ordering::Relaxed))),
+                PanelSection::Button(PanelButton {
+                    id: "reset".to_string(),
+                    label: "Reset".to_string(),
+                }),
+                PanelSection::Input(PanelInput {
+                    id: "note".to_string(),
+                    label: "Note".to_string(),
+                }),
+            ],
+        }
+    }
+
+    fn on_event(event_json: String) {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(&event_json) else {
+            return;
+        };
+        if event.get("kind").and_then(serde_json::Value::as_str) == Some("turn_end") {
+            TURNS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+export!(CounterPlugin);
