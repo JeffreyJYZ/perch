@@ -914,6 +914,70 @@ git add -A && git commit -m "feat(mcp): stdio, remote http and oauth servers as 
 
 ---
 
+### Task 15: File panel and preview, rendered
+
+**Files:**
+- Create: `crates/perch-ui/src/files.rs`, `crates/perch-ui/src/preview.rs`
+- Modify: `crates/perch-ui/src/shell.rs`
+- Test: `crates/perch-ui/tests/files.rs`
+
+**Interfaces:**
+- Consumes: `Workspace`, `Node`, `NodeKind`, `FileStatus`, `PreviewText` from Task 9.
+- Produces: `FilePanel::new(workspace: &Workspace) -> FilePanel`; `FilePanel::rows(&self) -> Vec<TreeRow>`; `TreeRow { depth: usize, name: String, icon: String, status: Option<FileStatus>, deleted: bool, path: PathBuf }`; `FilePanel::select(&mut self, path: &Path) -> Result<()>`; `FilePanel::selected(&self) -> Option<&PreviewText>`; `preview_lines(text: &PreviewText) -> Vec<(usize, String)>`; a toolbar action `open_in_zed_request(&self) -> Option<PathBuf>`.
+
+- [ ] **Step 1: Write the failing test**
+
+```rust
+#[test]
+fn rows_indent_by_depth_and_carry_git_state_in_words() {
+    let repo = temp_repo_with(&[("src/lib.rs", "fn a() {}")]);
+    let mut panel = FilePanel::new(&Workspace::open(repo.path()).unwrap());
+    let rows = panel.rows();
+    let src = rows.iter().find(|r| r.name == "src").unwrap();
+    let lib = rows.iter().find(|r| r.name == "lib.rs").unwrap();
+    assert_eq!(src.depth, 0);
+    assert_eq!(lib.depth, 1);
+    assert_eq!(status_word(lib.status), "new");
+}
+
+#[test]
+fn selecting_a_file_fills_the_preview_and_a_deleted_one_says_so() {
+    let repo = temp_repo_with(&[("gone.rs", "x")]);
+    std::fs::remove_file(repo.path().join("gone.rs")).unwrap();
+    let mut panel = FilePanel::new(&Workspace::open(repo.path()).unwrap());
+    assert!(panel.select(Path::new("gone.rs")).is_err());
+    assert!(panel.selected().is_none());
+}
+
+#[test]
+fn preview_lines_are_one_based_and_numbered() {
+    let text = PreviewText { lines: vec!["a".into(), "b".into()], language: Some("rust".into()) };
+    assert_eq!(preview_lines(&text), vec![(1, "a".to_string()), (2, "b".to_string())]);
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cargo test -p perch-ui files`
+Expected: FAIL, `FilePanel` not found.
+
+- [ ] **Step 3: Implement**
+
+Rows are flattened from `Workspace::tree` in order, indent by depth, icon from the crate's icon table, and status as a word — "new", "changed", "deleted", "conflict" — with colour only as reinforcement. A deleted row is still a row: selecting it errors and the panel shows the message in words. The preview renders numbered lines with the language label in the panel header, and the toolbar button hands the selected path to `open_in_zed`. Section labels are small, uppercase and quieter than row text, so the panel reads as regions rather than paragraphs.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cargo test -p perch-ui`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(ui): file panel, git state in words, numbered preview"
+```
+
+---
+
 ## After this plan
 
 Task 11 and 12 close the plugin story the spec promises. After they land, the remaining work is polish: keybindings, themes, scrollback edge cases, packaging and the updater.
