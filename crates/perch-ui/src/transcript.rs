@@ -76,6 +76,27 @@ pub enum Item {
         /// The diff or command the approval view needs, when there is one.
         preview: Option<Preview>,
     },
+    /// A system line that belongs to no speaker: a turn that was cancelled, a provider error, a
+    /// tool the user refused. The column draws it quieter than a reply, and never as markdown,
+    /// because its words are held to be literally true rather than written to be styled.
+    Note(String),
+    /// How one turn ended: what ran, what failed, and what it cost when the provider said.
+    Summary {
+        /// Tool calls the turn ran.
+        tools: usize,
+        /// How many of those returned an error or a refusal.
+        failed: usize,
+        /// The tokens the provider reported for the turn, when it reported any.
+        tokens: Option<u32>,
+    },
+}
+
+/// The line a collapsed card ends with: how many lines it hid, and how many it showed.
+///
+/// One source for these words, so the cap cannot read two ways in two places.
+#[must_use]
+pub fn cap_line(hidden: usize) -> String {
+    format!("… {hidden} more lines (showing first {COLLAPSED_LINES})")
 }
 
 /// A tool's output as a collapsed card shows it: the first [`COLLAPSED_LINES`] lines, then one
@@ -89,9 +110,39 @@ pub fn collapsed_output(output: &str) -> String {
     }
     let hidden = lines.len() - COLLAPSED_LINES;
     format!(
-        "{}\n… {hidden} more lines (showing first {COLLAPSED_LINES})",
-        lines[..COLLAPSED_LINES].join("\n")
+        "{}\n{}",
+        lines[..COLLAPSED_LINES].join("\n"),
+        cap_line(hidden)
     )
+}
+
+/// A tool's output as an expanded card shows it: every line, and no cap line.
+///
+/// Trailing whitespace goes the same way [`collapsed_output`] sends it, so the two differ by
+/// exactly the lines the cap hid and the cap line itself.
+#[must_use]
+pub fn expanded_output(output: &str) -> String {
+    output.trim_end().to_string()
+}
+
+/// The one line a turn's [`Item::Summary`] reads: what ran, what failed, and the tokens when the
+/// provider reported them. Every number carries its label, so a count is never a bare digit.
+#[must_use]
+pub fn summary_line(tools: usize, failed: usize, tokens: Option<u32>) -> String {
+    let ran = match tools {
+        1 => "1 tool call ran".to_string(),
+        count => format!("{count} tool calls ran"),
+    };
+    let mut line = match failed {
+        0 => format!("{ran}, none failed"),
+        1 => format!("{ran}, 1 failed"),
+        count => format!("{ran}, {count} failed"),
+    };
+    if let Some(tokens) = tokens {
+        line.push_str(&format!(" · {tokens} tokens"));
+    }
+    line.push('.');
+    line
 }
 
 /// One session's transcript: the items, plus which assistant item is still growing.
@@ -100,6 +151,10 @@ pub struct Transcript {
     items: Vec<Item>,
     /// Index of the assistant item still receiving deltas, if a turn is streaming into one.
     open: Option<usize>,
+    /// Ids of the tool cards showing their whole output; every other card is collapsed.
+    expanded: Vec<String>,
+    /// Index of the first item of the turn being counted, for its closing summary.
+    since: usize,
     /// Draw with the dark palette. The shell sets this from the system; dark is the default.
     dark: bool,
 }
@@ -109,6 +164,8 @@ impl Default for Transcript {
         Transcript {
             items: Vec::new(),
             open: None,
+            expanded: Vec::new(),
+            since: 0,
             dark: true,
         }
     }
@@ -136,6 +193,39 @@ impl Transcript {
     pub fn push_user(&mut self, text: impl Into<String>) {
         self.items.push(Item::User { text: text.into() });
         self.open = None;
+        self.since = self.items.len();
+    }
+
+    /// Appends a system line — a cancellation, a provider error, a tool the user refused — in the
+    /// column's quieter voice. It closes the open assistant item, because a system line is not
+    /// part of a reply.
+    pub fn note(&mut self, text: impl Into<String>) {
+        self.open = None;
+        self.items.push(Item::Note(text.into()));
+    }
+
+    /// Flips the tool card `id` between its collapsed lines and its whole output.
+    ///
+    /// An id that is not a card is ignored, so a click that outlived its card invents nothing.
+    pub fn toggle(&mut self, id: &str) {
+        if !self
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::Tool { id: card, .. } if card == id))
+        {
+            return;
+        }
+        if let Some(index) = self.expanded.iter().position(|card| card == id) {
+            self.expanded.remove(index);
+        } else {
+            self.expanded.push(id.to_string());
+        }
+    }
+
+    /// Whether the tool card `id` is showing its whole output.
+    #[must_use]
+    pub fn is_expanded(&self, id: &str) -> bool {
+        self.expanded.iter().any(|card| card == id)
     }
 
     /// Marks the call `id` as waiting for the user, with the diff or command the approval shows.
@@ -177,7 +267,7 @@ impl Transcript {
                     *output = text.clone();
                 }
             }
-            AgentEvent::TurnEnd { reason, .. } => self.finish(reason),
+            AgentEvent::TurnEnd { reason, usage } => self.finish(reason, *usage),
         }
     }
 
@@ -195,9 +285,11 @@ impl Transcript {
         self.open = Some(self.items.len() - 1);
     }
 
-    /// Ends the turn in a definite state: nothing keeps claiming to run, and an error is said.
-    fn finish(&mut self, reason: &perch_agent::EndReason) {
+    /// Ends the turn in a definite state: nothing keeps claiming to run, an error is said, and one
+    /// line reports what the turn did.
+    fn finish(&mut self, reason: &perch_agent::EndReason, usage: perch_agent::Usage) {
         self.open = None;
+        let (tools, failed) = self.count_tools();
         match reason {
             perch_agent::EndReason::Done => {}
             perch_agent::EndReason::Cancelled => {
@@ -208,11 +300,38 @@ impl Transcript {
                         *status = ToolStatus::Cancelled;
                     }
                 }
+                self.note("The turn was cancelled.");
             }
-            perch_agent::EndReason::Errored(why) => self.items.push(Item::Assistant {
-                text: format!("The turn failed: {why}"),
-            }),
+            perch_agent::EndReason::Errored(why) => {
+                self.note(format!("The turn failed: {why}"));
+            }
         }
+        let tokens = usage.input + usage.output;
+        let tokens = (tokens > 0).then_some(tokens);
+        // A plain answer with neither a call nor a cost prints nothing: there is nothing to report.
+        if tools > 0 || tokens.is_some() {
+            self.items.push(Item::Summary {
+                tools,
+                failed,
+                tokens,
+            });
+        }
+        self.since = self.items.len();
+    }
+
+    /// How many tool calls this turn ran, and how many of them failed.
+    fn count_tools(&self) -> (usize, usize) {
+        let mut tools = 0;
+        let mut failed = 0;
+        for item in &self.items[self.since.min(self.items.len())..] {
+            if let Item::Tool { status, .. } = item {
+                tools += 1;
+                if *status == ToolStatus::Failed {
+                    failed += 1;
+                }
+            }
+        }
+        (tools, failed)
     }
 
     /// The tool card whose id is `id`, when there is one.
@@ -249,13 +368,13 @@ pub fn transcript_view(model: &Transcript) -> El {
     }
     for (index, item) in model.items.iter().enumerate() {
         let streaming = model.open == Some(index);
-        column = column.child(item_view(index, item, streaming, &kit));
+        column = column.child(item_view(index, item, streaming, model, &kit));
     }
     column
 }
 
 /// One item, keyed by its place in the column so a growing transcript keeps earlier elements.
-fn item_view(index: usize, item: &Item, streaming: bool, kit: &Kit) -> El {
+fn item_view(index: usize, item: &Item, streaming: bool, model: &Transcript, kit: &Kit) -> El {
     match item {
         Item::User { text: body } => col()
             .key(format!("turn-{index}"))
@@ -287,22 +406,51 @@ fn item_view(index: usize, item: &Item, streaming: bool, kit: &Kit) -> El {
                     .key("body"),
             ),
         Item::Tool {
+            id,
             name,
             status,
             output,
             preview,
             ..
-        } => tool_card(index, name, *status, output, preview.as_ref(), kit),
+        } => tool_card(
+            index,
+            name,
+            *status,
+            output,
+            preview.as_ref(),
+            model.is_expanded(id),
+            kit,
+        ),
+        // A system line is drawn as it is written: one text element, no markdown, in the faint
+        // ink a footnote uses, so it never competes with what the model said.
+        Item::Note(body) => text(body.clone())
+            .key(format!("note-{index}"))
+            .w_full()
+            .font(kit.ty.small)
+            .color(kit.c.text_faint)
+            .selectable(true),
+        Item::Summary {
+            tools,
+            failed,
+            tokens,
+        } => text(summary_line(*tools, *failed, *tokens))
+            .key(format!("summary-{index}"))
+            .w_full()
+            .font(kit.ty.small)
+            .color(kit.c.text_faint)
+            .selectable(true),
     }
 }
 
-/// A tool call as one card: what ran, how it ended, and the start of what it returned.
+/// A tool call as one card: what ran, how it ended, and either the start of what it returned or
+/// all of it when the card is expanded.
 fn tool_card(
     index: usize,
     name: &str,
     status: ToolStatus,
     output: &str,
     preview: Option<&Preview>,
+    expanded: bool,
     kit: &Kit,
 ) -> El {
     let mut card = col()
@@ -329,8 +477,13 @@ fn tool_card(
         card = card.child(preview_view(preview, kit));
     }
     if !output.is_empty() {
+        let shown = if expanded {
+            expanded_output(output)
+        } else {
+            collapsed_output(output)
+        };
         card = card.child(
-            text(collapsed_output(output))
+            text(shown)
                 .font(kit.ty.mono)
                 .color(kit.c.text_muted)
                 .selectable(true),
