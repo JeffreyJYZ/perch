@@ -62,6 +62,8 @@ Events are typed enums on a channel. The UI keeps the last known value per panel
 
 Persistence: one JSONL file per session under the app's data directory — messages, tool results, token counts, the worktree path and the model. Append-only, so a crash loses at most the current turn. Settings live in one TOML file; provider keys live in the macOS keychain.
 
+Sessions: the first version carries a session list and tabs, not one session per window. The left column lists sessions with their worktree and branch; a tab strip switches between them; each tab owns its transcript, its terminal tabs and its file tree root. Switching tabs is a state swap, never a reload from disk, and the list is read from the JSONL headers at start so the window opens with history.
+
 ## Components
 
 ### Agent loop
