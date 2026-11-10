@@ -1,0 +1,121 @@
+//! The append-only session log: one JSONL file per session.
+//!
+//! The first line is the [`SessionMeta`] header the session list reads at start; every later
+//! line is one [`SessionEvent`]. Appends write a whole line at a time, so a crash costs at most
+//! the line being written, and a torn last line is dropped when the file is read back.
+
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use crate::Result;
+
+/// Everything the session list needs, written as the first line of the log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionMeta {
+    pub id: String,
+    pub title: String,
+    pub worktree: PathBuf,
+    pub branch: String,
+    pub model: String,
+    pub created: u64,
+}
+
+/// One thing that happened in a session, tagged by `kind` in the JSONL file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SessionEvent {
+    User {
+        text: String,
+    },
+    Assistant {
+        text: String,
+    },
+    ToolCall {
+        id: String,
+        name: String,
+        args: serde_json::Value,
+    },
+    ToolResult {
+        id: String,
+        ok: bool,
+        text: String,
+    },
+    TurnEnd {
+        reason: String,
+        tokens_in: u32,
+        tokens_out: u32,
+    },
+}
+
+/// The session file for `id`, `<dir>/<id>.jsonl`.
+pub fn meta_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.jsonl"))
+}
+
+/// An open session file.
+#[derive(Debug)]
+pub struct SessionLog {
+    path: PathBuf,
+    file: File,
+    meta: SessionMeta,
+}
+
+impl SessionLog {
+    /// Open the log for `meta`, creating the directory, the file and its header when absent.
+    pub fn open(dir: &Path, meta: SessionMeta) -> Result<Self> {
+        std::fs::create_dir_all(dir)?;
+        let path = meta_path(dir, &meta.id);
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let header = match file.metadata()?.len() {
+            0 => Some(serde_json::to_string(&meta)?),
+            _ => None,
+        };
+        let mut log = Self { path, file, meta };
+        if let Some(header) = header {
+            log.write_line(&header)?;
+        }
+        Ok(log)
+    }
+
+    /// Append one event as a whole line, flushed so a reader sees it immediately.
+    pub fn append(&mut self, event: &SessionEvent) -> Result<()> {
+        let line = serde_json::to_string(event)?;
+        self.write_line(&line)
+    }
+
+    /// Every readable event, in file order. A line that does not parse is dropped.
+    pub fn events(&self) -> Result<Vec<SessionEvent>> {
+        let mut events = Vec::new();
+        for (index, line) in BufReader::new(File::open(&self.path)?).lines().enumerate() {
+            let Ok(line) = line else {
+                continue;
+            };
+            if index == 0 && serde_json::from_str::<SessionMeta>(&line).is_ok() {
+                continue;
+            }
+            if let Ok(event) = serde_json::from_str::<SessionEvent>(&line) {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
+
+    /// The header this log was opened with.
+    pub fn meta(&self) -> &SessionMeta {
+        &self.meta
+    }
+
+    /// The file this log appends to.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn write_line(&mut self, line: &str) -> Result<()> {
+        writeln!(self.file, "{line}")?;
+        self.file.flush()?;
+        Ok(())
+    }
+}
