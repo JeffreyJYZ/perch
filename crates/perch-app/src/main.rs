@@ -3,6 +3,7 @@
 //! `--tree` prints the tree to stdout and exits, so "it renders" is proved by the tree. It never
 //! touches settings or the keychain: the tree is the layout, with no app behind it.
 //! `--offline` also skips the app, so the window opens with the session list and the dock alone.
+//! `--plugins <dir>` loads plugins from a directory of its own instead of `<data>/plugins`.
 //!
 //! The live window is one frame at a time: [`poll`] folds what the turn and the shells have
 //! posted into the shell with a small budget, and asks for the next frame only while something is
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use perch_app::AppState;
+use perch_app::settings;
 use perch_files::Workspace;
 use perch_store::SessionMeta;
 use perch_ui::Shell;
@@ -29,6 +31,8 @@ const APP_ID: &str = "dev.jyz.perch";
 struct Flags {
     tree: bool,
     offline: bool,
+    /// Where a `.wasm` goes to be installed. `None` is `plugins/` under the data directory.
+    plugins: Option<PathBuf>,
 }
 
 impl Flags {
@@ -36,11 +40,16 @@ impl Flags {
         let mut flags = Flags {
             tree: false,
             offline: false,
+            plugins: None,
         };
-        for arg in args {
+        let mut args = args.into_iter();
+        while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--tree" => flags.tree = true,
                 "--offline" => flags.offline = true,
+                // The value follows the flag, and a missing one is no override rather than an
+                // error: the default directory is always a valid answer.
+                "--plugins" => flags.plugins = args.next().map(PathBuf::from),
                 _ => {}
             }
         }
@@ -72,11 +81,11 @@ fn main() {
 
 /// Opens the app, then the window over it.
 fn init() -> Shell<Window> {
-    let offline = std::env::args().any(|arg| arg == "--offline");
-    let window = if offline {
+    let flags = Flags::parse(std::env::args().skip(1));
+    let window = if flags.offline {
         Window::Offline("started with --offline".to_string())
     } else {
-        open_app()
+        open_app(&flags)
     };
     let (sessions, active) = match window.app() {
         Some(app) => (app.metas(), app.active()),
@@ -99,8 +108,13 @@ fn init() -> Shell<Window> {
     shell
 }
 
-/// The app behind the window: its data directory, its settings, its MCP servers and its sessions.
-fn open_app() -> Window {
+/// The app behind the window: its data directory, its settings, its MCP servers, its plugins and
+/// its sessions.
+///
+/// The plugins load last, after the app opened, and the order matters only for what a failure
+/// costs: a plugin directory that will not read still leaves a window with an app and no column,
+/// while an app that will not open is the window's one real failure.
+fn open_app(flags: &Flags) -> Window {
     let Some(dir) = data_dir() else {
         return Window::Offline("no data directory for this platform".to_string());
     };
@@ -114,7 +128,11 @@ fn open_app() -> Window {
                     return Window::Offline(error.to_string());
                 }
             }
-            Window::Open(app)
+            let plugins = flags
+                .plugins
+                .clone()
+                .unwrap_or_else(|| dir.join(settings::PLUGINS));
+            Window::open(app, settings::plugins(&plugins))
         }
         Err(error) => Window::Offline(error.to_string()),
     }

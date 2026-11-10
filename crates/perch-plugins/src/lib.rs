@@ -7,10 +7,23 @@
 //! IO at all, so a plugin has nothing to read a file with — that refusal is the interface, not a
 //! runtime check. Its panel is data ([`PanelModel`]) that the host draws itself, so a plugin has
 //! no way to draw over the app's chrome.
+//!
+//! [`Loaded`] is the app's seam: one directory of `*.wasm`, the registry their tools registered
+//! into, the panels they declare, the words for what did not load, and the event feed that carries
+//! a session's events to them.
 
 mod abi;
+mod bounds;
+mod feed;
 mod host;
+mod load;
+mod loaded;
 mod panel;
+mod plugin;
+mod tool;
 
-pub use host::{CALL_FUEL, CALL_TIME, PluginHost, PluginTool};
+pub use bounds::{CALL_FUEL, CALL_TIME};
+pub use host::PluginHost;
+pub use loaded::{Loaded, PanelEntry};
 pub use panel::{PanelModel, PanelSection};
+pub use tool::PluginTool;

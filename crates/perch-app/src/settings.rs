@@ -7,15 +7,20 @@
 
 use std::path::Path;
 
+use perch_agent::Dispatcher;
+use perch_plugins::Loaded;
 use perch_store::Settings;
 use perch_store::secret::SecretStore;
 use perch_ui::SettingsDraft;
-use perch_ui::shell::{KeyStatus, SettingsSnapshot};
+use perch_ui::shell::{KeyStatus, Panels, SettingsSnapshot};
 
 use crate::{AppState, ProviderDefaults, Result};
 
 /// The keychain account the provider key is stored under.
 pub const KEY_ACCOUNT: &str = "provider";
+
+/// The plugin directory under the data directory: where a person drops a `*.wasm` to install one.
+pub const PLUGINS: &str = "plugins";
 
 /// Opens the app's data directory, reading the provider from settings unless it is stated.
 ///
@@ -79,6 +84,32 @@ pub fn apply(
     defaults.api_key = stored_key(secrets).unwrap_or_default();
     Ok(status(secrets))
 }
+
+/// Loads every plugin in `dir` into a registry built exactly as the app builds its own: the six
+/// built-ins, `ask_user`, and then one tool per declared plugin tool.
+///
+/// This is the whole load path, and it cannot fail: a directory that is not there is no plugins,
+/// and a component that will not load is one line of words that the window's plugin column says
+/// out loud. A plugin a person installed must never be the reason the window does not open.
+pub fn plugins(dir: &Path) -> Loaded {
+    Loaded::open(dir, Dispatcher::builtin_registry())
+}
+
+/// Hands the active session's new events to the plugins, and reports whether anything moved.
+///
+/// The app has no event tap to subscribe to — its pump folds bridge events into the transcript and
+/// drops them — but it does append every one of them to the session's log, flushing each line. So
+/// the log is the feed: [`Loaded::sync`] reads the bytes it has not read and dispatches exactly
+/// those events, once, in the app's own order.
+pub fn feed(plugins: &mut Loaded, app: &AppState) -> bool {
+    app.active_session()
+        .is_some_and(|session| plugins.sync(&session.log))
+}
+
+/// The bare app draws no plugin column: the window holds the plugin host beside the app, because a
+/// session's tool list is fixed when the session starts (see `window.rs`). A shell laid out over
+/// `AppState` alone is a test's shell, and it correctly has nothing to show.
+impl Panels for AppState {}
 
 /// Whether a key is stored, as the panel says it.
 fn status(secrets: &dyn SecretStore) -> KeyStatus {

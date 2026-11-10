@@ -9,7 +9,9 @@ use std::time::Duration;
 use perch_ui::SettingsDraft;
 use perch_ui::Shell;
 use perch_ui::Transcript;
-use perch_ui::shell::{Intent, KeyStatus, Live, SettingsSnapshot, Waiting, composer_key, intent};
+use perch_ui::shell::{
+    Intent, KeyStatus, Live, Panels, SettingsSnapshot, Waiting, composer_key, intent,
+};
 use rune::{Env, Key, KeyEvent, Mods, Runtime, Tx};
 
 /// A draft with every field stated, so a test names only the one it is about.
@@ -34,7 +36,7 @@ fn cmd_comma() -> KeyEvent {
 }
 
 /// A laid-out window over `shell`.
-fn layout<L: Live>(shell: Shell<L>) -> Runtime<Shell<L>> {
+fn layout<L: Live + Panels>(shell: Shell<L>) -> Runtime<Shell<L>> {
     let mut runtime = Runtime::new(
         shell,
         perch_ui::shell::view,
@@ -197,6 +199,9 @@ struct Fake {
     key: KeyStatus,
     saved: Option<SettingsDraft>,
 }
+
+/// A fake with no plugin host has no panel column, which is the default.
+impl Panels for Fake {}
 
 impl Live for Fake {
     fn pump(&mut self, _: Duration) -> bool {

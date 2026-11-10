@@ -10,6 +10,7 @@ use super::card::card_key;
 use super::composer::composer;
 use super::dock::dock;
 use super::live::Live;
+use super::panels::{self, Panels};
 use super::paste::root_paste;
 use super::settings_view;
 use super::sidebar::{files, sessions};
@@ -22,9 +23,12 @@ use crate::transcript::transcript_view;
 /// The root is also where two keys arrive that no region owns: a paste, because Rune reads the
 /// clipboard at the root only, and a focused card's Enter or Space, because an element's key
 /// handlers run before a focused control's own activation rules.
-pub fn view<L: Live>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
+///
+/// The plugin column is the last child and only exists when the app has a panel or a word about
+/// one, so a window with no plugin is laid out exactly as it was before plugins existed.
+pub fn view<L: Live + Panels>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
     let kit = Kit::neutral(cx.system_dark());
-    row()
+    let mut root = row()
         .key("perch")
         .w_full()
         .h_full()
@@ -33,7 +37,13 @@ pub fn view<L: Live>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
         .on_paste(root_paste::<L>)
         .child(column(shell, &kit))
         .child(rule(&kit, "column-rule").w(1.0).h_full())
-        .child(workspace(shell, &kit, cx))
+        .child(workspace(shell, &kit, cx));
+    if let Some(panels) = panels::column(shell, &kit) {
+        root = root
+            .child(rule(&kit, "panel-rule").w(1.0).h_full())
+            .child(panels);
+    }
+    root
 }
 
 /// A hairline that separates two regions; the caller gives it its one-pixel axis. Decorative: the
