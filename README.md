@@ -12,6 +12,10 @@ source scripts/zig-env.sh
 cargo test
 ```
 
+One shared `target/` for everything, including parallel work. Cargo already serialises on
+its lock, and a per-lane target directory costs 8–20 GiB each: fourteen of them reached
+109 GiB of build output for this repo in a single day.
+
 `source scripts/zig-env.sh` is required in every fresh shell before anything that builds `perch-term`. It is sourced, never executed, and it is idempotent.
 
 Why Zig 0.15.2 and not the 0.17 on `PATH`:
