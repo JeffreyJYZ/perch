@@ -14,3 +14,12 @@ data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1762730000,"
 
 data: [DONE]
 
+: next request
+
+data: {"id":"chatcmpl-1b","object":"chat.completion.chunk","created":1762730001,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"It is a main."}}]}
+
+data: {"id":"chatcmpl-1b","object":"chat.completion.chunk","created":1762730001,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-1b","object":"chat.completion.chunk","created":1762730001,"model":"test/model","choices":[],"usage":{"prompt_tokens":30,"completion_tokens":4,"total_tokens":34}}
+
+data: [DONE]

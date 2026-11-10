@@ -1,24 +1,30 @@
-//! The turn loop.
+//! The agent loop's surface: one thread per agent, one prompt per turn.
 //!
-//! One thread owns the conversation: it takes prompts off a channel, streams a reply from the
-//! provider, assembles tool calls, and ends every turn with exactly one [`AgentEvent::TurnEnd`].
+//! [`Agent::spawn`] starts the thread and [`AgentHandle`] is the only way to talk to it: a prompt
+//! goes in, the results of the calls it asks for come back, and a cancel stops whatever is running.
+//! What one turn actually does — request, stream, run its tools, ask again — is the rounds module.
 //!
-//! Cancellation is a monotonic counter rather than a flag. Each turn snapshots the counter when
-//! it starts and cancels itself when the counter it reads is no longer that value, so a cancel
-//! can never be lost by arriving between two checks, and a cancel clicked while the agent was
-//! idle cannot kill the turn that starts afterwards.
+//! Cancellation is a monotonic counter rather than a flag: see [`Cancel`]. Each turn snapshots the
+//! counter when it starts and cancels itself when the counter it reads is no longer that value, so
+//! a cancel can never be lost by arriving between two checks, and a cancel clicked while the agent
+//! was idle cannot kill the turn that starts afterwards.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use serde_json::Value;
+use crate::cancel::{Cancel, CancelWatch};
+use crate::dispatch::ToolReply;
+use crate::event::AgentEvent;
+use crate::provider::{Message, SecretString, ToolSpec};
+use crate::rounds;
 
-use crate::Chunk;
-use crate::event::{AgentEvent, EndReason, ToolCall, Usage};
-use crate::provider::{ChatRequest, Message, SecretString, ToolCallRecord, ToolSpec};
-use crate::stream;
+/// The most chat requests one turn may make.
+///
+/// A round is one request and the tool results it asked for. Twelve is generous for a coding turn
+/// that is converging and still bounded: the loop exists so a model can act on what it read, and a
+/// model that has asked for tools twelve times without answering is not going to be helped by a
+/// thirteenth request. The turn ends and says the cap was hit, rather than spending without end.
+pub const MAX_ROUNDS: usize = 12;
 
 /// Everything an agent needs to talk to one provider.
 #[derive(Debug, Clone)]
@@ -43,23 +49,33 @@ impl Agent {
     pub fn spawn(config: AgentConfig) -> (AgentHandle, Receiver<AgentEvent>) {
         let (prompts, incoming) = mpsc::channel();
         let (events, outgoing) = mpsc::channel();
-        let cancels = Arc::new(AtomicU64::new(0));
-        let counter = Arc::clone(&cancels);
+        let (replies, results) = mpsc::channel();
+        let cancel = Arc::new(Cancel::default());
+        let counted = Arc::clone(&cancel);
         std::thread::Builder::new()
             .name("perch-agent".to_string())
-            .spawn(move || run(&config, &incoming, &events, &counter))
+            .spawn(move || run(&config, &incoming, &events, &results, &counted))
             .expect("spawn the agent turn thread");
-        (AgentHandle { prompts, cancels }, outgoing)
+        (
+            AgentHandle {
+                prompts,
+                replies,
+                cancel,
+            },
+            outgoing,
+        )
     }
 }
 
 /// The caller's side of an agent.
+///
+/// Cloned into whatever runs the tools: a tool result goes back through the same handle the prompt
+/// went in, so there is one way to talk to a turn and one place its cancellation lives.
 #[derive(Clone)]
 pub struct AgentHandle {
     prompts: Sender<String>,
-    /// Bumped by [`AgentHandle::cancel`]; a turn compares the counter against the value it
-    /// captured when it began.
-    cancels: Arc<AtomicU64>,
+    replies: Sender<ToolReply>,
+    cancel: Arc<Cancel>,
 }
 
 impl AgentHandle {
@@ -71,13 +87,27 @@ impl AgentHandle {
         let _ = self.prompts.send(text);
     }
 
+    /// Answer one call the turn asked for, and report whether the turn was still there.
+    ///
+    /// Exactly the calls emitted are expected, in any order; a reply for a call the turn is not
+    /// waiting for is dropped, so answering late costs nothing but a wasted message.
+    pub fn reply(&self, reply: ToolReply) -> bool {
+        self.replies.send(reply).is_ok()
+    }
+
+    /// A view of this agent's cancellation, for the thread that runs its tools.
+    pub fn watch(&self) -> CancelWatch {
+        CancelWatch::new(Arc::clone(&self.cancel))
+    }
+
     /// Stop the running turn.
     ///
-    /// Cooperative and lossless: the counter only ever increases, so a turn that checks it
-    /// before the request, between every chunk, and once more at the end cannot miss a cancel
-    /// that happened after it started. The turn still ends with one `TurnEnd`, as `Cancelled`.
+    /// Cooperative and lossless: the counter only ever increases, so a turn that checks it before
+    /// the request, between every chunk, while waiting for a tool result, and once more at the end
+    /// cannot miss a cancel that happened after it started. The turn still ends with one
+    /// `TurnEnd`, as `Cancelled`.
     pub fn cancel(&self) {
-        self.cancels.fetch_add(1, Ordering::SeqCst);
+        self.cancel.cancel();
     }
 }
 
@@ -86,143 +116,27 @@ fn run(
     config: &AgentConfig,
     prompts: &Receiver<String>,
     events: &Sender<AgentEvent>,
-    cancels: &AtomicU64,
+    results: &Receiver<ToolReply>,
+    cancel: &Cancel,
 ) {
     let mut history = vec![Message::system(config.system.clone())];
     while let Ok(prompt) = prompts.recv() {
-        // Captured before the turn does anything, so a cancel from an earlier turn (or one made
-        // while the agent was idle) does not apply to this one, and every later cancel does.
-        let generation = cancels.load(Ordering::SeqCst);
-        let (reason, usage) = turn(config, &mut history, &prompt, events, cancels, generation);
+        // A reply left over from a turn that was cancelled while its tool was still running
+        // belongs to no question this turn asks.
+        while results.try_recv().is_ok() {}
+        let generation = cancel.begin();
+        let (reason, usage) = rounds::one(
+            config,
+            &mut history,
+            &prompt,
+            events,
+            results,
+            cancel,
+            generation,
+        );
         // The only place a turn ends, for every reason, which is what makes "exactly one" true.
         if events.send(AgentEvent::TurnEnd { reason, usage }).is_err() {
             return;
         }
     }
-}
-
-/// Run one turn and report how it ended and what it cost.
-///
-/// Emits its own text and tool-call events but never a `TurnEnd`; the loop owns that, so a new
-/// ending cannot be invented while returning from here.
-fn turn(
-    config: &AgentConfig,
-    history: &mut Vec<Message>,
-    prompt: &str,
-    events: &Sender<AgentEvent>,
-    cancels: &AtomicU64,
-    generation: u64,
-) -> (EndReason, Usage) {
-    let stopped = || cancels.load(Ordering::SeqCst) != generation;
-    let mut usage = Usage::default();
-    history.push(Message::user(prompt.to_string()));
-    if stopped() {
-        return (EndReason::Cancelled, usage);
-    }
-    let request = ChatRequest {
-        base_url: config.base_url.clone(),
-        api_key: config.api_key.clone(),
-        model: config.model.clone(),
-        messages: history.clone(),
-        tools: config.tools.clone(),
-    };
-    let chunks = match stream(&request) {
-        Ok(chunks) => chunks,
-        Err(error) => return (EndReason::Errored(error.to_string()), usage),
-    };
-    let mut text = String::new();
-    let mut fragments: BTreeMap<usize, Fragment> = BTreeMap::new();
-    for chunk in chunks {
-        if stopped() {
-            // Dropping the iterator closes the provider channel, so the request stops too.
-            return (EndReason::Cancelled, usage);
-        }
-        match chunk {
-            Ok(Chunk::Text(delta)) => {
-                text.push_str(&delta);
-                if events.send(AgentEvent::TextDelta(delta)).is_err() {
-                    return (EndReason::Cancelled, usage);
-                }
-            }
-            Ok(Chunk::ToolCall {
-                index,
-                id,
-                name,
-                args_fragment,
-            }) => {
-                let call = fragments.entry(index).or_default();
-                // Only the first fragment of a call carries the id and name; a later fragment
-                // that omits them must not erase what arrived.
-                if id.is_some() {
-                    call.id = id;
-                }
-                if name.is_some() {
-                    call.name = name;
-                }
-                call.args.push_str(&args_fragment);
-            }
-            Ok(Chunk::Usage { input, output }) => usage = Usage { input, output },
-            Err(error) => return (EndReason::Errored(error.to_string()), usage),
-        }
-    }
-    // A cancel that arrived with the final chunk still ends the turn as cancelled rather than
-    // reporting a reply the caller asked not to see.
-    if stopped() {
-        return (EndReason::Cancelled, usage);
-    }
-    let (calls, records) = match assemble(fragments) {
-        Ok(calls) => calls,
-        Err(reason) => return (EndReason::Errored(reason), usage),
-    };
-    for call in &calls {
-        if events.send(AgentEvent::ToolCall(call.clone())).is_err() {
-            return (EndReason::Cancelled, usage);
-        }
-    }
-    if !text.is_empty() || !records.is_empty() {
-        let content = if text.is_empty() { None } else { Some(text) };
-        history.push(Message::assistant_with_tools(content, records));
-    }
-    (EndReason::Done, usage)
-}
-
-/// The fragments of one tool call, keyed by the provider's call index.
-#[derive(Default)]
-struct Fragment {
-    id: Option<String>,
-    name: Option<String>,
-    args: String,
-}
-
-/// Join every call's fragments and parse its arguments once.
-///
-/// All calls are parsed before any is returned, so a stream that cut one call short yields an
-/// error instead of the complete-looking calls beside it.
-fn assemble(
-    fragments: BTreeMap<usize, Fragment>,
-) -> std::result::Result<(Vec<ToolCall>, Vec<ToolCallRecord>), String> {
-    let mut calls = Vec::with_capacity(fragments.len());
-    let mut records = Vec::with_capacity(fragments.len());
-    for (index, fragment) in fragments {
-        let Some(name) = fragment.name else {
-            return Err(format!("tool call {index} arrived without a name"));
-        };
-        // A tool with no parameters legitimately streams no arguments at all.
-        let arguments = if fragment.args.trim().is_empty() {
-            "{}".to_string()
-        } else {
-            fragment.args
-        };
-        let args: Value = serde_json::from_str(&arguments).map_err(|error| {
-            format!("tool call {index} ({name}) has invalid arguments: {error}")
-        })?;
-        let id = fragment.id.unwrap_or_else(|| format!("call_{index}"));
-        records.push(ToolCallRecord {
-            id: id.clone(),
-            name: name.clone(),
-            arguments,
-        });
-        calls.push(ToolCall { id, name, args });
-    }
-    Ok((calls, records))
 }

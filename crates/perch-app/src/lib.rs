@@ -5,6 +5,7 @@
 //! thread needs from a person arrives as a message, and the answer goes back on one channel, so
 //! the window never blocks on a turn and a turn never reads the window's state directly.
 
+pub mod answer;
 pub mod app;
 pub mod bridge;
 

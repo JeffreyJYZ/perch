@@ -639,7 +639,7 @@ fn runtime(
     let ctx = ToolCtx {
         root: meta.worktree.clone(),
     };
-    let bridge = bridge::spawn(events, Arc::clone(registry), ctx, Arc::clone(&dispatcher));
+    let bridge = bridge::spawn(agent.clone(), events, registry, ctx, &dispatcher);
     let mut transcript = Transcript::default();
     // A server that did not load is said once per session, in the column the user is reading.
     for note in notes {

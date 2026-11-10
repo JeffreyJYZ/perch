@@ -6,24 +6,22 @@
 //! channel that carries the user's answer, and the main thread folds what it receives into the
 //! transcript when it next pumps.
 //!
-//! The block is bounded. A question or an approval nobody answers gives up after
-//! [`ANSWER_TIMEOUT`] and behaves as a refusal, so a closed window or a dropped session cannot
-//! leave a tool running on the strength of an answer that never came.
+//! This is also where a tool result turns back into a message: the turn asked for the call and is
+//! waiting, so every call is answered on the agent's handle — approved, denied or failed — and the
+//! turn can ask the model again with the results in front of it. A cancel that lands before a call
+//! starts is obeyed instead: the card is shown, and nothing runs.
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use perch_agent::{
-    AgentEvent, Answer, Decision, Dispatcher, EndReason, Interactor, ToolCall, Usage,
+    AgentEvent, AgentHandle, Answer, Decision, Dispatcher, EndReason, ToolCall, Usage,
 };
 use perch_tools::{Preview, ToolCtx, ToolRegistry};
 
-/// How long one call waits for the person in front of the window.
-///
-/// Long enough for someone to read a diff, short enough that an abandoned window does not keep a
-/// thread alive forever. A timeout is a refusal, never an approval.
-pub const ANSWER_TIMEOUT: Duration = Duration::from_secs(300);
+use crate::answer::Answers;
+
+pub use crate::answer::ANSWER_TIMEOUT;
 
 /// One thing the dispatch thread needs the window to show.
 #[derive(Debug)]
@@ -89,19 +87,25 @@ impl Bridge {
 /// Starts the dispatch thread for one session and hands back the window's side.
 ///
 /// The dispatcher is shared rather than moved so the session owns it — it is what remembers an
-/// "allow for session" — while the thread that runs calls is the only one that locks it.
+/// "allow for session" — while the thread that runs calls is the only one that locks it. The
+/// handle is shared for the same reason the dispatcher is: it is the conversation's one way in,
+/// so the results of a round reach the turn that asked for them.
 pub fn spawn(
+    agent: AgentHandle,
     events: Receiver<AgentEvent>,
-    registry: Arc<ToolRegistry>,
+    registry: &Arc<ToolRegistry>,
     ctx: ToolCtx,
-    dispatcher: Arc<Mutex<Dispatcher>>,
+    dispatcher: &Arc<Mutex<Dispatcher>>,
 ) -> Bridge {
+    let registry = Arc::clone(registry);
+    let dispatcher = Arc::clone(dispatcher);
     let (out, incoming) = mpsc::channel();
     let (replies, incoming_replies) = mpsc::channel();
     std::thread::Builder::new()
         .name("perch-dispatch".to_string())
         .spawn(move || {
             run(
+                &agent,
                 events,
                 &out,
                 &incoming_replies,
@@ -118,7 +122,11 @@ pub fn spawn(
 }
 
 /// Reads the turn's events and runs the calls it asks for, in order, one call at a time.
+///
+/// Every event is forwarded, including a `TurnEnd` that arrives while a call is being answered:
+/// the window learns the turn is over, and the dispatch loop then ends with the channel.
 fn run(
+    agent: &AgentHandle,
     events: Receiver<AgentEvent>,
     out: &Sender<BridgeEvent>,
     replies: &Receiver<Reply>,
@@ -132,7 +140,9 @@ fn run(
             AgentEvent::ToolResult { id, ok, text } => {
                 out.send(BridgeEvent::ToolResult { id, ok, text }).is_ok()
             }
-            AgentEvent::ToolCall(call) => dispatch(call, out, replies, registry, ctx, dispatcher),
+            AgentEvent::ToolCall(call) => {
+                dispatch(call, agent, out, replies, registry, ctx, dispatcher)
+            }
             AgentEvent::TurnEnd { reason, usage } => {
                 out.send(BridgeEvent::TurnEnd { reason, usage }).is_ok()
             }
@@ -144,9 +154,11 @@ fn run(
     }
 }
 
-/// Runs one call and reports its one result. False when the window stopped listening.
+/// Runs one call, shows its result, and answers the turn with it. False when the window stopped
+/// listening.
 fn dispatch(
     call: ToolCall,
+    agent: &AgentHandle,
     out: &Sender<BridgeEvent>,
     replies: &Receiver<Reply>,
     registry: &ToolRegistry,
@@ -156,7 +168,12 @@ fn dispatch(
     if out.send(BridgeEvent::ToolCall(call.clone())).is_err() {
         return false;
     }
-    let mut interactor = BridgeInteractor {
+    // The turn that asked for this call may already be cancelled: the card is shown, so the
+    // column says what was asked, and the call does not run.
+    if agent.watch().cancelled() {
+        return true;
+    }
+    let mut interactor = Answers {
         id: call.id.clone(),
         out,
         replies,
@@ -164,15 +181,21 @@ fn dispatch(
     let mut dispatcher = lock(dispatcher);
     let replies = dispatcher.run(std::slice::from_ref(&call), registry, ctx, &mut interactor);
     for reply in replies {
-        let text = reply.message.content.unwrap_or_default();
+        let ok = reply.ok;
+        let text = reply.message.content.clone().unwrap_or_default();
         if out
             .send(BridgeEvent::ToolResult {
                 id: call.id.clone(),
-                ok: reply.ok,
+                ok,
                 text,
             })
             .is_err()
         {
+            return false;
+        }
+        // The model is waiting on this before it can answer, and a denied call is answered too:
+        // "the user denied it" is something it can act on, silence is not.
+        if !agent.reply(reply) {
             return false;
         }
     }
@@ -183,49 +206,4 @@ fn lock(dispatcher: &Mutex<Dispatcher>) -> std::sync::MutexGuard<'_, Dispatcher>
     dispatcher
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// The dispatcher's view of the person in front of the window: post what is needed, wait for the
-/// answer, and give up as a refusal if it never comes.
-struct BridgeInteractor<'a> {
-    /// The call being decided, so the approval lands on the right card.
-    id: String,
-    out: &'a Sender<BridgeEvent>,
-    replies: &'a Receiver<Reply>,
-}
-
-impl Interactor for BridgeInteractor<'_> {
-    fn approve(&mut self, name: &str, preview: Option<&Preview>) -> Decision {
-        let event = BridgeEvent::Approval {
-            id: self.id.clone(),
-            name: name.to_string(),
-            preview: preview.cloned(),
-        };
-        if self.out.send(event).is_err() {
-            return Decision::Deny;
-        }
-        match self.replies.recv_timeout(ANSWER_TIMEOUT) {
-            Ok(Reply::Decision(decision)) => decision,
-            // Nobody answered, or the window sent the reply for the other kind of wait: a call
-            // that was not allowed does not run.
-            _ => Decision::Deny,
-        }
-    }
-
-    fn ask(&mut self, prompt: &str, options: &[String], multiple: bool) -> Answer {
-        let event = BridgeEvent::Question {
-            prompt: prompt.to_string(),
-            options: options.to_vec(),
-            multiple,
-        };
-        if self.out.send(event).is_err() {
-            return Answer::Cancelled;
-        }
-        match self.replies.recv_timeout(ANSWER_TIMEOUT) {
-            Ok(Reply::Answer(answer)) => answer,
-            // A question nobody answers is a question the user dismissed, which the tool reports
-            // rather than inventing a choice.
-            _ => Answer::Cancelled,
-        }
-    }
 }

@@ -4,20 +4,24 @@
 //! over decoded events, so a caller with no async runtime can consume a live reply.
 
 pub mod ask;
+pub mod cancel;
 pub mod chunk;
 pub mod dispatch;
 pub mod event;
 pub mod provider;
+mod replies;
+mod rounds;
 pub mod turn;
 
 pub use ask::{ASK_USER, AskUser};
+pub use cancel::CancelWatch;
 pub use chunk::Chunk;
 pub use dispatch::{Answer, Decision, Dispatcher, Interactor, ToolReply};
 pub use event::{AgentEvent, EndReason, ToolCall, Usage};
 pub use provider::{
     ChatRequest, ChunkStream, Message, Role, SecretString, ToolCallRecord, ToolSpec, stream,
 };
-pub use turn::{Agent, AgentConfig, AgentHandle};
+pub use turn::{Agent, AgentConfig, AgentHandle, MAX_ROUNDS};
 
 /// Every failure perch-agent can produce.
 #[derive(Debug, thiserror::Error)]

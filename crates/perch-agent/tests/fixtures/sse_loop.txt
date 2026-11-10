@@ -1,0 +1,7 @@
+: repeat
+
+data: {"id":"chatcmpl-loop","object":"chat.completion.chunk","created":1762730020,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_loop","type":"function","function":{"name":"read","arguments":"{\"path\":\"src/main.rs\"}"}}]}}]}
+
+data: {"id":"chatcmpl-loop","object":"chat.completion.chunk","created":1762730020,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]

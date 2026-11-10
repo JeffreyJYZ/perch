@@ -9,3 +9,11 @@ data: {"id":"chatcmpl-q","object":"chat.completion.chunk","created":1762730012,"
 data: {"id":"chatcmpl-q","object":"chat.completion.chunk","created":1762730012,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
 
 data: [DONE]
+
+: next request
+
+data: {"id":"chatcmpl-q2","object":"chat.completion.chunk","created":1762730013,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Going with b."}}]}
+
+data: {"id":"chatcmpl-q2","object":"chat.completion.chunk","created":1762730013,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
