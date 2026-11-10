@@ -1,0 +1,15 @@
+: pace_ms 120
+
+data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Warm"}}]}
+
+data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{"content":"ing "}}]}
+
+data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{"content":"up "}}]}
+
+data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{"content":"the "}}]}
+
+data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{"content":"reply"}}]}
+
+data: {"id":"chatcmpl-s","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]

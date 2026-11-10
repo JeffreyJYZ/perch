@@ -1,0 +1,11 @@
+: stream open
+
+data: {"id":"chatcmpl-t","object":"chat.completion.chunk","created":1762730006,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}
+
+data: {"id":"chatcmpl-t","object":"chat.completion.chunk","created":1762730006,"model":"test/model","choices":[{"index":0,"delta":{"content":"lo from the fixture"}}]}
+
+data: {"id":"chatcmpl-t","object":"chat.completion.chunk","created":1762730006,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-t","object":"chat.completion.chunk","created":1762730006,"model":"test/model","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":4,"total_tokens":9}}
+
+data: [DONE]
