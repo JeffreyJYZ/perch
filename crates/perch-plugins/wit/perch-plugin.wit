@@ -1,0 +1,29 @@
+package perch:plugin@0.1.0;
+
+/// The only thing a plugin may call on the host. This task wires no IO, so a
+/// plugin that wants a file has no import to ask through.
+interface log {
+    log: func(message: string);
+}
+
+/// What a plugin contributes to the tool registry.
+interface tools {
+    /// One tool the model may call. `parameters-json` is a JSON Schema object
+    /// serialised as text, because WIT has no JSON type.
+    record tool-spec {
+        name: string,
+        description: string,
+        parameters-json: string,
+    }
+
+    /// Every tool this plugin registers, discovered once at load time.
+    tool-specs: func() -> list<tool-spec>;
+
+    /// Runs one tool. The error string is the message the model sees.
+    call: func(name: string, args-json: string) -> result<string, string>;
+}
+
+world perch-plugin {
+    import log;
+    export tools;
+}

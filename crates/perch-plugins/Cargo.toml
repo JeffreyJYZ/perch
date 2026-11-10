@@ -5,8 +5,12 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+perch-tools = { path = "../perch-tools" }
 wasmtime = "50"
 wasmtime-wasi = "50"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
