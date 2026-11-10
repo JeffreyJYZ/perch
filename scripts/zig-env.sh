@@ -182,6 +182,10 @@ else
 	SDKROOT=$_zig_sdk
 fi
 export PATH SDKROOT ZIG=$_zig_bin
+# The vendored Ghostty build follows cargo's profile, so a dev build compiles the parser as Zig
+# Debug: a 1.4 MiB flood replays in ~4.8 s there and 5.5 ms in release. Optimize the native side
+# always; our own Rust stays at the cargo profile.
+export LIBGHOSTTY_VT_SYS_OPTIMIZE=${LIBGHOSTTY_VT_SYS_OPTIMIZE:-ReleaseFast}
 
 printf 'zig-env: Zig 0.15.2 from %s (%s SDK)\n' "$_zig_bin" "$_zig_mode"
 
