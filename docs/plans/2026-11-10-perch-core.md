@@ -394,7 +394,7 @@ git add -A && git commit -m "feat(agent): turn loop with cancellation and defini
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks except the worktree path.
-- Produces: `trait Tool { fn spec(&self) -> ToolSpec; fn needs_approval(&self) -> bool; fn call(&self, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>; }`; `ToolCtx { root: PathBuf }`; `ToolOutput { text: String, preview: Option<Preview> }`; `Preview::{Diff(String), Command(String)}`; `ToolRegistry::builtin() -> ToolRegistry`; `ToolRegistry::register(&mut self, tool: Arc<dyn Tool>)`; `ToolRegistry::specs(&self) -> Vec<ToolSpec>`; `ToolRegistry::call(&self, name: &str, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>`; `confine(root: &Path, candidate: &Path) -> Result<PathBuf>`.
+- Produces: `trait Tool { fn spec(&self) -> ToolSpec; fn needs_approval(&self) -> bool; fn preview(&self, args: &serde_json::Value, ctx: &ToolCtx) -> Result<Option<Preview>> { Ok(None) }; fn call(&self, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>; }`; a tool that needs approval returns `Some(preview)` for valid arguments — nothing is approved blind — and a preview failure denies the call; `ToolCtx { root: PathBuf }`; `ToolOutput { text: String, preview: Option<Preview> }`; `Preview::{Diff(String), Command(String)}`; `ToolRegistry::builtin() -> ToolRegistry`; `ToolRegistry::register(&mut self, tool: Arc<dyn Tool>)`; `ToolRegistry::specs(&self) -> Vec<ToolSpec>`; `ToolRegistry::call(&self, name: &str, args: &serde_json::Value, ctx: &ToolCtx) -> Result<ToolOutput>`; `confine(root: &Path, candidate: &Path) -> Result<PathBuf>`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -785,7 +785,7 @@ git add -A && git commit -m "feat(plugins): declarative panels and session event
 
 **Interfaces:**
 - Consumes: `AgentEvent`, `ToolCall` from Task 6; `ToolRegistry`, `ToolCtx`, `Preview` from Task 7.
-- Produces: `trait Interactor { fn approve(&mut self, name: &str, preview: Option<&Preview>) -> Decision; fn ask(&mut self, prompt: &str, options: &[String], multiple: bool) -> Answer; }`; `Decision::{Allow, AllowForSession, Deny}`; `Answer::Pick(usize)`, `Answer::Text(String)`, `Answer::Cancelled`; `Dispatcher::run(&mut self, calls: &[ToolCall], registry: &ToolRegistry, ctx: &ToolCtx, interactor: &mut dyn Interactor) -> Vec<Message>`; the `ask_user` tool, registered by `Dispatcher::builtin_registry()` alongside the six, which calls `Interactor::ask` and returns the choice as text.
+- Produces: `trait Interactor { fn approve(&mut self, name: &str, preview: Option<&Preview>) -> Decision; fn ask(&mut self, prompt: &str, options: &[String], multiple: bool) -> Answer; }`; `Decision::{Allow, AllowForSession, Deny}`; `Answer::Picks(Vec<usize>)`, `Answer::Text(String)`, `Answer::Cancelled`; `Dispatcher::run(&mut self, calls: &[ToolCall], registry: &ToolRegistry, ctx: &ToolCtx, interactor: &mut dyn Interactor) -> Vec<Message>`; the `ask_user` tool, registered by `Dispatcher::builtin_registry()` alongside the six, which calls `Interactor::ask` and returns the choices as text.
 
 - [ ] **Step 1: Write the failing test**
 
