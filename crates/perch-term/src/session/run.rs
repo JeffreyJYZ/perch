@@ -11,7 +11,7 @@ use std::{
     },
 };
 
-use libghostty_vt::{Terminal, TerminalOptions};
+use libghostty_vt::Terminal;
 use portable_pty::MasterPty;
 
 use super::{
@@ -19,7 +19,7 @@ use super::{
     command::{Cmd, Inbound},
     thread::pty_size,
 };
-use crate::frame::{Frame, FrameBuilder, MAX_SCROLLBACK};
+use crate::{frame::Frame, scrollback::Scrollback};
 
 #[expect(
     clippy::too_many_arguments,
@@ -36,17 +36,11 @@ pub(super) fn run(
     ready: Sender<Result<(), TermError>>,
 ) {
     // The emulator is created here, not by the caller: `Terminal` is `!Send`
-    // and cannot cross the thread boundary.
-    let options = TerminalOptions {
-        cols,
-        rows,
-        max_scrollback: MAX_SCROLLBACK,
-    };
-    let created = Terminal::new(options)
-        .map_err(TermError::Terminal)
-        .and_then(|terminal| Ok((terminal, FrameBuilder::new()?)));
-    let (mut terminal, mut builder) = match created {
-        Ok(created) => created,
+    // and cannot cross the thread boundary. It is wrapped with the frame
+    // builder so the scroll position and the paint of it have one owner.
+    let created = Scrollback::new(cols, rows).map_err(TermError::Terminal);
+    let mut scrollback = match created {
+        Ok(scrollback) => scrollback,
         Err(error) => {
             let _ = ready.send(Err(error));
             return;
@@ -55,7 +49,7 @@ pub(super) fn run(
     if ready.send(Ok(())).is_err() {
         return;
     }
-    let _ = publish(&mut builder, &terminal, &frames, &dirty);
+    let _ = publish(&mut scrollback, &frames, &dirty);
 
     loop {
         let Ok(first) = inbound.recv() else { return };
@@ -71,7 +65,7 @@ pub(super) fn run(
         for message in batch {
             match message {
                 Inbound::Output(bytes) => {
-                    terminal.vt_write(&bytes);
+                    scrollback.feed(&bytes);
                     touched = true;
                 }
                 Inbound::Eof => {}
@@ -82,13 +76,20 @@ pub(super) fn run(
                     let _ = writer.flush();
                 }
                 Inbound::Cmd(Cmd::Key { event, reply }) => {
-                    let bytes = crate::keys::encode_key_for_terminal(event, &terminal);
+                    let bytes = crate::keys::encode_key_for_terminal(event, scrollback.terminal());
                     let _ = reply.send(bytes);
                 }
                 Inbound::Cmd(Cmd::Mode { mode, reply }) => {
                     // A read changes nothing on screen, so it leaves `touched`
                     // alone: answering must never cost a frame.
-                    let _ = reply.send(terminal.mode(mode).unwrap_or(false));
+                    let _ = reply.send(scrollback.terminal().mode(mode).unwrap_or(false));
+                }
+                Inbound::Cmd(Cmd::Scroll { offset, reply }) => {
+                    // Unlike a mode read this does change what is painted, so the
+                    // batch publishes a frame for the new viewport below.
+                    scrollback.scroll_to(offset);
+                    let _ = reply.send(true);
+                    touched = true;
                 }
                 Inbound::Cmd(Cmd::Resize { cols, rows }) => {
                     // The PTY first, so the shell's SIGWINCH sees the size its
@@ -96,7 +97,7 @@ pub(super) fn run(
                     // only after both, which is why this loop marks the batch
                     // touched instead of publishing here: a frame published in
                     // between would carry the old width with a new prompt.
-                    if resize(master.as_ref(), &mut terminal, cols, rows) {
+                    if resize(master.as_ref(), scrollback.terminal_mut(), cols, rows) {
                         touched = true;
                     }
                 }
@@ -104,7 +105,7 @@ pub(super) fn run(
             }
         }
 
-        if touched && publish(&mut builder, &terminal, &frames, &dirty).is_err() {
+        if touched && publish(&mut scrollback, &frames, &dirty).is_err() {
             return;
         }
     }
@@ -124,13 +125,12 @@ fn resize(master: &dyn MasterPty, terminal: &mut Terminal<'_, '_>, cols: u16, ro
 }
 
 /// Build a frame and hand it to the UI. `Err` means the UI is gone.
-fn publish<'a>(
-    builder: &mut FrameBuilder<'a>,
-    terminal: &Terminal<'a, '_>,
+fn publish<'alloc: 'cb, 'cb>(
+    scrollback: &mut Scrollback<'alloc, 'cb>,
     frames: &Sender<Frame>,
     dirty: &AtomicBool,
 ) -> Result<(), ()> {
-    let Ok(frame) = builder.build(terminal) else {
+    let Ok(frame) = scrollback.frame() else {
         return Ok(());
     };
     frames.send(frame).map_err(drop)?;

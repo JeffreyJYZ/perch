@@ -4,11 +4,13 @@
 //! creates, drives and reads a [`Terminal`] for the whole life of a tab; the UI
 //! only ever receives a [`Frame`], which is plain owned data. [`replay`] runs
 //! the same frame builder over recorded bytes, so tests assert exactly what the
-//! painter would see without a PTY in the way.
+//! painter would see without a PTY in the way. [`replay_at`] runs it at a scroll
+//! offset, which is how a history view is read without a live terminal.
 
 mod frame;
 mod keys;
 mod paste;
+mod scrollback;
 mod selection;
 mod session;
 
@@ -25,6 +27,7 @@ pub use frame::{
 };
 pub use keys::{encode_key, encode_key_for_terminal};
 pub use paste::{PASTE_END, PASTE_START, encode_paste};
+pub use scrollback::Scrollback;
 pub use selection::{CellRange, selection_text};
 pub use session::{KeyEvent, TermError, TermHandle, TermSession};
 
@@ -61,6 +64,27 @@ impl Stages {
 #[must_use]
 pub fn replay(bytes: &[u8], cols: u16, rows: u16) -> Frame {
     replay_stages(bytes, cols, rows).0
+}
+
+/// [`replay`], with the viewport `offset` rows above the live bottom.
+///
+/// This is the history view a caller gets without a live terminal: the same
+/// recorded bytes, read through the same frame builder, only scrolled. `0` is
+/// the live bottom and is identical to [`replay`]; an offset deeper than the
+/// history clamps to the oldest row.
+///
+/// It is not a method on [`Frame`] because a frame holds one viewport's worth of
+/// cells: the rows above it are not in it. The history lives in the emulator, so
+/// this answers from a [`Scrollback`] instead of from a frame.
+#[must_use]
+pub fn replay_at(bytes: &[u8], cols: u16, rows: u16, offset: usize) -> Frame {
+    let mut scrollback =
+        Scrollback::new(cols, rows).expect("replay_at: libghostty could not create a terminal");
+    scrollback.feed(bytes);
+    scrollback.scroll_to(offset);
+    scrollback
+        .frame()
+        .expect("replay_at: libghostty could not build a frame")
 }
 
 /// [`replay`], with the time each stage took.

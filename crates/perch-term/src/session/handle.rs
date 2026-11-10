@@ -31,6 +31,14 @@ const KEY_TIMEOUT: Duration = Duration::from_millis(250);
 /// already reads as a freeze, so the answer is given up instead.
 const MODE_TIMEOUT: Duration = Duration::from_millis(250);
 
+/// How long a scroll request waits for the terminal thread to answer.
+///
+/// Same reasoning as a mode read: the request queues behind at most one frame
+/// build, and a caller that blocks longer than a quarter second already reads
+/// as a freeze. Past it the answer is `false`, which leaves the view where it
+/// is rather than hanging the painter on a thread that is flooded or gone.
+const SCROLL_TIMEOUT: Duration = Duration::from_millis(250);
+
 /// The UI's side of a terminal tab.
 ///
 /// Dropping it shuts the tab down: the terminal thread is told to stop and the
@@ -93,6 +101,30 @@ impl TermHandle {
             && let Ok(on) = answer.recv_timeout(MODE_TIMEOUT)
         {
             return on;
+        }
+        false
+    }
+
+    /// Show the grid `offset` rows above the live bottom.
+    ///
+    /// The terminal thread owns the only emulator, so the scroll position lives
+    /// there too: this asks that thread to move its viewport and build the frame
+    /// for it, which arrives on the frame channel like every other frame. `0`
+    /// returns to the live bottom, and the view then follows new output again.
+    ///
+    /// The wait is bounded by `SCROLL_TIMEOUT`. `false` means the request was
+    /// not answered — a flooded or dead terminal thread — and the caller should
+    /// leave the view alone: a stale frame is better than a stalled painter.
+    #[must_use]
+    pub fn scroll(&self, offset: usize) -> bool {
+        let (reply, answer) = mpsc::channel();
+        if self
+            .tx
+            .send(Inbound::Cmd(Cmd::Scroll { offset, reply }))
+            .is_ok()
+            && let Ok(applied) = answer.recv_timeout(SCROLL_TIMEOUT)
+        {
+            return applied;
         }
         false
     }

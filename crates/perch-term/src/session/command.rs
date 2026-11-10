@@ -48,6 +48,17 @@ pub(super) enum Cmd {
         /// Where the answer goes.
         reply: Sender<bool>,
     },
+    /// Read the grid `offset` rows above the live bottom and answer whether the
+    /// viewport moved there.
+    ///
+    /// The terminal owns the scroll position, so a history view is a request
+    /// like a key or a mode read, not a frame the UI can build for itself.
+    Scroll {
+        /// Rows above the live bottom; `0` is the live bottom.
+        offset: usize,
+        /// Where the answer goes.
+        reply: Sender<bool>,
+    },
     /// Resize the PTY and the grid together.
     Resize { cols: u16, rows: u16 },
     /// Stop the thread and let the shell go.
