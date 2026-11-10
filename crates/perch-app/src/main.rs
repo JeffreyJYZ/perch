@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use perch_files::Workspace;
 use perch_store::{SessionMeta, Settings};
 use perch_ui::Shell;
 use rune::{AppSpec, Chrome, Env, Runtime};
@@ -71,7 +72,20 @@ fn main() {
 }
 
 fn init() -> Shell {
-    Shell::new(SESSIONS.get().cloned().unwrap_or_default(), 0)
+    open_window(SESSIONS.get().cloned().unwrap_or_default())
+}
+
+/// The window over `sessions`: the active session's worktree is read once, so the file panel
+/// shows the tree the session belongs to. A worktree that cannot be opened leaves the column
+/// saying so rather than stopping the window from starting.
+fn open_window(sessions: Vec<SessionMeta>) -> Shell {
+    match sessions
+        .first()
+        .and_then(|session| Workspace::open(&session.worktree).ok())
+    {
+        Some(workspace) => Shell::with_workspace(sessions, 0, workspace),
+        None => Shell::new(sessions, 0),
+    }
 }
 
 /// The app's data directory, or none when the platform gives no home directory.
@@ -110,7 +124,7 @@ fn start_sessions(settings: Option<&Settings>) -> Vec<SessionMeta> {
 /// Lays the window out once and prints its accessibility tree, then exits.
 fn print_tree(sessions: &[SessionMeta]) {
     let mut runtime = Runtime::new(
-        Shell::new(sessions.to_vec(), 0),
+        open_window(sessions.to_vec()),
         perch_ui::shell::view,
         WINDOW,
         Env::new(true, 2.0),

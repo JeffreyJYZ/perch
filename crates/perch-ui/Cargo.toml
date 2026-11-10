@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 perch-agent = { path = "../perch-agent" }
 perch-files = { path = "../perch-files" }
+perch-plugins = { path = "../perch-plugins" }
 perch-store = { path = "../perch-store" }
 perch-term = { path = "../perch-term" }
 perch-tools = { path = "../perch-tools" }

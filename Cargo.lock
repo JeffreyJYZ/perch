@@ -3444,6 +3444,7 @@ dependencies = [
 name = "perch-plugins"
 version = "0.1.0"
 dependencies = [
+ "perch-store",
  "perch-tools",
  "serde",
  "serde_json",
@@ -3494,6 +3495,7 @@ version = "0.1.0"
 dependencies = [
  "perch-agent",
  "perch-files",
+ "perch-plugins",
  "perch-store",
  "perch-term",
  "perch-tools",
