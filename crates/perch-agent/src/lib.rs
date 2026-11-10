@@ -3,12 +3,16 @@
 //! `stream` is synchronous: it starts the request on a worker thread and returns an iterator
 //! over decoded events, so a caller with no async runtime can consume a live reply.
 
+pub mod ask;
 pub mod chunk;
+pub mod dispatch;
 pub mod event;
 pub mod provider;
 pub mod turn;
 
+pub use ask::{ASK_USER, AskUser};
 pub use chunk::Chunk;
+pub use dispatch::{Answer, Decision, Dispatcher, Interactor};
 pub use event::{AgentEvent, EndReason, ToolCall, Usage};
 pub use provider::{
     ChatRequest, ChunkStream, Message, Role, SecretString, ToolCallRecord, ToolSpec, stream,
