@@ -3494,6 +3494,7 @@ dependencies = [
  "perch-term",
  "perch-tools",
  "perch-ui",
+ "perch-update",
  "rune",
  "serde",
  "serde_json",

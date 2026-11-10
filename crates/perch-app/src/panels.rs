@@ -9,6 +9,9 @@
 //! A press that passes goes to the worker. The panel it changes is re-read into the snapshot that
 //! follows, which is what makes the change visible without the window ever waiting on a guest —
 //! and a guest that traps while answering is disabled by the host, exactly as a trapping tool is.
+//!
+//! The update offer is drawn by the same column and pressed the same way, but it belongs to the
+//! app: its press is answered here, by asking the update thread to stage an archive.
 
 use crate::AppState;
 
@@ -25,6 +28,11 @@ impl AppState {
         control: &str,
         value: Option<String>,
     ) -> std::result::Result<(), String> {
+        // The update offer is drawn by the same column and pressed the same way, but it is not a
+        // plugin: the press stages a download instead of reaching a guest.
+        if plugin == crate::update::OWNER {
+            return self.update_action(control);
+        }
         let Some(entry) = self
             .snapshot
             .panels
@@ -42,5 +50,34 @@ impl AppState {
         }
         self.worker.panel_action(plugin, control, value);
         Ok(())
+    }
+
+    /// A press on the update panel: only a standing offer can stage anything.
+    ///
+    /// A press while the check is still out is refused in words rather than queued for a release
+    /// nothing named yet, and a press with nothing on offer is refused the same way. Staging is
+    /// all it does: the archive lands on disk and the person installs it after perch quits.
+    fn update_action(&self, control: &str) -> std::result::Result<(), String> {
+        use crate::update::{STAGE, Status};
+
+        let Some(worker) = self.update.as_ref() else {
+            return Err(
+                "no update check is configured, so there is nothing to download".to_string(),
+            );
+        };
+        match self.update_status.as_deref() {
+            Some(Status::Offer { .. }) if control == STAGE => {
+                worker.stage();
+                Ok(())
+            }
+            Some(Status::Offer { .. }) => Err(format!(
+                "the update panel declares no control `{control}`, so nothing was reported"
+            )),
+            Some(Status::Checking) => Err(
+                "the update check has not finished, so there is nothing to download yet"
+                    .to_string(),
+            ),
+            _ => Err("there is no update on offer, so nothing was downloaded".to_string()),
+        }
     }
 }

@@ -35,6 +35,9 @@ impl AppState {
         if self.absorb() {
             pumped.changed = true;
         }
+        if self.absorb_update() {
+            pumped.changed = true;
+        }
         pumped
     }
 
@@ -66,6 +69,10 @@ impl AppState {
     pub fn busy(&self) -> bool {
         self.worker.busy()
             || self
+                .update
+                .as_ref()
+                .is_some_and(crate::update::Worker::busy)
+            || self
                 .sessions
                 .iter()
                 .any(|session| session.is_running() && !session.is_waiting())
@@ -94,6 +101,24 @@ impl AppState {
         }
         self.live.store(snapshot.registry.clone());
         self.snapshot = snapshot;
+        true
+    }
+
+    /// Makes the update thread's newest status the one the column shows, answering whether it is
+    /// newer than the one already drawn. Never waits: the status was published before this frame.
+    fn absorb_update(&mut self) -> bool {
+        let Some(worker) = self.update.as_ref() else {
+            return false;
+        };
+        let latest = worker.latest();
+        if self
+            .update_status
+            .as_ref()
+            .is_some_and(|seen| Arc::ptr_eq(seen, &latest))
+        {
+            return false;
+        }
+        self.update_status = Some(latest);
         true
     }
 

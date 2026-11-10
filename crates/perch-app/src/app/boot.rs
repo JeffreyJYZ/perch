@@ -16,6 +16,7 @@ use crate::bridge;
 use crate::live_registry::Live;
 use crate::session::SessionRuntime;
 use crate::sources::Sources;
+use crate::update::{Plan, Worker as UpdateWorker};
 use crate::watch;
 use crate::worker::Worker;
 
@@ -31,12 +32,18 @@ impl AppState {
         servers: &[McpServerConfig],
         secrets: Box<dyn SecretStore>,
         plugins: &Path,
+        update: Option<Plan>,
     ) -> Result<AppState> {
         let sources = Sources::open(plugins.to_path_buf(), servers)?;
         let worker = Worker::start(sources);
         let snapshot = worker.latest();
         let live = Live::new(snapshot.registry.clone());
         let watch = watch::watch(&settings_file::path_in(dir), plugins);
+        // The check is posted to its own thread here and not waited for: a manifest that takes
+        // thirty seconds to answer must not be one the window spends not drawing.
+        let update =
+            update.map(|plan| UpdateWorker::start(plan.url, dir.to_path_buf(), plan.transport));
+        let update_status = update.as_ref().map(UpdateWorker::latest);
         // A failure is the user's business, and the transcript is the only place the window ever
         // says things: it is a note in every session's column, never a window that will not open.
         let words = snapshot.words.clone();
@@ -54,6 +61,8 @@ impl AppState {
             worker,
             snapshot,
             watch,
+            update,
+            update_status,
             defaults,
             stated,
             secrets,

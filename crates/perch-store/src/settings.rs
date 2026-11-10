@@ -19,6 +19,9 @@ pub struct Settings {
     /// MCP servers whose tools the model may call. Empty by default: a server is opt-in,
     /// because connecting one spawns a process or opens a browser.
     pub mcp_servers: Vec<McpServerConfig>,
+    /// The URL of the release manifest this app checks at startup. Empty by default, and empty
+    /// means "do not check": a window that opens must never reach the network unasked.
+    pub update_check: String,
 }
 
 impl Default for Settings {
@@ -28,6 +31,7 @@ impl Default for Settings {
             model: String::new(),
             theme: "dark".to_string(),
             mcp_servers: Vec::new(),
+            update_check: String::new(),
         }
     }
 }
@@ -93,4 +97,47 @@ impl Settings {
 /// The one settings file, `<dir>/settings.toml`.
 pub fn path_in(dir: &Path) -> PathBuf {
     dir.join("settings.toml")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_update_check_is_empty_until_a_person_names_a_manifest() {
+        assert_eq!(
+            Settings::default().update_check,
+            "",
+            "the default must not reach the network"
+        );
+    }
+
+    #[test]
+    fn a_file_without_the_update_key_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(path_in(dir.path()), "model = \"some/model\"\n").unwrap();
+        let settings = Settings::load(dir.path()).unwrap();
+        assert_eq!(settings.model, "some/model");
+        assert_eq!(settings.update_check, "");
+    }
+
+    #[test]
+    fn a_update_check_url_written_by_hand_is_read_and_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let url = "https://release.perch.test/latest.json";
+        std::fs::write(path_in(dir.path()), format!("update_check = \"{url}\"\n")).unwrap();
+
+        let settings = Settings::load(dir.path()).unwrap();
+        assert_eq!(
+            settings.update_check, url,
+            "the field is read like the others"
+        );
+
+        settings.save(dir.path()).unwrap();
+        assert_eq!(
+            Settings::load(dir.path()).unwrap().update_check,
+            url,
+            "a save keeps the URL it did not edit"
+        );
+    }
 }

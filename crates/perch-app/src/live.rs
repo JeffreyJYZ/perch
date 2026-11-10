@@ -113,8 +113,14 @@ impl Live for AppState {
 /// The plugin column, over the worker's last snapshot: the frames and the words are built off the
 /// frame thread, so the window reads them rather than asking a plugin while it draws.
 impl Panels for AppState {
+    /// The plugin panels, then the update offer: the column is the one region a person can read
+    /// without a session open, and an update is exactly that kind of news.
     fn panels(&self) -> Vec<PanelEntry> {
-        self.snapshot.panels.clone()
+        let mut panels = self.snapshot.panels.clone();
+        if let Some(status) = self.update_status.as_ref() {
+            panels.push(status.panel());
+        }
+        panels
     }
 
     fn plugin_words(&self) -> Vec<String> {

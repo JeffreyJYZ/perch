@@ -1,8 +1,10 @@
 //! The constructors a window, a test or a script opens an app with.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use perch_store::secret::{self, SecretStore};
+use perch_update::Transport;
 
 use super::{AppState, ProviderDefaults, Result};
 
@@ -41,5 +43,25 @@ impl AppState {
         plugins: &Path,
     ) -> Result<AppState> {
         crate::settings::open_at(dir, Some(defaults), secrets, plugins)
+    }
+
+    /// The same, with the update transport stated: what a test uses so no socket is opened.
+    ///
+    /// The manifest URL still comes from `settings.toml` and the plugins from `<dir>/plugins`, so
+    /// the test exercises the same reading the window does — including the empty default that
+    /// means no check at all.
+    pub fn open_with_update(
+        dir: &Path,
+        defaults: ProviderDefaults,
+        secrets: Box<dyn SecretStore>,
+        transport: Arc<dyn Transport>,
+    ) -> Result<AppState> {
+        crate::settings::open_at_with(
+            dir,
+            Some(defaults),
+            secrets,
+            &dir.join(crate::settings::PLUGINS),
+            Some(transport),
+        )
     }
 }

@@ -9,6 +9,11 @@
 //! and what to run next. Folding the download and the swap into one silent step would take
 //! that decision away from the one process that knows whether the user is mid-turn, and a swap
 //! that fails halfway leaves no working app to report it.
+//!
+//! **Installing is a manual step.** Nothing here replaces, relaunches or even unpacks the archive:
+//! [`check`] answers what is on offer and [`stage`] leaves a verified file where the person can
+//! find it. The swap happens after perch has quit, if the person chooses to make it, because the
+//! bundle being replaced is the one this process is running from.
 
 mod check;
 mod fetch;

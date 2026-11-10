@@ -16,7 +16,10 @@ use crate::{Error, Manifest, Result};
 pub const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// One HTTP GET. The only thing this crate needs from the network.
-pub trait Transport {
+///
+/// `Send` and `Sync` because the app hands one transport to the thread that checks and stages;
+/// a test's fake is shared the same way, so a request can be observed after the fact.
+pub trait Transport: Send + Sync {
     fn get(&self, url: &str) -> Result<Vec<u8>>;
 }
 

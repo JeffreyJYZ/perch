@@ -7,12 +7,15 @@
 //! app being restarted.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use perch_store::Settings;
 use perch_store::secret::{Keychain, SecretStore};
 use perch_ui::SettingsDraft;
 use perch_ui::shell::{KeyStatus, SettingsSnapshot};
+use perch_update::Transport;
 
+use crate::update::Plan;
 use crate::{AppState, ProviderDefaults, Result};
 
 /// The keychain account the provider key is stored under.
@@ -41,6 +44,21 @@ pub fn open_at(
     secrets: Box<dyn SecretStore>,
     plugins: &Path,
 ) -> Result<AppState> {
+    open_at_with(dir, stated, secrets, plugins, None)
+}
+
+/// The same, with the update transport stated instead of the real one.
+///
+/// A stated transport is what a test hands over, so the check and the download run without a
+/// socket; the real client is built only when `settings.toml` names a manifest and no transport
+/// was stated.
+pub(crate) fn open_at_with(
+    dir: &Path,
+    stated: Option<ProviderDefaults>,
+    secrets: Box<dyn SecretStore>,
+    plugins: &Path,
+    transport: Option<Arc<dyn Transport>>,
+) -> Result<AppState> {
     let settings = Settings::load(dir)?;
     let given = stated.is_some();
     let defaults = stated.unwrap_or_else(|| ProviderDefaults {
@@ -48,6 +66,8 @@ pub fn open_at(
         model: settings.model.clone(),
         api_key: stored_key(&*secrets).unwrap_or_default(),
     });
+    // An empty URL is no plan at all, which is what keeps an unconfigured window off the network.
+    let update = Plan::new(&settings.update_check, transport)?;
     AppState::build(
         dir,
         defaults,
@@ -55,6 +75,7 @@ pub fn open_at(
         &settings.mcp_servers,
         secrets,
         plugins,
+        update,
     )
 }
 

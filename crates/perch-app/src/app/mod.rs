@@ -31,6 +31,7 @@ use perch_store::secret::SecretStore;
 
 use crate::live_registry::Live;
 use crate::session::SessionRuntime;
+use crate::update::{Status, Worker as UpdateWorker};
 use crate::watch::Watch;
 use crate::worker::{Snapshot, Worker};
 
@@ -60,6 +61,8 @@ pub enum Error {
     MissingSession(usize),
     #[error("the worktree {0} no longer exists, so this session cannot run a turn")]
     MissingWorktree(PathBuf),
+    #[error("update: {0}")]
+    Update(#[from] perch_update::Error),
 }
 
 /// A perch-app result.
@@ -90,6 +93,10 @@ pub struct AppState {
     pub(crate) snapshot: Arc<Snapshot>,
     /// The debounced filesystem watcher, when the platform gave one.
     pub(crate) watch: Option<Watch>,
+    /// The update check on its own thread, when `settings.toml` names a manifest.
+    pub(crate) update: Option<UpdateWorker>,
+    /// The status the frame last read, and therefore the line the column shows.
+    pub(crate) update_status: Option<Arc<Status>>,
     defaults: ProviderDefaults,
     /// Whether the provider was stated by the caller rather than read from settings. A stated one
     /// is never overwritten by a reload, which is what lets a fixture server stay pinned.

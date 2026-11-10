@@ -21,6 +21,7 @@ mod session;
 pub mod settings;
 mod sources;
 mod turn;
+pub mod update;
 pub mod watch;
 mod worker;
 
