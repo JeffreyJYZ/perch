@@ -26,7 +26,11 @@ read_key() {
 	plutil -extract "$1" raw -o - "$plist" 2>/dev/null || true
 }
 
-want_id=$(awk -F'"' '/^const APP_ID/ { print $2; exit }' "$root/crates/perch-app/src/main.rs")
+want_id=$(rg --no-filename -o 'const APP_ID: &str = "([^"]+)"' -r '$1' "$root/crates/perch-app/src" | head -1)
+if [ -z "$want_id" ]; then
+	fail "cannot find \`const APP_ID\` under crates/perch-app/src"
+	exit 1
+fi
 want_version=$(cargo metadata --format-version 1 --no-deps --manifest-path "$root/Cargo.toml" |
 	tr ',' '\n' |
 	awk '/"name":"perch-app"/ { app = 1 } app && /"version"/ { gsub(/[^0-9.]+/, ""); print; exit }')

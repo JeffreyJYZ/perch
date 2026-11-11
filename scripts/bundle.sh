@@ -38,10 +38,11 @@ if [ -z "$version" ]; then
 fi
 
 # The bundle id is the binary's own application id, used for its data directory and keychain
-# service, so the plist takes it from there instead of carrying a second copy.
-bundle_id=$(awk -F'"' '/^const APP_ID/ { print $2; exit }' "$root/crates/perch-app/src/main.rs")
+# service, so the plist takes it from there instead of carrying a second copy. Read it from
+# wherever the const lives — it moved once already, from the binary's root to its boot module.
+bundle_id=$(rg --no-filename -o 'const APP_ID: &str = "([^"]+)"' -r '$1' "$root/crates/perch-app/src" | head -1)
 if [ -z "$bundle_id" ]; then
-	printf 'bundle: cannot read APP_ID from crates/perch-app/src/main.rs\n' >&2
+	printf 'bundle: cannot find `const APP_ID` under crates/perch-app/src\n' >&2
 	exit 1
 fi
 
