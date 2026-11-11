@@ -11,11 +11,13 @@ use perch_store::{SessionLog, SessionMeta};
 use perch_tools::ToolCtx;
 use perch_ui::Transcript;
 
-use super::{AppState, ProviderDefaults, Result, SYSTEM};
+use super::{AppState, ProviderDefaults, Result};
+
+mod instructions;
+mod rules;
 use crate::bridge;
 use crate::live_registry::Live;
 use crate::session::SessionRuntime;
-use crate::sources::Sources;
 use crate::update::{Plan, Worker as UpdateWorker};
 use crate::watch;
 use crate::worker::Worker;
@@ -34,8 +36,10 @@ impl AppState {
         plugins: &Path,
         update: Option<Plan>,
     ) -> Result<AppState> {
-        let sources = Sources::open(plugins.to_path_buf(), servers)?;
-        let worker = Worker::start(sources);
+        // The tools are opened on the worker's own thread: the plugin engine and the MCP
+        // handshakes are what used to stand between the launch and the first frame. What is read
+        // here is a snapshot of the built-ins; the window draws with it and the worker replaces it.
+        let worker = Worker::start(plugins.to_path_buf(), servers.to_vec());
         let snapshot = worker.latest();
         let live = Live::new(snapshot.registry.clone());
         let watch = watch::watch(&settings_file::path_in(dir), plugins);
@@ -73,9 +77,12 @@ impl AppState {
             update_transport,
             update_status,
             listings: Arc::new(perch_agent::HttpTransport),
+            limits: std::collections::HashMap::new(),
+            models_job: None,
             defaults,
             stated,
             secrets,
+            titles: super::title::Titles::default(),
         })
     }
 }
@@ -89,6 +96,12 @@ pub(super) fn runtime(
     notes: &[String],
 ) -> Result<SessionRuntime> {
     let log = SessionLog::open(dir, meta.clone())?;
+    // The project's own instructions travel in the system message, read from this session's
+    // worktree: a session opened on another repository must be told that repository's rules.
+    let (system, large) = instructions::system(&meta.worktree);
+    // The saved rules are read per session, which is one small file and the only place a session
+    // is built. A file that will not parse leaves no rules at all, so every gated call asks.
+    let (rules, refused) = rules::load(dir);
     let model = if meta.model.is_empty() {
         defaults.model.clone()
     } else {
@@ -103,13 +116,13 @@ pub(super) fn runtime(
     let (agent, events) = Agent::spawn(AgentConfig {
         endpoint: endpoint.clone(),
         model: model.clone(),
-        system: SYSTEM.to_string(),
+        system,
         // The list is read from the live registry at the start of every request, so a plugin that
         // arrives mid-session is offered on the next one — and a reload that lands mid-stream
         // leaves the request already out exactly as it was sent.
         tools: Tools::live(live_source(live)),
     });
-    let dispatcher = Arc::new(Mutex::new(Dispatcher::new()));
+    let dispatcher = Arc::new(Mutex::new(Dispatcher::new().with_rules(rules.clone())));
     let ctx = ToolCtx {
         root: meta.worktree.clone(),
     };
@@ -118,6 +131,14 @@ pub(super) fn runtime(
     // A server that did not load is said once per session, in the column the user is reading.
     for note in notes {
         say(&mut transcript, note);
+    }
+    if let Some(large) = large {
+        say(&mut transcript, &large);
+    }
+    // A saved permission that could not be read is said where a settings error is said, in the
+    // column of the session it would have applied to.
+    if let Some(refused) = refused {
+        say(&mut transcript, &refused);
     }
     Ok(SessionRuntime::new(
         meta, transcript, log, agent, dispatcher, bridge, model, endpoint,

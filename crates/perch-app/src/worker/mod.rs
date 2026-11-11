@@ -2,9 +2,9 @@
 //!
 //! A rebuild loads every plugin and reconciles every configured MCP server, and a server that has
 //! to be spawned and handshaked can take seconds. Done on the frame thread that is a frozen
-//! window, so the whole [`Sources`] value lives here and the frame only ever reads the snapshot
-//! this thread last published: the registry to swap into the live list, the panels to draw and
-//! the words to say.
+//! window, so the whole [`crate::sources::Sources`] value lives here — opened here too, as the
+//! first thing this thread does — and the frame only ever reads the snapshot this thread last
+//! published: the registry to swap into the live list, the panels to draw and the words to say.
 //!
 //! Work is a small queue rather than a job per call: [`queue`] holds the slots, and the loop here
 //! takes one pass at a time, so a burst of saves during a slow connect is one rebuild against the
@@ -14,7 +14,7 @@
 mod body;
 mod queue;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -23,9 +23,7 @@ use perch_plugins::PanelEntry;
 use perch_store::SessionMeta;
 use perch_store::settings::McpServerConfig;
 
-use crate::sources::Sources;
-
-use body::{published, run};
+use body::run;
 use queue::{PanelAction, Wanted, lock};
 
 /// One published state of the tools: everything the frame would otherwise have computed.
@@ -40,6 +38,32 @@ pub struct Snapshot {
     pub servers: Vec<String>,
 }
 
+impl Snapshot {
+    /// What a worker publishes before its sources are open: the built-ins, and nothing from disk.
+    ///
+    /// The built-ins are a registry build with no engine and no server — milliseconds, where a
+    /// plugin is a wasm engine and a server is a handshake — so a turn started while the plugins
+    /// are still loading can read, write and run commands. What it cannot call yet is a plugin's
+    /// own tool, and [`perch_tools::ToolRegistry::call`] answers that with the name it could not
+    /// find rather than panicking on a list that is not there.
+    fn builtins() -> Snapshot {
+        Snapshot {
+            registry: perch_agent::Dispatcher::builtin_registry(),
+            panels: Vec::new(),
+            words: Vec::new(),
+            servers: Vec::new(),
+        }
+    }
+
+    /// A snapshot whose only content besides the built-ins is the reason the sources failed.
+    fn failed(error: &crate::Error) -> Snapshot {
+        Snapshot {
+            words: vec![format!("tools failed to load: {error}")],
+            ..Snapshot::builtins()
+        }
+    }
+}
+
 /// The tool sources, running beside the frame.
 pub struct Worker {
     latest: Arc<ArcSwap<Snapshot>>,
@@ -48,19 +72,26 @@ pub struct Worker {
 }
 
 impl Worker {
-    /// Opens `sources` where they are and starts publishing from them.
+    /// Starts the worker on `dir` and `servers`, publishing the built-ins at once.
     ///
-    /// The first snapshot is taken here, on the caller's thread, so the window always opens with
-    /// the tools and the words its sources already have. Only later rebuilds are queued.
-    pub fn start(mut sources: Sources) -> Worker {
-        let latest = Arc::new(ArcSwap::from_pointee(published(&mut sources)));
-        let wanted = Arc::new(Mutex::new(Wanted::default()));
+    /// Nothing slow happens here. The plugin engine and the MCP handshakes are the seconds that
+    /// used to stand between the launch and the first frame — a wasm engine is built for every
+    /// plugin, and a server is a process to spawn and a handshake to wait for — so they are done
+    /// on this thread instead, and the snapshot they produce replaces the built-ins when it is
+    /// ready. The caller draws with the tools every build starts from; [`Worker::busy`] is true
+    /// from the start, so frames keep coming until the real one lands.
+    pub fn start(dir: PathBuf, servers: Vec<McpServerConfig>) -> Worker {
+        let latest = Arc::new(ArcSwap::from_pointee(Snapshot::builtins()));
+        let wanted = Arc::new(Mutex::new(Wanted {
+            outstanding: true,
+            ..Wanted::default()
+        }));
         let (wake, woken) = mpsc::channel();
         let running = Arc::clone(&latest);
         let queued = Arc::clone(&wanted);
         std::thread::Builder::new()
             .name("perch-tools".to_string())
-            .spawn(move || run(&mut sources, &running, &queued, &woken))
+            .spawn(move || run(dir, servers, &running, &queued, &woken))
             .expect("spawn the tool source thread");
         Worker {
             latest,

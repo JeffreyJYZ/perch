@@ -33,8 +33,11 @@ pub(super) fn terminal_row(
     selection: Option<CellRange>,
     kit: &Kit,
 ) -> El {
+    // Every row is one line of the grid, blank or not: a row's height is its font's line height,
+    // never its text's, so a line with nothing on it still holds the line it is.
+    let height = row_height(kit);
     let Some(cells) = frame.rows.get(usize::from(index)) else {
-        return row().key(format!("terminal-row-{index}"));
+        return row().key(format!("terminal-row-{index}")).h(height);
     };
     let cursor = cursor.filter(|(at, _)| *at == index).map(|(_, col)| col);
     let over = Over {
@@ -46,6 +49,7 @@ pub(super) fn terminal_row(
         .key(format!("terminal-row-{index}"))
         .role("row")
         .w_full()
+        .h(height)
         .gap(0.0);
     // A reader hears the row's whole line, not one node per styled stretch of it: the runs are
     // cells of one line, so the label is the line and the runs say nothing of their own.

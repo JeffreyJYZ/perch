@@ -10,22 +10,19 @@ use perch_store::SessionEvent;
 
 use super::SessionRuntime;
 use crate::bridge::BridgeEvent;
-use crate::turn::{Pending, question_text, reason_word};
+use crate::turn::{Pending, compaction_words, question_text, reason_word};
 
 impl SessionRuntime {
     /// Folds one posted event into the transcript and the log, and reports whether the session
     /// is now waiting on the user.
     pub(crate) fn apply(&mut self, event: BridgeEvent) -> bool {
         match event {
-            // A notice changes nothing the turn is waiting on, so it is not a wait: the arm
-            // still has to answer the function's question, which is why it says so explicitly.
-            BridgeEvent::Notice(words) => {
-                self.transcript.note(words);
-                return false;
-            }
             BridgeEvent::Text(text) => {
                 self.transcript.apply(&AgentEvent::TextDelta(text.clone()));
                 self.open_text.push_str(&text);
+            }
+            BridgeEvent::Reasoning(words) => {
+                self.transcript.apply(&AgentEvent::ReasoningDelta(words));
             }
             BridgeEvent::ToolCall(call) => {
                 self.transcript.apply(&AgentEvent::ToolCall(call.clone()));
@@ -86,9 +83,33 @@ impl SessionRuntime {
                     tokens_in: usage.input,
                     tokens_out: usage.output,
                 });
+                // The meter counts what the provider reported for the last turn; a provider that
+                // reported nothing leaves the previous number rather than claiming zero.
+                let spent = usage.input.saturating_add(usage.output);
+                if spent > 0 {
+                    self.tokens = Some(spent);
+                }
                 self.pending = None;
                 self.running = false;
                 self.turns += 1;
+                // A prompt sent while this turn ran goes out now, in the order it was written —
+                // unless a compaction is queued ahead of it, which is the request that must run
+                // at this step boundary first.
+                if !self.compacting {
+                    self.start_queued();
+                }
+            }
+            BridgeEvent::Compacted { dropped, exchanges } => {
+                if self.compacting {
+                    self.compacted();
+                    self.transcript.note(compaction_words(dropped, exchanges));
+                    self.start_queued();
+                } else {
+                    // A compaction the harness did itself, because the provider refused the
+                    // request's size: said in the column's own voice, never as a reply.
+                    self.transcript
+                        .apply(&AgentEvent::Compacted { dropped, exchanges });
+                }
             }
         }
         false

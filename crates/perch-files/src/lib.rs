@@ -1,8 +1,10 @@
-//! perch-files: the worktree browser, git status, read-only preview and the Zed handoff.
+//! perch-files: the worktree browser, git status, branch and diff, preview, and the Zed handoff.
 //!
 //! Files are read-only here. The agent and Zed write; this crate only reads, and refuses
 //! anything whose canonical path leaves the workspace root.
 
+mod branch;
+mod diff;
 mod icons;
 mod language;
 mod open;
@@ -13,6 +15,8 @@ mod tree;
 
 use std::path::PathBuf;
 
+pub use branch::{Branch, branch_of};
+pub use diff::{DIFF_MAX_BYTES, file_diff, worktree_diff};
 pub use icons::{Kind, icon_for};
 pub use language::language_for;
 pub use open::open_in_zed;

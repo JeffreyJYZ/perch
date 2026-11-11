@@ -44,22 +44,32 @@ Two properties decide the shape more than any code does:
   before the first event is retried.
 - `crates/perch-agent/src/report.rs` — when the rounds are spent, one more request with the tools
   removed asks for a written report, so the turn ends with words rather than an error.
-- `crates/perch-agent/src/compact.rs` — a request the provider refuses as too long is answered
+- `crates/perch-agent/src/compact/` — a request the provider refuses as too long is answered
   with a smaller one rather than the same one again: the system message and the exchange being
   answered are kept, older exchanges are dropped, and the retry is asked at 85%, 70%, 50% then 35%
   of the size that was refused. Each drop is emitted as `AgentEvent::Compacted`, whose `notice()`
-  reads "the conversation was too long, so perch dropped N older messages and asked again". The
-  session log keeps every message; only the next request carries less.
+  reads "The conversation was too long for the model, so perch dropped N older messages and asked
+  again. The transcript still has them." The session log keeps every message; only the next request
+  carries less.
 - Approvals: `once`, `always` (for the session) and `reject`, in `dispatch.rs`; the same answer
   covers every call of that tool for the rest of the session.
 - Cancellation, per-session model and per-session provider are handles shared with the agent.
+- Queued prompts: a message sent while a turn runs is held on the session and sent, in order, the
+  moment that turn ends — never interleaved into it. The column says so as it is accepted.
+  OpenCode calls the same thing its inbox; `delivery: "steer"` is the default there and `"queue"`
+  the opt-out (`packages/core/src/session`).
 
 ## Not done yet, in the order they matter
 
 1. **Streaming tool input and progress.** perch emits a tool call once its arguments are complete,
    so a long `bash` shows nothing until it ends. OpenCode streams the input and then the progress.
-2. **Queued prompts.** A prompt sent mid-turn should queue and be delivered after it, not be
-   refused or interleave.
+2. **Context meter and manual compaction.** A turn's usage against the model's context limit is not
+   on screen, and compaction only fires when the provider rejects a request for length — there is
+   no way to ask for it. OpenCode's shape, which perch copies: the meter is
+   `tokens / model.limit.context` rendered `12.3K (6%) used`
+   (`tui/src/util/session.ts`, `feature-plugins/sidebar/context.tsx`), and compaction is a durable
+   `session.compact` item that "steers by default: it runs at the next step boundary instead of
+   waiting behind queued prompts" (`protocol/src/groups/session.ts:441`).
 3. **Usage per step.** The turn reports a total; a step's cost is what a person wants when a turn
    is expensive.
 4. **Revert.** A checkpoint per step, so a turn can be undone without `git`.

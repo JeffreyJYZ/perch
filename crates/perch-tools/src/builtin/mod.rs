@@ -1,4 +1,4 @@
-//! The six shipped tools: every contract for paths, limits and output size lives here.
+//! The shipped tools: every contract for paths, limits and output size lives here.
 //!
 //! Each tool is its own module, and the pieces they share are too: [`text`] holds the diff and
 //! truncation helpers, [`process`] runs a child under a deadline, and the argument helpers below
@@ -6,8 +6,15 @@
 
 mod bash;
 mod edit;
+mod glob;
 mod grep;
+mod job;
+mod jobs;
 mod list;
+mod patch;
+mod patch_apply;
+mod patch_diff;
+mod patch_hunk;
 mod process;
 mod read;
 mod text;
@@ -22,8 +29,12 @@ use crate::{Error, Result, Tool};
 
 pub use bash::Bash;
 pub use edit::Edit;
+pub use glob::Glob;
 pub use grep::Grep;
+pub use job::JOB_MAX_CONCURRENT;
+pub use jobs::Jobs;
 pub use list::List;
+pub use patch::Patch;
 pub use read::Read;
 pub use write::Write;
 
@@ -45,8 +56,11 @@ pub fn builtin_tools() -> Vec<Arc<dyn Tool>> {
         Arc::new(Write),
         Arc::new(Edit),
         Arc::new(Bash::new()),
+        Arc::new(Jobs),
         Arc::new(List),
         Arc::new(Grep::new()),
+        Arc::new(Glob),
+        Arc::new(Patch),
     ]
 }
 

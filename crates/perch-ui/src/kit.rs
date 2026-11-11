@@ -14,12 +14,13 @@ use rune_kit::{Kit, PaletteSeed};
 
 /// The canvas: warm charcoal, not blue-grey.
 fn dark_bg() -> Color {
-    oklch(0.185, 0.012, 62.0)
+    // Neutral, not warm: a brown cast on a dark canvas reads as a mistake, not a mood.
+    oklch(0.165, 0.002, 265.0)
 }
 
 /// Paper cream. Warmer than white, which is what stops the window reading as a terminal theme.
 fn dark_ink() -> Color {
-    oklch(0.93, 0.018, 82.0)
+    oklch(0.94, 0.004, 265.0)
 }
 
 /// The one signal colour: in flight, needs you, focus.
@@ -29,11 +30,11 @@ fn dark_signal() -> Color {
 
 /// The light canvas: unbleached paper rather than white.
 fn light_bg() -> Color {
-    oklch(0.96, 0.008, 80.0)
+    oklch(0.965, 0.002, 265.0)
 }
 
 fn light_ink() -> Color {
-    oklch(0.26, 0.014, 62.0)
+    oklch(0.22, 0.004, 265.0)
 }
 
 fn light_signal() -> Color {

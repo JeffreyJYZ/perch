@@ -22,6 +22,9 @@ impl<L: Live> Shell<L> {
     /// so a frame is never held longer than that.
     pub fn pump(&mut self, budget: Duration) -> bool {
         let mut changed = false;
+        // A listing that arrived while nothing else was moving is still a change the window draws,
+        // so it is taken on every frame rather than only when a press happens to ask again.
+        changed |= self.absorb_models();
         // A turn that is not in flight has nothing to wait for, so the budget collapses to zero
         // and a frame spent only on the dock never blocks. The app is borrowed for exactly as
         // long as it takes to read it; what it said is then folded in with no borrow alive.
@@ -64,6 +67,11 @@ impl<L: Live> Shell<L> {
     ///
     /// `None` is a window with nothing to watch: it then draws only when a key or a press says so.
     pub fn next_wake(&self) -> Option<Duration> {
+        // A listing on its way needs frames of its own: waiting for a press is how the picker
+        // stays empty after the provider has already answered.
+        if self.models_loading() {
+            return Some(TURN_TICK);
+        }
         if self.live.as_ref().is_some_and(Live::busy) {
             return Some(TURN_TICK);
         }
@@ -84,6 +92,9 @@ impl<L: Live> Shell<L> {
 
     /// Takes the app's transcript and its waiting state, without pumping.
     pub(super) fn refresh(&mut self) {
+        // The provider's model list is fetched on its own thread: a frame takes the answer if it
+        // has arrived and never waits for it.
+        self.absorb_models();
         let (waiting, transcript) = match self.live.as_ref() {
             Some(live) => (live.waiting(), live.transcript().cloned()),
             None => return,
@@ -99,8 +110,10 @@ impl<L: Live> Shell<L> {
 /// The grid a pty is told about for a dock of this size, in cells.
 ///
 /// A monospace face advances by about [`ADVANCE`] ems, which is what makes a column count; the
-/// row count is the height over the line height the style asks for.
-fn grid_for(width: f32, height: f32, mono: TextStyle) -> (u16, u16) {
+/// row count is the height over the line height the style asks for. The dock draws the same
+/// number of rows it tells the pty about, so this is the only place that answers how many lines
+/// of text a box of that size holds — two answers would drift and leave a strip under the last.
+pub(crate) fn grid_for(width: f32, height: f32, mono: TextStyle) -> (u16, u16) {
     let advance = (mono.size * ADVANCE + mono.tracking).max(1.0);
     let line = if mono.line_height > 0.0 {
         mono.line_height

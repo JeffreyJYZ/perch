@@ -55,24 +55,8 @@ impl Workspace {
     }
 
     /// The canonical form of `candidate`, refused when it leaves the root.
-    ///
-    /// Canonicalising both sides is the point: a symlink inside the root that resolves
-    /// outside it is an escape, and `starts_with` is component-wise so a sibling directory
-    /// whose name merely shares the prefix cannot pass.
     pub fn confine(&self, candidate: &Path) -> Result<PathBuf> {
-        let joined = if candidate.is_absolute() {
-            candidate.to_path_buf()
-        } else {
-            self.root.join(candidate)
-        };
-        let canonical = std::fs::canonicalize(&joined)
-            .map_err(|e| Error::Message(format!("cannot resolve {}: {e}", joined.display())))?;
-        if !canonical.starts_with(&self.root) {
-            return Err(Error::OutsideRoot {
-                path: candidate.to_path_buf(),
-            });
-        }
-        Ok(canonical)
+        confine_in(&self.root, candidate).map(|(_, target)| target)
     }
 
     /// `candidate` as a path relative to the root, resolved lexically.
@@ -154,6 +138,22 @@ impl Workspace {
         sort_children(&mut root.children);
         root.children
     }
+}
+
+/// The canonical root and target, refusing a `candidate` that leaves the root.
+/// Both sides are canonicalised: a symlink inside the root can resolve outside it.
+pub(crate) fn confine_in(root: &Path, candidate: &Path) -> Result<(PathBuf, PathBuf)> {
+    let root = std::fs::canonicalize(root)
+        .map_err(|e| Error::Message(format!("cannot resolve {}: {e}", root.display())))?;
+    let joined = root.join(candidate);
+    let target = std::fs::canonicalize(&joined)
+        .map_err(|e| Error::Message(format!("cannot resolve {}: {e}", joined.display())))?;
+    if !target.starts_with(&root) {
+        return Err(Error::OutsideRoot {
+            path: candidate.to_path_buf(),
+        });
+    }
+    Ok((root, target))
 }
 
 fn path_parts(relative: &Path) -> Vec<String> {

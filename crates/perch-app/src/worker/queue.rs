@@ -65,6 +65,21 @@ pub(super) fn take(wanted: &Mutex<Wanted>) -> Option<Job> {
     })
 }
 
+/// Clears the "something is owed" flag when nothing is queued and nothing is being done.
+///
+/// A frame reads that flag to know whether another frame is coming, so it is cleared under the
+/// same lock a post takes: a change is either seen here or sets it again after.
+pub(super) fn settle(wanted: &Mutex<Wanted>) {
+    let mut slot = lock(wanted);
+    if slot.rebuild.is_none()
+        && slot.feed.is_none()
+        && slot.actions.is_empty()
+        && slot.waiting.is_empty()
+    {
+        slot.outstanding = false;
+    }
+}
+
 /// A lock that survives a thread that panicked while holding it: the queue is plain data, so the
 /// next pass is still valid work rather than a poisoned state.
 pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

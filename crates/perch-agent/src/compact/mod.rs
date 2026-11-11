@@ -14,32 +14,14 @@ use crate::open::{Opened, open};
 use crate::provider::{ChatRequest, Message, Role};
 use crate::turn::AgentConfig;
 
+mod manual;
+mod refusal;
+
+pub use manual::now;
+pub use refusal::is_context_length;
+
 /// The shares of the refused size a smaller request is asked at, in that order.
 pub const STEPS: [f64; 4] = [0.85, 0.70, 0.50, 0.35];
-
-/// How providers word "this conversation is too long".
-const WORDINGS: [&str; 4] = [
-    "context length",
-    "too many tokens",
-    "maximum context",
-    "prompt is too long",
-];
-
-/// Whether `error` is a provider saying the request is too long to accept.
-///
-/// This is its own decision, never a retryable failure: the size is a property of the request, so
-/// the answer is a smaller request.
-pub fn is_context_length(error: &Error) -> bool {
-    let Error::Status { status, body } = error else {
-        return false;
-    };
-    if *status != 400 {
-        return false;
-    }
-    // `context_length_exceeded` is the same refusal spelled as a code.
-    let body = body.to_lowercase().replace('_', " ");
-    WORDINGS.iter().any(|wording| body.contains(wording))
-}
 
 /// The bytes `messages` costs, counting what the model is charged for reading.
 fn size(messages: &[Message]) -> usize {
@@ -56,25 +38,39 @@ fn size(messages: &[Message]) -> usize {
         .sum()
 }
 
-/// `messages` with the oldest exchanges dropped until it is at most `target` bytes.
-///
-/// `None` when that would drop nothing the model has not already been sent without: the system
-/// messages are kept, because they are what makes the model behave, and the exchange being
-/// answered is kept, because it is the question the turn exists to answer.
-pub fn shorten(messages: &[Message], target: usize) -> Option<Vec<Message>> {
+/// A conversation in the three parts shortening treats differently: the system messages, the
+/// older exchanges, and the exchange being answered.
+fn split(messages: &[Message]) -> (Vec<Message>, Vec<Message>, Vec<Message>) {
     let head = messages
         .iter()
         .take_while(|message| message.role == Role::System);
     let head: Vec<Message> = head.cloned().collect();
     let rest = &messages[head.len()..];
-    let held = rest
-        .iter()
-        .rposition(|message| message.role == Role::User)?;
+    let Some(held) = rest.iter().rposition(|message| message.role == Role::User) else {
+        return (head, Vec::new(), rest.to_vec());
+    };
     let (older, tail) = rest.split_at(held);
+    (head, older.to_vec(), tail.to_vec())
+}
+
+/// A conversation that was shortened: the messages that are left, and how many whole exchanges
+/// went with the ones that were dropped.
+pub struct Shortened {
+    pub messages: Vec<Message>,
+    pub exchanges: usize,
+}
+
+/// `messages` with the oldest exchanges dropped until it is at most `target` bytes.
+///
+/// `None` when that would drop nothing the model has not already been sent without: the system
+/// messages are kept, because they are what makes the model behave, and the exchange being
+/// answered is kept, because it is the question the turn exists to answer.
+pub fn shorten(messages: &[Message], target: usize) -> Option<Shortened> {
+    let (head, older, tail) = split(messages);
     // One group per exchange, so a dropped turn never leaves its tools answering a call the
     // model can no longer see it making.
     let mut groups: Vec<Vec<Message>> = Vec::new();
-    for message in older {
+    for message in &older {
         if message.role == Role::User || groups.is_empty() {
             groups.push(Vec::new());
         }
@@ -83,16 +79,21 @@ pub fn shorten(messages: &[Message], target: usize) -> Option<Vec<Message>> {
         }
     }
     let mut dropped = 0;
-    while size(&head) + size(&groups.concat()) + size(tail) > target && !groups.is_empty() {
+    let mut exchanges = 0;
+    while size(&head) + size(&groups.concat()) + size(&tail) > target && !groups.is_empty() {
         dropped += groups.remove(0).len();
+        exchanges += 1;
     }
     if dropped == 0 {
         return None;
     }
     let mut smaller = head;
     smaller.extend(groups.concat());
-    smaller.extend(tail.iter().cloned());
-    Some(smaller)
+    smaller.extend(tail);
+    Some(Shortened {
+        messages: smaller,
+        exchanges,
+    })
 }
 
 /// What a rejection left to try.
@@ -133,10 +134,17 @@ impl Compact {
         let Some(smaller) = shorten(history, target) else {
             return Shrunk::Spent;
         };
-        let dropped = history.len() - smaller.len();
-        *history = smaller;
+        let Shortened {
+            messages,
+            exchanges,
+        } = smaller;
+        let dropped = history.len() - messages.len();
+        *history = messages;
         self.dropped += dropped;
-        if events.send(AgentEvent::Compacted { dropped }).is_err() {
+        if events
+            .send(AgentEvent::Compacted { dropped, exchanges })
+            .is_err()
+        {
             return Shrunk::Gone;
         }
         Shrunk::Again

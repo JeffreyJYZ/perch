@@ -7,7 +7,7 @@
 //! OpenAI-compatible gateways answer `data[].id`; a few (Ollama among them) answer
 //! `models[].name`. Both are read, so a provider is not refused for its field name.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -52,17 +52,30 @@ impl Transport for Http {
     }
 }
 
+/// One model a provider offers: its id, and the context window the provider states for it.
+///
+/// The limit travels with the id because the meter needs it: a list of bare ids would make the
+/// window fetch the same payload again just to learn one number. `context_length` is the field
+/// OpenRouter and its imitators state, in tokens; a provider that states none leaves the limit
+/// unknown, which the meter shows as a token count with no share.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedModel {
+    pub id: String,
+    /// The context window in tokens, when the provider states one.
+    pub context: Option<u32>,
+}
+
 /// The ids `base_url` lists, through the real client.
-pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<String>> {
+pub fn list_models(base_url: &str, api_key: &str) -> Result<Vec<ListedModel>> {
     list_models_with(&Http, base_url, api_key)
 }
 
-/// The ids `base_url` lists, through `transport`.
+/// The models `base_url` lists, through `transport`.
 pub fn list_models_with(
     transport: &dyn Transport,
     base_url: &str,
     api_key: &str,
-) -> Result<Vec<String>> {
+) -> Result<Vec<ListedModel>> {
     let url = listing_url(base_url)?;
     let body = transport.get(&url, api_key)?;
     parse(&body)
@@ -101,20 +114,57 @@ struct WireModel {
     id: Option<String>,
     #[serde(default)]
     name: Option<String>,
+    /// The context window, on the shapes that state one at the top level.
+    #[serde(default)]
+    context_length: Option<u32>,
+    #[serde(default)]
+    context_window: Option<u32>,
+    /// Some gateways put the limit on the serving provider instead.
+    #[serde(default)]
+    top_provider: Option<WireProvider>,
 }
 
-/// The ids in `body`, trimmed, deduplicated and sorted.
-fn parse(body: &[u8]) -> Result<Vec<String>> {
+#[derive(Debug, Deserialize)]
+struct WireProvider {
+    #[serde(default)]
+    context_length: Option<u32>,
+}
+
+impl WireModel {
+    /// The context window this entry states, however it spells it.
+    fn context(&self) -> Option<u32> {
+        self.context_length
+            .or(self.context_window)
+            .or_else(|| self.top_provider.as_ref()?.context_length)
+            .filter(|limit| *limit > 0)
+    }
+}
+
+/// The models in `body`, trimmed, deduplicated and sorted by id.
+///
+/// A duplicate entry keeps the limit whenever either copy states one: a gateway that lists a model
+/// twice must not lose the number that makes the meter work.
+fn parse(body: &[u8]) -> Result<Vec<ListedModel>> {
     let list: WireList = serde_json::from_slice(body)?;
-    let ids: BTreeSet<String> = list
-        .data
+    let mut listed: BTreeMap<String, Option<u32>> = BTreeMap::new();
+    for model in list.data.into_iter().chain(list.models) {
+        let context = model.context();
+        let Some(id) = model.id.or(model.name) else {
+            continue;
+        };
+        let id = id.trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let entry = listed.entry(id).or_insert(context);
+        if entry.is_none() {
+            *entry = context;
+        }
+    }
+    Ok(listed
         .into_iter()
-        .filter_map(|model| model.id)
-        .chain(list.models.into_iter().filter_map(|model| model.name))
-        .map(|id| id.trim().to_string())
-        .filter(|id| !id.is_empty())
-        .collect();
-    Ok(ids.into_iter().collect())
+        .map(|(id, context)| ListedModel { id, context })
+        .collect())
 }
 
 /// Keep the head of a provider error body; an unbounded body is a memory sink on a hostile server.

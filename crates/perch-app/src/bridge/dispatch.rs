@@ -26,6 +26,7 @@ pub(super) fn run(
     for event in events {
         let posted = match event {
             AgentEvent::TextDelta(text) => out.send(BridgeEvent::Text(text)).is_ok(),
+            AgentEvent::ReasoningDelta(words) => out.send(BridgeEvent::Reasoning(words)).is_ok(),
             AgentEvent::ToolResult { id, ok, text } => {
                 out.send(BridgeEvent::ToolResult { id, ok, text }).is_ok()
             }
@@ -35,11 +36,11 @@ pub(super) fn run(
             AgentEvent::TurnEnd { reason, usage } => {
                 out.send(BridgeEvent::TurnEnd { reason, usage }).is_ok()
             }
-            // A compaction is not a reply: the column says what happened in its own voice.
-            AgentEvent::Compacted { .. } => match event.notice() {
-                Some(words) => out.send(BridgeEvent::Notice(words)).is_ok(),
-                None => true,
-            },
+            // A compaction is not a reply and not a turn: the column says what happened in its
+            // own voice, and a session waiting on a queued prompt learns it can go on.
+            AgentEvent::Compacted { dropped, exchanges } => out
+                .send(BridgeEvent::Compacted { dropped, exchanges })
+                .is_ok(),
         };
         // A closed channel means the window is gone; nothing left to show a result to.
         if !posted {
@@ -92,6 +93,13 @@ fn dispatch(
         }
         // The model is waiting on this before it can answer, and a denied call is answered too:
         // "the user denied it" is something it can act on, silence is not.
+        //
+        // A cancel that landed while the call waited for its answer ends the turn, so the result
+        // is shown and not handed on: replying would ask the model a question the user has
+        // already stopped waiting for, which is a request nobody can cancel in time.
+        if agent.watch().cancelled() {
+            return true;
+        }
         if !agent.reply(reply) {
             return false;
         }

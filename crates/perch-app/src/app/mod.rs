@@ -19,9 +19,14 @@
 
 mod answers;
 mod boot;
+mod commands;
 mod config;
+mod models;
 mod open;
 mod sessions;
+mod title;
+mod title_ask;
+mod title_words;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -111,6 +116,18 @@ pub struct AppState {
     pub(crate) update_transport: Option<Arc<dyn Transport>>,
     /// The transport the provider's model list is fetched through: the real client, or a test's.
     pub(crate) listings: Arc<dyn ModelTransport>,
+    /// The context window each listed model states, by id: what the meter divides by.
+    ///
+    /// A provider need not state one, and the map simply has no entry for it; the meter then
+    /// shows the token count with no share rather than inventing a denominator.
+    pub(crate) limits: std::collections::HashMap<String, u32>,
+    /// The listing on its way, when one is: the thread that fetched it posts one answer and ends.
+    ///
+    /// The panel opens on the click and takes the answer on a later frame, so the tab appears at
+    /// once instead of after a network round trip.
+    pub(crate) models_job: Option<
+        std::sync::mpsc::Receiver<std::result::Result<Vec<perch_agent::ListedModel>, String>>,
+    >,
     /// The status the frame last read, and therefore the line the column shows.
     pub(crate) update_status: Option<Arc<Status>>,
     defaults: ProviderDefaults,
@@ -119,4 +136,6 @@ pub struct AppState {
     stated: bool,
     /// Where the provider key is kept: the login keychain, or a test's in-memory store.
     secrets: Box<dyn SecretStore>,
+    /// The session titles on their way, and the sessions already asked about.
+    pub(crate) titles: title::Titles,
 }

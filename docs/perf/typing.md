@@ -37,6 +37,10 @@ The terminal's own path is not the problem: 60–80 µs from the write to a whol
 
 ## What is left, and why it was not done here
 
-The remaining 0–16.7 ms is the window waking up to a frame that arrived while it slept. Rune has the seam for it: `AppHandle::wake` wakes the event loop so `poll` runs (`~/dev/experiments/rune/crates/rune/src/app.rs:648`), documented for exactly "a background thread that queued work for poll to drain". Wiring it means handing that waker to the terminal thread when the tab is spawned, which is `crates/perch-ui/src/shell/actions.rs:99` — a file this lane does not own. With it, an echo would be drawn on the display tick after it arrives instead of up to a tick and a poll later; without it, typing sits inside one 60 Hz frame, which is what every terminal that does not wake the compositor already costs.
+The remaining 0–16.7 ms is the window waking up to a frame that arrived while it slept. Rune has the seam for it: `AppHandle::wake` wakes the event loop so `poll` runs (`~/dev/experiments/rune/crates/rune/src/app.rs:648`), documented for exactly "a background thread that queued work for poll to drain".
+
+The terminal half is in place: `TermSession::spawn_with_wake(cwd, cols, rows, wake)` calls `wake` after every published frame (`crates/perch-term/src/session/thread.rs`, `session/run.rs`), and `spawn` is that call with an empty callback. Regression test: `crates/perch-term/tests/wake.rs`.
+
+What is missing is the call site: `crates/perch-ui/src/shell/actions.rs` opens the terminal with `TermSession::spawn`, and passing the window's waker there is one argument — `|wake| TermSession::spawn_with_wake(&cwd, cols, rows, wake)` with a closure that calls `AppHandle::wake`. That file belongs to the pane lane. With it, an echo is drawn on the display tick after it arrives instead of up to a tick and a poll later; without it, typing sits inside one 60 Hz frame, which is what every terminal that does not wake the compositor already costs.
 
 Do not measure that hop by timing the app under a window and calling the difference latency: the poll, the commit and the present overlap the display's own cadence, and one sample says nothing about the worst case. The numbers above are the ones that are reproducible by the commands beside them.

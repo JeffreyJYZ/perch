@@ -85,6 +85,13 @@ pub(crate) fn one(
                     }
                     call.args.push_str(&args_fragment);
                 }
+                // Thinking is shown, never folded into the answer: a reply quoting its own
+                // reasoning back at the reader is a reply nobody can trust.
+                Ok(Chunk::Reasoning(words)) => {
+                    if events.send(AgentEvent::ReasoningDelta(words)).is_err() {
+                        return (EndReason::Cancelled, usage);
+                    }
+                }
                 // A turn costs what all of its rounds cost; the caller asked for one turn.
                 Ok(Chunk::Usage { input, output }) => {
                     usage.input = usage.input.saturating_add(input);

@@ -7,21 +7,31 @@
 //! A save is a burst — the editor writes a temporary file, renames it, the directory's metadata
 //! changes — so a signal per event would rebuild several times for one save. The quiet gap is
 //! what turns the burst into one reload.
+//!
+//! The paths are polled rather than streamed. macOS's FSEvents backend blocks for one to fourteen
+//! seconds per watched path while it installs a stream — measured, `docs/perf/startup.md` — and
+//! during that window nothing is watched at all, so a save made just after the launch was lost.
+//! Two paths holding one settings file and a handful of components are not a directory tree worth
+//! a kernel stream: a `stat` sweep twice a second is the same guarantee, from the first frame.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::Duration;
 
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
+use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher as _};
 
 /// How long the watcher waits for quiet before calling a burst one change.
 pub const DEBOUNCE: Duration = Duration::from_millis(200);
+
+/// How often the watched paths are looked at. A settings save is a person's action, and the plugin
+/// directory holds a handful of files, so the sweep is two metadata reads and a short walk.
+const POLL: Duration = Duration::from_millis(500);
 
 /// A running watcher: `changed` is the signal the app drains, and dropping this stops it.
 pub struct Watch {
     changed: Receiver<()>,
     /// Held for its `Drop`: the callback stops when the watcher goes.
-    _watcher: RecommendedWatcher,
+    _watcher: PollWatcher,
 }
 
 impl Watch {
@@ -44,16 +54,19 @@ pub fn watch(settings: &Path, plugins: &Path) -> Option<Watch> {
     let settings = resolve(settings);
     let plugins = resolve(plugins);
     let (raw_tx, raw_rx) = mpsc::channel::<()>();
-    let watched_settings = settings.to_path_buf();
-    let watched_plugins = plugins.to_path_buf();
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-        let Ok(event) = event else {
-            return;
-        };
-        if matters(&event, &watched_settings, &watched_plugins) {
-            let _ = raw_tx.send(());
-        }
-    })
+    let watched_settings = settings.clone();
+    let watched_plugins = plugins.clone();
+    let mut watcher = PollWatcher::new(
+        move |event: notify::Result<Event>| {
+            let Ok(event) = event else {
+                return;
+            };
+            if matters(&event, &watched_settings, &watched_plugins) {
+                let _ = raw_tx.send(());
+            }
+        },
+        Config::default().with_poll_interval(POLL),
+    )
     .ok()?;
     for (path, mode) in watched_paths(&settings, &plugins) {
         // A directory that cannot be watched costs only that directory's changes.

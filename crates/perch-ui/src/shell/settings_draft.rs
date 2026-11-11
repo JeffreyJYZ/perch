@@ -29,6 +29,9 @@ pub struct Panel {
     /// Whether this panel changes the session's model only, or writes the whole settings file.
     /// The composer opens the same list in this mode, so there is one picker and one set of rows.
     pub(super) session_only: bool,
+    /// Whether the provider's model list is unfolded. Folded by default once a model is chosen, so
+    /// the list cannot fill the pane and hold the wheel hostage above the fields below it.
+    pub(super) models_open: bool,
     /// Whether a key is stored, as the panel says it after the last save.
     pub(super) key: KeyStatus,
     /// "saved", or why the app could not save: a word the person reads, never an empty panel.
@@ -47,6 +50,7 @@ impl Panel {
             update_check: edit(&snapshot.update_check),
             error: None,
             session_only: false,
+            models_open: snapshot.model.trim().is_empty(),
             key: snapshot.key,
             notice: None,
         }
@@ -61,6 +65,21 @@ impl Panel {
             update_check: self.update_check.text.trim().to_string(),
             api_key: self.api_key.text.trim().to_string(),
         }
+    }
+
+    /// How many models the provider listed, as the picker holds them. Zero before a listing.
+    pub fn listed_models(&self) -> usize {
+        self.picker.rows(usize::MAX).1
+    }
+
+    /// Whether the provider's list is unfolded in the panel.
+    pub fn models_open(&self) -> bool {
+        self.models_open
+    }
+
+    /// Whether the provider's list is still on its way.
+    pub fn models_loading(&self) -> bool {
+        self.picker.loading()
     }
 
     /// What the panel says about the key: a word, never the key.

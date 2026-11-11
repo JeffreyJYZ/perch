@@ -1,0 +1,9 @@
+data: {"id":"chatcmpl-t1","object":"chat.completion.chunk","created":1762730200,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Done."}}]}
+
+data: {"id":"chatcmpl-t1","object":"chat.completion.chunk","created":1762730200,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-t1","object":"chat.completion.chunk","created":1762730200,"model":"test/model","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}
+
+data: [DONE]
+: next request
+: status 500 {"error":"the title service is down"}

@@ -13,7 +13,9 @@ set -u
 root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
 cd "$root" || exit 1
 
-target=${CARGO_TARGET_DIR:-$root/target-probe}
+# One shared target directory for this repo, never a per-lane `target-*`: separate ones
+# duplicated every dependency tree and took the disk to 2 GiB free.
+target=${CARGO_TARGET_DIR:-$root/target}
 if ! command -v jq >/dev/null 2>&1; then
 	printf 'live-probe: jq is required to read the key file\n' >&2
 	exit 2

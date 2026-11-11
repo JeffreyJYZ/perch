@@ -59,10 +59,14 @@ fn shortening_keeps_the_system_message_and_the_exchange_being_answered() {
     ];
     let smaller = shorten(&history, 20).expect("dropping the first exchange reaches 20 bytes");
 
-    assert_eq!(smaller.len(), 2, "the oldest exchange went: {smaller:?}");
-    assert_eq!(smaller[0].content.as_deref(), Some("you are a test"));
+    assert_eq!(smaller.exchanges, 1, "one whole exchange went");
+    assert_eq!(smaller.messages.len(), 2, "its two messages went with it");
     assert_eq!(
-        smaller[1].content.as_deref(),
+        smaller.messages[0].content.as_deref(),
+        Some("you are a test")
+    );
+    assert_eq!(
+        smaller.messages[1].content.as_deref(),
         Some("second"),
         "the question the turn exists to answer is still there"
     );
@@ -99,7 +103,7 @@ fn a_too_long_request_is_asked_again_smaller_and_the_turn_finishes() {
         .events
         .iter()
         .filter_map(|event| match event {
-            AgentEvent::Compacted { dropped } => Some(*dropped),
+            AgentEvent::Compacted { dropped, .. } => Some(*dropped),
             _ => None,
         })
         .collect();

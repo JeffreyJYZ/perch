@@ -36,6 +36,8 @@ pub(super) fn drive(
         };
         match event {
             AgentEvent::TextDelta(delta) => run.text.push_str(&delta),
+            // The probe prints the answer; thinking is printed beside it when a model sends any.
+            AgentEvent::ReasoningDelta(_) => {}
             AgentEvent::ToolCall(call) => {
                 let mut batch = vec![call];
                 // A round emits all of its calls before it waits for the first reply, so

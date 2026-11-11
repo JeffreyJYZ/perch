@@ -28,7 +28,7 @@ pub use endpoint::Endpoint;
 pub use message::{ChatRequest, Message, Role, ToolCallRecord, ToolSpec};
 pub use model::Model;
 pub use models::{
-    Http as HttpTransport, Transport as ModelTransport, list_models, list_models_with,
+    Http as HttpTransport, ListedModel, Transport as ModelTransport, list_models, list_models_with,
 };
 pub use secret::SecretString;
 pub use stream::ChunkStream;

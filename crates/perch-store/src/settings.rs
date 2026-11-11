@@ -99,9 +99,25 @@ pub fn path_in(dir: &Path) -> PathBuf {
     dir.join("settings.toml")
 }
 
+/// The saved permission rules, `<dir>/permissions.jsonl`.
+///
+/// One rule per line, so a person can read and edit it beside `settings.toml`. The path is handed
+/// to the rules store rather than discovered there, because the data directory is this crate's to
+/// name and nobody else's.
+pub fn rules_path(dir: &Path) -> PathBuf {
+    dir.join("permissions.jsonl")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rules_live_beside_the_settings_a_person_edits() {
+        let dir = Path::new("/data/perch");
+        assert_eq!(rules_path(dir), Path::new("/data/perch/permissions.jsonl"));
+        assert_eq!(rules_path(dir).parent(), path_in(dir).parent());
+    }
 
     #[test]
     fn the_update_check_is_empty_until_a_person_names_a_manifest() {

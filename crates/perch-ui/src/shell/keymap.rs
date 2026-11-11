@@ -1,8 +1,9 @@
 //! The one place a key press becomes what the window means by it.
 
-use rune::{Key, KeyEvent};
+use rune::{Key, KeyEvent, Tx};
 
-use super::live::Waiting;
+use super::live::{Live, Waiting};
+use super::state::Shell;
 
 /// What one key press asks of the app.
 ///
@@ -31,6 +32,8 @@ pub enum Intent {
     Type,
     /// Show the settings panel, or hide it when it is open: ⌘,.
     Settings,
+    /// Show the command palette, or hide it when it is open: ⌘K.
+    Palette,
     /// Nothing this window does with that key.
     Ignore,
 }
@@ -57,6 +60,11 @@ pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
     // ⌘, is the settings panel, the window's own chord rather than a menu's.
     if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command(',')) {
         return Intent::Settings;
+    }
+    // ⌘K is the palette. K is not a composer key and not a terminal key, so it collides with
+    // neither: the dock owns ⌘C and ⌘V, and the settings own ⌘, and ⌘Enter.
+    if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command('k')) {
+        return Intent::Palette;
     }
     // ⌘Enter is the second approval key, read before the chord guard below: it is the window's
     // chord, and only an approval has anything to allow for the session.
@@ -98,8 +106,33 @@ pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
     }
 }
 
-/// What `ev` asks while the answer field is open, or `None` when the field keeps the press.
-///
+/// The session list's own key, while `/sessions` has the keyboard in it: Up and Down move the
+/// selection and Escape returns to the prompt. Every other press is ignored, so a stray letter
+/// does not open a session.
+pub fn session_list_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if !shell.sessions_focused() {
+        return false;
+    }
+    match &ev.key {
+        Key::Up => {
+            shell.select(shell.active().saturating_sub(1));
+            true
+        }
+        Key::Down => {
+            let last = shell.session_count().saturating_sub(1);
+            shell.select((shell.active() + 1).min(last));
+            true
+        }
+        Key::Escape if !ev.mods.cmd && !ev.mods.alt => {
+            shell.leave_sessions();
+            tx.focus("composer", true);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// What `ev` asks while the answer field is open, or `None` when the field keeps the press.///
 /// This is a map of its own rather than a branch of [`intent`] because every other key belongs to
 /// the field: a digit that picked an option a moment ago is a character in the answer now.
 pub fn typing_intent(ev: &KeyEvent) -> Option<Typing> {

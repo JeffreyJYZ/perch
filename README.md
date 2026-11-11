@@ -43,6 +43,33 @@ The centre's strip holds the sessions, then a tab per opened file, then `Setting
 
 Data lives under `~/Library/Application Support/dev.jyz.perch` (the app id in `crates/perch-app/src/window/boot.rs`), which is where `settings.toml`, `secrets.json` and one `<id>.jsonl` per session live.
 
+## Commands
+
+A composer text starting with `/` is a command. An empty composer plus `/` opens the filtered list; a row writes the command's typed form.
+
+- `/new` opens a session on the worktree already open; `/rename <title>` renames it; `/sessions` moves the keyboard into the session list (Up/Down, Escape returns).
+- `/model [id]` opens the picker or sets an id; `/compact` compacts the conversation now.
+- `/theme [light|dark]`, `/terminal`, `/editor` (hands the selected file to Zed).
+- `/export` writes the transcript as text to `<data>/export-<id>.txt`; `/clean` empties the column but not the log; `/help`; `/quit`.
+- Anything unknown is answered in words, and a command whose precondition is missing says what is missing instead of doing nothing.
+
+A session names itself once, after its first turn, with one small provider request; it only does so while the title is still the folder name, so `/rename` always wins. A session row's delete control arms on the first press and deletes the session and its log on the second.
+
+## Tools and approvals
+
+Nine builtins: `read`, `write`, `edit`, `patch`, `bash`, `jobs`, `list`, `grep`, `glob`. `write`, `edit`, `patch` and `bash` ask first, with a diff for the editing tools and the command for `bash`; reads do not. Enter allows once, ⌘⏎ allows that tool for the session, Escape refuses.
+
+- `bash` runs `sh -c` in the worktree, 30 s, both streams, 16 KiB out. `background: true` starts a job and returns at once; jobs live per worktree root, cap at 16, each own a process group and a log file, and are listed, tailed or killed through `jobs`.
+- `patch` applies a multi-file unified diff all-or-nothing; `edit` replaces one exact occurrence; both preview a diff.
+- `read` 64 KiB with line numbers, `list` 512 entries, `grep` via `rg` (30 s, names a missing `rg`), `glob` ignore-aware with `**`, sorted, capped, refusing a pattern that escapes the worktree.
+- `ask_user` is an ordinary tool: options (one or several) and a free-text answer.
+
+A saved rules file would let an approval outlive the session (`Dispatcher::with_rules`), and project `AGENTS.md`/`CLAUDE.md` can be assembled for the system prompt (`instructions::for_worktree`). Neither is wired into the app yet: the dispatcher is built with `Dispatcher::new()` and the system prompt is still the fixed sentence in `crates/perch-app/src/app/mod.rs`.
+
+## Context and compaction
+
+The composer's meter divides the tokens the last turn reported by the context window the provider states for the chosen model; nothing is shown before the first turn, and an unstated window leaves the share out rather than guessing. A provider that refuses the conversation as too long is answered with a smaller request — the oldest exchanges dropped, retried at 85%, 70%, 50%, then 35% of the refused size — and each shrink is said in the transcript; a refusal at 35% ends the turn with the provider's error. `/compact` does the same between turns through the agent's queue, and answers "nothing to compact" when there is no older exchange.
+
 ## Gate
 
 ```sh
@@ -139,6 +166,7 @@ The model's tool list is read from the live registry when each request starts, s
 - The bundle is `arm64` and ad-hoc signed: no notarization and no universal build, so Gatekeeper rejects it on any Mac but the one that built it (see Bundle).
 - The update check stages and verifies a download; installing is the person's step after perch quits. Nothing swaps the running bundle.
 - A session's `branch` is stored empty: the app does not read the worktree's git branch, so the row says "no branch". Ahead/behind and a diff view do not exist.
-- The file tab's close control acts on the press; the release then lands on the tab that reflows under the pointer, so closing the last file tab ends on `Settings`. `Shell::close_tab` itself returns to the session; the press geometry is rune-kit's.
+- Saved permission rules are implemented in `perch-agent` but never read, because the app's dispatcher is built without one; `AGENTS.md`/`CLAUDE.md` are assembled but not sent, because the system prompt is still fixed.
+- The close chip on a file tab is invisible until the pointer is over that tab. A press computed from the pre-hover tree can therefore address a neighbour, which is why the headless test drives `Shell::close_tab` rather than the chip; `close_tab` itself returns to the session.
 - The accessibility tree names regions, text rows, and the terminal's caret and selection; it does not name individual terminal cells.
 - The MCP host records every call, but the window shows a call only as its namespaced tool card; the host's connection and call notes are not drawn anywhere, and only a failed server is said in the right-hand column.

@@ -50,6 +50,17 @@ pub struct SessionRuntime {
     turns: u32,
     /// The text this turn has streamed, so the log keeps the reply the transcript showed.
     open_text: String,
+    /// Messages sent while a turn was running: they go out, in order, as soon as it ends. A
+    /// prompt that arrives mid-turn is queued, never interleaved into the turn in flight.
+    queued: Vec<String>,
+    /// The tokens the last turn reported, which is what the meter counts.
+    ///
+    /// `None` before the first turn: a fresh session has spent nothing, and drawing `0%` would
+    /// claim a measurement nobody made.
+    tokens: Option<u32>,
+    /// Whether a compaction is on its way. Requests travel the agent's own queue, so one sent
+    /// mid-turn lands right after that turn and before any prompt queued behind it.
+    compacting: bool,
 }
 
 impl SessionRuntime {
@@ -81,6 +92,9 @@ impl SessionRuntime {
             running: false,
             turns: 0,
             open_text: String::new(),
+            queued: Vec::new(),
+            tokens: None,
+            compacting: false,
         }
     }
 
@@ -104,6 +118,23 @@ impl SessionRuntime {
         self.turns
     }
 
+    /// The tokens the last turn reported, when a turn has ended.
+    pub fn tokens_used(&self) -> Option<u32> {
+        self.tokens
+    }
+
+    /// Marks a compaction as asked for, and answers false when one already was.
+    pub(crate) fn begin_compact(&mut self) -> bool {
+        let was = self.compacting;
+        self.compacting = true;
+        !was
+    }
+
+    /// Forgets that a compaction was asked for, because it answered.
+    pub(crate) fn compacted(&mut self) {
+        self.compacting = false;
+    }
+
     /// This session's transcript, which the shell draws.
     pub fn transcript(&self) -> &Transcript {
         &self.transcript
@@ -117,6 +148,30 @@ impl SessionRuntime {
         let _ = self.log.append(&SessionEvent::User {
             text: text.to_string(),
         });
+    }
+
+    /// Whether a turn is in flight, which is what makes the next prompt wait its turn.
+    pub(crate) fn running(&self) -> bool {
+        self.running
+    }
+
+    /// Holds `text` until the turn in flight ends.
+    pub(crate) fn queue(&mut self, text: String) {
+        self.queued.push(text);
+    }
+
+    /// Starts the oldest queued message, if one is waiting. Answers whether it did.
+    pub(crate) fn start_queued(&mut self) -> bool {
+        if self.running {
+            return false;
+        }
+        let Some(next) = self.queued.first().cloned() else {
+            return false;
+        };
+        self.queued.remove(0);
+        self.begin(&next);
+        self.agent.prompt(next);
+        true
     }
 
     /// Forgets whatever the session was waiting on, because it was answered.

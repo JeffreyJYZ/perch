@@ -65,6 +65,44 @@ fn a_truncated_last_line_is_dropped_not_fatal() {
 }
 
 #[test]
+fn a_new_title_rewrites_the_header_and_keeps_every_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let meta = meta_for(dir.path(), "perch-dev");
+    let mut log = SessionLog::open(dir.path(), meta.clone()).unwrap();
+    log.append(&SessionEvent::User { text: "hi".into() })
+        .unwrap();
+    log.set_title("Renamed session").unwrap();
+    drop(log);
+
+    let text = std::fs::read_to_string(meta_path_for(dir.path(), &meta.id)).unwrap();
+    let header: SessionMeta = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(header.title, "Renamed session");
+    assert_eq!(
+        SessionLog::open(dir.path(), meta)
+            .unwrap()
+            .events()
+            .unwrap()
+            .len(),
+        1,
+        "the conversation is untouched"
+    );
+}
+
+#[test]
+fn removing_a_log_deletes_the_file_and_its_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let meta = meta_for(dir.path(), "perch-dev");
+    let log = SessionLog::open(dir.path(), meta.clone()).unwrap();
+    let path = meta_path_for(dir.path(), &meta.id);
+    assert!(path.exists());
+    log.remove().unwrap();
+    assert!(
+        !path.exists(),
+        "a delete that kept the file would revive it"
+    );
+}
+
+#[test]
 fn settings_default_when_absent_and_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let settings = Settings::load(dir.path()).unwrap();

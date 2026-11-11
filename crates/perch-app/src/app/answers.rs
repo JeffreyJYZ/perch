@@ -27,8 +27,40 @@ impl AppState {
             say(&mut runtime.transcript, &format!("not sent: {error}"));
             return Err(error);
         }
+        // A message sent mid-turn is queued rather than interleaved: the turn in flight answers
+        // the question it was asked, and this one goes out the moment that turn ends.
+        if runtime.running() {
+            runtime.queue(text);
+            say(
+                &mut runtime.transcript,
+                "queued: this goes out when the running turn ends.",
+            );
+            return Ok(());
+        }
         runtime.begin(&text);
         runtime.agent.prompt(text);
+        Ok(())
+    }
+
+    /// Has the session compact its conversation.
+    ///
+    /// It is a control, not a prompt: it travels the agent's own queue, so a request made while a
+    /// turn runs lands at the end of that turn and before anything queued behind it, and one made
+    /// while the session is idle runs at once. The column says the request was taken, then says
+    /// what it left out — or that there was nothing old enough to drop.
+    pub fn compact(&mut self) -> Result<()> {
+        let Some(runtime) = self.sessions.get_mut(self.active) else {
+            return Err(Error::NoSession);
+        };
+        if !runtime.begin_compact() {
+            say(
+                &mut runtime.transcript,
+                "a compaction is already queued: it runs when the running turn ends.",
+            );
+            return Ok(());
+        }
+        say(&mut runtime.transcript, "compacting the conversation…");
+        runtime.agent.compact();
         Ok(())
     }
 
@@ -39,9 +71,14 @@ impl AppState {
         }
     }
 
-    /// Stops the turn and settles whatever it is waiting on first: a question is dismissed and an
+    /// Stops the turn, then settles whatever it was waiting on: a question is dismissed and an
     /// approval is refused, so no call runs on the strength of an answer nobody gave.
+    ///
+    /// The cancel comes first on purpose. Answering unblocks the dispatch thread, and between
+    /// those two statements it could hand the round's result back to the turn; with the cancel
+    /// already recorded the dispatcher sees it and stops before asking the model anything else.
     pub fn interrupt(&mut self) {
+        self.cancel();
         match self
             .sessions
             .get(self.active)
@@ -56,7 +93,6 @@ impl AppState {
             }
             None => {}
         }
-        self.cancel();
     }
 
     /// Whether the active session is waiting on an approval.

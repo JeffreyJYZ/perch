@@ -6,5 +6,7 @@
 //! Split in two: what the provider's list becomes, and what picking one does to a session.
 
 mod harness;
+mod lazy;
+mod lazy_shell;
 mod list;
 mod session;

@@ -10,15 +10,14 @@ fn the_list_is_the_providers_sorted_and_free_models_are_not_privileged() {
     ));
     let app = app(&data, defaults("https://provider.test/v1", "")).with_listings(table.clone());
 
-    let ids = app.list_models().expect("the table answers");
+    let models = app.list_models().expect("the table answers");
 
     assert_eq!(
-        ids,
-        vec![
-            "free/alpha:free".to_string(),
-            "free/beta:free".to_string(),
-            "vendor/zeta".to_string(),
-        ],
+        models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["free/alpha:free", "free/beta:free", "vendor/zeta"],
         "sorted, deduplicated, and a free id sits where its name sorts"
     );
     assert_eq!(

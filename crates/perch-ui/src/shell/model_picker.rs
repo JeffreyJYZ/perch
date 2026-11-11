@@ -10,9 +10,6 @@
 
 use rune::TextEdit;
 
-use super::live::Live;
-use super::state::Shell;
-
 /// How many rows the list shows before it asks for a narrower search.
 pub const SHOWN: usize = 30;
 
@@ -21,10 +18,15 @@ pub const SHOWN: usize = 30;
 pub struct ModelPicker {
     /// The filter text: a case-insensitive substring of the model id.
     pub(super) query: TextEdit,
-    /// The ids the provider listed, in the order the client returned them (already sorted).
-    pub(super) ids: Vec<String>,
+    /// The models the provider listed, in the order the client returned them (already sorted),
+    /// each with the context window it stated. The picker keeps the limits as well as the ids so
+    /// the meter never has to ask the provider for a number it already sent.
+    pub(super) models: Vec<perch_agent::ListedModel>,
     /// Why nothing was listed, when nothing was.
     pub(super) failure: Option<String>,
+    /// Whether a listing is on its way: the panel says so instead of looking empty, and the click
+    /// that opened it returns at once rather than waiting on a network round trip.
+    pub(super) loading: bool,
 }
 
 impl ModelPicker {
@@ -32,19 +34,20 @@ impl ModelPicker {
     ///
     /// An empty list is stated as a failure too: a picker with no rows and no words is a picker
     /// that looks broken, and typing an id is still a way to work.
-    pub fn fill(&mut self, listed: std::result::Result<Vec<String>, String>) {
+    pub fn fill(&mut self, listed: std::result::Result<Vec<perch_agent::ListedModel>, String>) {
+        self.loading = false;
         match listed {
-            Ok(ids) if ids.is_empty() => {
-                self.ids = Vec::new();
+            Ok(models) if models.is_empty() => {
+                self.models = Vec::new();
                 self.failure =
                     Some("the provider listed no models: type an id instead".to_string());
             }
-            Ok(ids) => {
-                self.ids = ids;
+            Ok(models) => {
+                self.models = models;
                 self.failure = None;
             }
             Err(words) => {
-                self.ids = Vec::new();
+                self.models = Vec::new();
                 self.failure = Some(words);
             }
         }
@@ -53,6 +56,17 @@ impl ModelPicker {
     /// Why nothing was listed, in words.
     pub fn failure(&self) -> Option<&str> {
         self.failure.as_deref()
+    }
+
+    /// Says a listing is on its way, so the panel words it instead of drawing nothing.
+    pub fn begin(&mut self) {
+        self.loading = true;
+        self.failure = None;
+    }
+
+    /// Whether a listing is still on its way.
+    pub fn loading(&self) -> bool {
+        self.loading
     }
 
     /// The filter text, as the field holds it.
@@ -64,91 +78,12 @@ impl ModelPicker {
     pub fn rows(&self, limit: usize) -> (Vec<String>, usize) {
         let needle = self.query.text.trim().to_lowercase();
         let matched: Vec<String> = self
-            .ids
+            .models
             .iter()
+            .map(|model| model.id.clone())
             .filter(|id| needle.is_empty() || id.to_lowercase().contains(&needle))
-            .cloned()
             .collect();
         let total = matched.len();
         (matched.into_iter().take(limit).collect(), total)
     }
-}
-
-impl<L: Live> Shell<L> {
-    /// The model the active session asks for, as the composer shows it. Empty is no choice yet.
-    pub fn current_model(&self) -> String {
-        self.live.as_ref().and_then(Live::model).unwrap_or_default()
-    }
-
-    /// Opens the model list in place of the transcript, for the current session only.
-    ///
-    /// It is the composer's Change press: the prompt column has no room for a list, so the list
-    /// takes the region the transcript uses and returns there when a model is picked or the panel
-    /// is closed. Nothing is written to `settings.toml` from here.
-    ///
-    /// The panel is opened through [`Shell::toggle_settings`] rather than by assigning the draft,
-    /// so whatever else selecting the settings region comes to mean — a pane, a tab — happens on
-    /// this path too.
-    pub fn open_model_panel(&mut self) {
-        if !self.settings_open() {
-            self.toggle_settings();
-        }
-        if let Some(panel) = self.settings.as_mut() {
-            panel.session_only = true;
-            panel.error = None;
-            panel.notice = None;
-        }
-        self.refresh_models();
-    }
-
-    /// Asks the app for the provider's list, and keeps the answer in the open panel's picker.
-    pub fn refresh_models(&mut self) {
-        let listed = self.listed();
-        if let Some(panel) = self.settings.as_mut() {
-            panel.picker.fill(listed);
-        }
-    }
-
-    /// Picks `id` from the open panel.
-    ///
-    /// In a session's scope it changes that session's next turn and closes the panel; in the
-    /// settings scope it stages the draft and saves, which is what applies it without a restart.
-    pub fn pick_settings_model(&mut self, id: &str) -> bool {
-        let Some(panel) = self.settings.as_mut() else {
-            return false;
-        };
-        if !panel.session_only {
-            panel.model = edit(id);
-            panel.error = None;
-            return self.save_settings();
-        }
-        let picked = match self.live.as_mut() {
-            Some(live) => live.choose_model(id.to_string()),
-            None => Err("no app is running, so the model was not changed".to_string()),
-        };
-        if let Err(words) = picked {
-            if let Some(panel) = self.settings.as_mut() {
-                panel.notice = Some(words);
-            }
-            return false;
-        }
-        // The one close path: a pane or a tab the window grows later is cleared here too.
-        self.close_settings();
-        true
-    }
-
-    /// The app's listing, or the words for why there is none.
-    fn listed(&mut self) -> std::result::Result<Vec<String>, String> {
-        match self.live.as_mut() {
-            Some(live) => live.models(),
-            None => Err("no app is running, so no models were listed".to_string()),
-        }
-    }
-}
-
-/// A field holding `value`.
-fn edit(value: &str) -> TextEdit {
-    let mut edit = TextEdit::default();
-    edit.text = value.to_string();
-    edit
 }

@@ -19,6 +19,8 @@ pub enum Pane {
     File(PathBuf),
     /// The settings form.
     Settings,
+    /// The command palette: the commands and the app actions over the same registry.
+    Palette,
 }
 
 /// The id a file's tab is drawn under: its own path, so no two files share one.
@@ -55,8 +57,10 @@ impl<L: Live> Shell<L> {
     pub fn open_file(&mut self, path: &Path) -> bool {
         let absolute = self.absolute(path);
         // The settings form is a pane of its own: its draft is dropped rather than hidden, so a
-        // half-typed base URL is never saved by a file opening behind it.
+        // half-typed base URL is never saved by a file opening behind it. The palette goes for
+        // the same reason: its filter is not a pane anyone returns to.
         self.close_settings();
+        self.palette = None;
         if !self.files_open.contains(&absolute) {
             self.files_open.push(absolute.clone());
         }
@@ -76,6 +80,7 @@ impl<L: Live> Shell<L> {
             return;
         }
         self.close_settings();
+        self.palette = None;
         self.pane = Pane::File(absolute);
         if let Some(panel) = self.files.as_mut() {
             let _ = panel.select(path);
@@ -146,6 +151,10 @@ impl<L: Live> Shell<L> {
                 self.close_settings();
                 true
             }
+            Pane::Palette => {
+                self.close_palette();
+                true
+            }
             Pane::File(_) => {
                 self.back_to_session();
                 true
@@ -162,6 +171,7 @@ impl<L: Live> Shell<L> {
     /// and the file tabs go, because they name files in the tree that was just replaced.
     pub(super) fn reset_panes(&mut self) {
         self.settings = None;
+        self.palette = None;
         self.pane = Pane::Session;
         self.files_open.clear();
     }

@@ -48,6 +48,11 @@ pub enum SessionEvent {
         tokens_in: u32,
         tokens_out: u32,
     },
+    /// A line the log keeps that is not part of the conversation: a title it could not name, a
+    /// session removed, anything a person never sees in the transcript.
+    Note {
+        text: String,
+    },
 }
 
 /// The session file for `id`, `<dir>/<id>.jsonl`.
@@ -118,6 +123,37 @@ impl SessionLog {
         }
         self.meta.model = model.to_string();
         self.rewrite_header()
+    }
+
+    /// Rewrites the header so the row carries the branch the worktree is on now.
+    pub fn set_branch(&mut self, branch: &str) -> Result<()> {
+        if self.meta.branch == branch {
+            return Ok(());
+        }
+        self.meta.branch = branch.to_string();
+        self.rewrite_header()
+    }
+
+    /// Rewrites the header so the session carries the title a person gave it.
+    ///
+    /// The title is the first line's, like the model, so a session read at start is listed under
+    /// the name it was renamed to; every event after the header is kept byte for byte.
+    pub fn set_title(&mut self, title: &str) -> Result<()> {
+        let title = title.trim();
+        if self.meta.title == title {
+            return Ok(());
+        }
+        self.meta.title = title.to_string();
+        self.rewrite_header()
+    }
+
+    /// Deletes this session's log, closing the file first. The last copy of the conversation goes
+    /// with it: a delete that left the file behind would put the session back at the next start.
+    pub fn remove(self) -> Result<()> {
+        let path = self.path.clone();
+        drop(self);
+        std::fs::remove_file(path)?;
+        Ok(())
     }
 
     /// The file this log appends to.

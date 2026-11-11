@@ -14,6 +14,9 @@ mod support;
 
 mod approval;
 mod cancel;
+mod compact;
 mod harness;
 mod question;
+mod queue;
 mod stream;
+mod thinking;

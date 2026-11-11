@@ -12,20 +12,19 @@ The "developer tool" rows in every design database resolve to the same thing: sl
 
 ## Tokens (OKLCH, dark)
 
+Three values are chosen; every other tone is a mix of them, computed once in
+`crates/perch-ui/src/kit.rs` (`Kit::from_palette`), so no view picks a colour of its own.
+
 | Token | Value | Use |
 |---|---|---|
-| `bg` | `oklch(0.185 0.012 62)` | window canvas, warm near-black |
-| `panel` | `oklch(0.225 0.012 62)` | sidebar, dock header, raised rows |
-| `sunken` | `oklch(0.155 0.011 62)` | terminal well, code blocks, composer |
-| `ink` | `oklch(0.93 0.018 82)` | primary text, paper cream |
-| `ink-2` | `oklch(0.72 0.014 75)` | secondary text |
-| `ink-3` | `oklch(0.55 0.012 70)` | labels, hints, timestamps |
-| `rule` | `oklch(0.30 0.012 62)` | hairlines, 1px |
-| `rule-strong` | `oklch(0.40 0.014 62)` | section rules, selected edge |
+| `bg` | `oklch(0.165 0.002 265)` | window canvas, neutral near-black |
+| `ink` | `oklch(0.94 0.004 265)` | primary text, neutral off-white |
 | `signal` | `oklch(0.74 0.15 62)` | amber: in flight, needs you, focus ring |
-| `ok` | `oklch(0.72 0.08 145)` | success, done |
-| `fail` | `oklch(0.63 0.16 28)` | failure, refusal |
-| `sel` | `oklch(0.27 0.014 62)` | selected row fill |
+
+`panel`, `sunken`, `ink-2`, `ink-3`, `rule`, `rule-strong` and `sel` are mixed from those three, so
+they hold the same neutral temperature. The earlier warm brown-black (`oklch(0.185 0.012 62)`) read
+as a mistake rather than a mood on a dark canvas, and was dropped; amber is now the only warm thing
+in the window. The light theme is the same three anchors inverted, on near-white paper.
 
 Contrast: `ink` on `bg` is far above 4.5:1; `ink-3` is only for non-essential labels, never for content. Colour never carries meaning alone — every state also has its word.
 
@@ -49,7 +48,7 @@ Contrast: `ink` on `bg` is far above 4.5:1; `ink-3` is only for non-essential la
 - **Rack ticks**: a 1 px rule under each column header, with 6 px ticks every 48 px. This is the one decorative element in the app, and it is what makes the window read as an instrument.
 - **Status underline**: a state word with a 2 px underline in its colour, 4 px below the baseline. Running pulses between `signal` and `rule` at 1.2 s; nothing else animates.
 - **Tool cards** are rows, not boxes: 2 px left rule in the status colour, name in mono, arguments dimmed, output collapsed to `… 7 more lines`. No borders, no fill.
-- **Composer** is a sunken single row with a `›` caret, the model shown as plain right-aligned text, and `⏎` as the only glyph hint.
+- **Composer** is a sunken single row with a `›` caret, the model shown as plain right-aligned text, and `⏎` as the only glyph hint. Beside it, the context meter: `12.3K (6%) used` in the smallest size and faint ink, from the last turn's usage against the model's own limit — a number that is always true, never a bar.
 - **Dock** is a sunken well with a rule and ticks above it; tabs are words with an underline on the active one.
 - **Session rows**: name at 500, worktree path and branch in mono at `ink-3`, selected row gets `sel` fill and a 2 px `rule-strong` left edge — not a rounded highlight.
 

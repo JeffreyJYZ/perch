@@ -20,6 +20,11 @@ use support::{fixtures, session};
 /// How long a frame is given to notice the change. Bounded, not timed.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a dead server is given to be named. The window opens before any source is built, so
+/// the refusal arrives when the connect gives up rather than at boot, and that is the MCP
+/// transport's own deadline plus a few frames.
+const CONNECT: Duration = perch_mcp::REQUEST_TIMEOUT;
+
 fn app(dir: &Path) -> AppState {
     AppState::open_with_secrets(
         dir,
@@ -39,6 +44,11 @@ fn plugin_dir(dir: &Path) -> PathBuf {
 
 fn names(app: &AppState) -> Vec<String> {
     app.tools().into_iter().map(|spec| spec.name).collect()
+}
+
+/// Whether the column says `words` anywhere.
+fn said(app: &AppState, words: &str) -> bool {
+    app.plugin_words().iter().any(|line| line.contains(words))
 }
 
 #[test]
@@ -63,8 +73,9 @@ fn a_plugin_dropped_into_the_directory_is_picked_up_by_a_frame() {
         }
     }
     panic!(
-        "no frame picked the plugin up within {TIMEOUT:?}: {:?}",
-        names(&app)
+        "no frame picked the plugin up within {TIMEOUT:?}: {:?} / {:?}",
+        names(&app),
+        app.plugin_words()
     );
 }
 
@@ -81,16 +92,19 @@ fn a_server_that_never_connected_is_named_and_then_dropped() {
     settings.save(dir.path()).unwrap();
 
     let mut app = app(dir.path());
+    // The window opens before the sources are built: the open is a wasm engine and a server to
+    // spawn, so it runs on the worker and the first frames are where its refusal lands — when the
+    // connect gives up, which is the MCP transport's deadline.
+    let deadline = Instant::now() + CONNECT;
+    while Instant::now() < deadline && !said(&app, "nowhere") {
+        app.pump(Duration::from_millis(50));
+    }
     assert!(
         app.mcp_servers().is_empty(),
         "a server that cannot start is reported as connected"
     );
     assert!(
-        app.panels().is_empty()
-            && app
-                .plugin_words()
-                .iter()
-                .any(|words| words.contains("nowhere")),
+        app.panels().is_empty() && said(&app, "nowhere"),
         "the failure is not said anywhere: {:?}",
         app.plugin_words()
     );

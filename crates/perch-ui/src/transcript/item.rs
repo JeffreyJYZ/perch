@@ -60,11 +60,20 @@ pub enum Item {
         output: String,
         /// The diff or command the approval view needs, when there is one.
         preview: Option<perch_tools::Preview>,
+        /// What the call acted on, as its arguments name it: a path, a command, a pattern. The card
+        /// names it in its header, so a read shows the file it read rather than its first lines.
+        target: Option<String>,
     },
     /// A system line that belongs to no speaker: a turn that was cancelled, a provider error, a
     /// tool the user refused. The column draws it quieter than a reply, and never as markdown,
     /// because its words are held to be literally true rather than written to be styled.
     Note(String),
+    /// What the model was thinking, as the provider streamed it: drawn apart from the reply,
+    /// because a thought is not the answer.
+    Reasoning {
+        /// The thought so far, one string per stretch of thinking.
+        text: String,
+    },
     /// How one turn ended: what ran, what failed, and what it cost when the provider said.
     Summary {
         /// Tool calls the turn ran.

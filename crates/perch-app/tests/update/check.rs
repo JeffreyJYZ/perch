@@ -9,9 +9,10 @@ use crate::harness::{
     Fake, HELLO, MANIFEST, TIMEOUT, app, data, entry, line, lines, manifest, pump_until,
 };
 
-/// How long the fake manifest takes to answer. Opening the window has its own fixed cost — the
-/// plugin engine is built there, about 2.6 s on this machine — so the manifest must be slower than
-/// that for the comparison to mean anything: a window that waited for the fetch would take at
+/// How long the fake manifest takes to answer. Opening the window is no longer a fixed cost of
+/// seconds — the tool sources and the file watcher are both built beside the frame, and
+/// `docs/perf/startup.md` has the numbers — but the manifest must still be slower than a cautious
+/// opening for the comparison to mean anything: a window that waited for the fetch would take at
 /// least this long *plus* its own cost.
 const SLOW: Duration = Duration::from_millis(5000);
 

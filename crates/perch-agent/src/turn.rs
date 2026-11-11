@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::cancel::{Cancel, CancelWatch};
+use crate::compact;
 use crate::dispatch::ToolReply;
 use crate::event::AgentEvent;
 use crate::provider::{Endpoint, Message, Model};
@@ -80,7 +81,7 @@ impl Agent {
 /// went in, so there is one way to talk to a turn and one place its cancellation lives.
 #[derive(Clone)]
 pub struct AgentHandle {
-    prompts: Sender<String>,
+    prompts: Sender<Request>,
     replies: Sender<ToolReply>,
     cancel: Arc<Cancel>,
 }
@@ -91,7 +92,17 @@ impl AgentHandle {
     /// A handle whose loop has stopped drops the prompt; there is nobody left to run it, and the
     /// event channel has already closed, which is what tells the caller.
     pub fn prompt(&self, text: String) {
-        let _ = self.prompts.send(text);
+        let _ = self.prompts.send(Request::Prompt(text));
+    }
+
+    /// Ask the loop to compact the conversation now.
+    ///
+    /// The request travels the same queue as prompts, so one sent mid-turn is handled when that
+    /// turn ends and always before a prompt queued after it. The answer is one
+    /// [`AgentEvent::Compacted`]: the number of messages left out, or zero when there was nothing
+    /// old enough to drop.
+    pub fn compact(&self) {
+        let _ = self.prompts.send(Request::Compact);
     }
 
     /// Answer one call the turn asked for, and report whether the turn was still there.
@@ -118,16 +129,41 @@ impl AgentHandle {
     }
 }
 
+/// What the caller sends the loop: a turn to run, or a compaction the person asked for.
+enum Request {
+    /// One turn with this user message.
+    Prompt(String),
+    /// Drop the older exchanges now, and report how many were left out.
+    Compact,
+}
+
 /// The loop itself: one turn per prompt, each ending with exactly one `TurnEnd`.
 fn run(
     config: &AgentConfig,
-    prompts: &Receiver<String>,
+    requests: &Receiver<Request>,
     events: &Sender<AgentEvent>,
     results: &Receiver<ToolReply>,
     cancel: &Cancel,
 ) {
     let mut history = vec![Message::system(config.system.clone())];
-    while let Ok(prompt) = prompts.recv() {
+    while let Ok(request) = requests.recv() {
+        let prompt = match request {
+            Request::Prompt(prompt) => prompt,
+            // A compaction is not a turn, so it emits no `TurnEnd`: it happened between turns, and
+            // the next turn is the one that ends. The answer is one event either way, so a caller
+            // waiting for it is never left silent.
+            Request::Compact => {
+                let (dropped, exchanges) = compact::now(&mut history)
+                    .map_or((0, 0), |left| (left.messages, left.exchanges));
+                if events
+                    .send(AgentEvent::Compacted { dropped, exchanges })
+                    .is_err()
+                {
+                    return;
+                }
+                continue;
+            }
+        };
         // A reply left over from a turn that was cancelled while its tool was still running
         // belongs to no question this turn asks.
         while results.try_recv().is_ok() {}

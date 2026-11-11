@@ -3,9 +3,10 @@
 use std::path::Path;
 use std::time::Duration;
 
+use perch_agent::ListedModel;
 use perch_store::SessionMeta;
 
-use crate::settings::{DEFAULT_THEME, SettingsDraft};
+use crate::settings::SettingsDraft;
 use crate::transcript::Transcript;
 
 /// What one frame may spend folding a turn's events. The rest of the frame is the frame's: a
@@ -86,6 +87,14 @@ pub trait Live: 'static {
     /// Shows the session at `index`.
     fn switch(&mut self, index: usize);
 
+    /// The header of the session at `index`, when one is open.
+    ///
+    /// The window keeps its own copy of the list, so a branch the app re-read after a checkout
+    /// (or a title a rename wrote) reaches the row through this, never through a guess.
+    fn session(&self, _index: usize) -> Option<SessionMeta> {
+        None
+    }
+
     /// The saved settings, when an app is behind the window. `None` is a window with no data
     /// directory, which the settings panel opens over with its defaults.
     fn settings(&self) -> Option<SettingsSnapshot> {
@@ -99,13 +108,67 @@ pub trait Live: 'static {
 
     /// The provider's model ids, sorted as it returned them. The error is why nothing could be
     /// listed, in words, and it is what leaves the panel's typed field as the fallback.
-    fn models(&mut self) -> std::result::Result<Vec<String>, String> {
+    ///
+    /// This is the blocking form: only a path that is already off the frame thread may call it.
+    /// A menu that opens on a click uses [`Live::start_models`] and [`Live::models_ready`], because
+    /// one network round trip on the click path is a tab that takes a second to appear.
+    fn models(&mut self) -> std::result::Result<Vec<ListedModel>, String> {
         Err("no app is running, so no models were listed".to_string())
     }
+
+    /// Starts asking the provider what it offers, and returns at once.
+    fn start_models(&mut self) {}
+
+    /// The answer to [`Live::start_models`], once it is there, so a frame never waits on it.
+    fn models_ready(&mut self) -> Option<std::result::Result<Vec<ListedModel>, String>> {
+        None
+    }
+
+    /// The context window the provider states for this session's model, when it states one.
+    fn model_limit(&self) -> Option<u32> {
+        None
+    }
+
+    /// The tokens the last turn reported, when one has ended.
+    fn tokens_used(&self) -> Option<u32> {
+        None
+    }
+
+    /// Asks the session to compact its conversation, and returns at once: mid-turn the request
+    /// runs at the end of the current turn, ahead of any prompt queued behind it.
+    fn compact(&mut self) {}
 
     /// Picks `id` for the active session only: its next turn asks for it, no session restarts.
     fn choose_model(&mut self, _id: String) -> std::result::Result<(), String> {
         Err("no session is open, so the model was not changed".to_string())
+    }
+
+    /// Names the session at `index`, and answers its header as the list now carries it.
+    ///
+    /// The title is written where the next start reads it, so a rename outlives the window. An
+    /// app that cannot write the log says why rather than answering a header it did not save.
+    fn rename_session(
+        &mut self,
+        _index: usize,
+        _title: &str,
+    ) -> std::result::Result<SessionMeta, String> {
+        Err("no app is running, so the title was not saved".to_string())
+    }
+
+    /// Deletes the session at `index`, stopping its bridge and dropping its runtime, and answers
+    /// the index the window should show afterwards. The error is why nothing was deleted.
+    fn delete_session(&mut self, _index: usize) -> std::result::Result<usize, String> {
+        Err("no app is running, so no session was deleted".to_string())
+    }
+
+    /// Saves the theme a restart reads, and keeps it for the sessions already open.
+    fn set_theme(&mut self, _theme: &str) -> std::result::Result<(), String> {
+        Err("no app is running, so the theme was not saved".to_string())
+    }
+
+    /// The directory a session's export is written under, when the app has one.
+    fn data_dir(&self) -> Option<std::path::PathBuf> {
+        None
     }
 
     /// Writes `draft` and reports whether a key is stored afterwards.
@@ -117,60 +180,12 @@ pub trait Live: 'static {
     }
 }
 
-/// Whether a provider key is stored, as the settings panel says it.
-///
-/// The key itself is never part of this: the panel shows one of these words instead, so a saved
-/// secret has no path back to the screen.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum KeyStatus {
-    /// Nothing is stored for the provider account.
-    #[default]
-    Missing,
-    /// A key is stored; its value is the keychain's business, not the window's.
-    Stored,
-}
-
-impl KeyStatus {
-    /// The word the panel shows in place of the key.
-    pub fn words(self) -> &'static str {
-        match self {
-            KeyStatus::Missing => "missing",
-            KeyStatus::Stored => "stored",
-        }
-    }
-}
-
-/// What the settings panel opens with: the saved provider settings and whether a key is stored.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SettingsSnapshot {
-    /// The provider's API root.
-    pub base_url: String,
-    /// The model every new session asks for.
-    pub model: String,
-    /// The saved theme.
-    pub theme: String,
-    /// The saved update check URL, empty when the app checks nothing.
-    pub update_check: String,
-    /// Whether a key is stored for the provider account.
-    pub key: KeyStatus,
-}
-
-impl Default for SettingsSnapshot {
-    fn default() -> Self {
-        Self {
-            base_url: String::new(),
-            model: String::new(),
-            theme: DEFAULT_THEME.to_string(),
-            update_check: String::new(),
-            key: KeyStatus::Missing,
-        }
-    }
-}
-
 /// A window with no app behind it: the layout, the file panel and the dock alone.
 ///
 /// This is what a `--tree` dump and a layout test run against: no data directory, no keychain.
 pub use super::idle::Idle;
+
+pub use super::settings_snapshot::{KeyStatus, SettingsSnapshot};
 
 /// What the active session is waiting on, as the key map needs it.
 pub use super::waiting::Waiting;

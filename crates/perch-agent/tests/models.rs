@@ -66,10 +66,10 @@ fn the_list_is_the_providers_sorted_and_free_models_are_not_privileged() {
         ]}"#,
     ));
 
-    let ids = list_models_with(&table, "https://provider.test/v1", "sk-test").unwrap();
+    let models = list_models_with(&table, "https://provider.test/v1", "sk-test").unwrap();
 
     assert_eq!(
-        ids,
+        ids(&models),
         vec![
             "free/alpha:free".to_string(),
             "free/beta:free".to_string(),
@@ -78,6 +78,47 @@ fn the_list_is_the_providers_sorted_and_free_models_are_not_privileged() {
         ],
         "sorted, deduplicated, trimmed, and a free id sits where its name sorts"
     );
+}
+
+#[test]
+fn a_model_carries_the_context_window_the_provider_states() {
+    let table = Table::answering(Answer::Body(
+        r#"{"data":[
+            {"id":"vendor/wide","context_length":200000},
+            {"id":"vendor/nested","top_provider":{"context_length":64000}},
+            {"id":"vendor/spelled","context_window":8000},
+            {"id":"vendor/silent"},
+            {"id":"vendor/zero","context_length":0},
+            {"id":"vendor/wide"}
+        ]}"#,
+    ));
+
+    let models = list_models_with(&table, "https://provider.test/v1", "").unwrap();
+
+    assert_eq!(
+        limits(&models),
+        vec![
+            ("vendor/nested".to_string(), Some(64000)),
+            ("vendor/silent".to_string(), None),
+            ("vendor/spelled".to_string(), Some(8000)),
+            ("vendor/wide".to_string(), Some(200000)),
+            ("vendor/zero".to_string(), None),
+        ],
+        "the window travels with the id, however the payload spells it, and a zero is no window"
+    );
+}
+
+/// The ids of `models`, in order.
+fn ids(models: &[perch_agent::ListedModel]) -> Vec<String> {
+    models.iter().map(|model| model.id.clone()).collect()
+}
+
+/// Every model's id and stated window, in order.
+fn limits(models: &[perch_agent::ListedModel]) -> Vec<(String, Option<u32>)> {
+    models
+        .iter()
+        .map(|model| (model.id.clone(), model.context))
+        .collect()
 }
 
 #[test]
@@ -108,10 +149,10 @@ fn a_provider_that_names_models_instead_of_data_is_still_read() {
         r#"{"models":[{"name":"llama-local"},{"name":"qwen-local"}]}"#,
     ));
 
-    let ids = list_models_with(&table, "http://127.0.0.1:11434/v1", "").unwrap();
+    let models = list_models_with(&table, "http://127.0.0.1:11434/v1", "").unwrap();
 
     assert_eq!(
-        ids,
+        ids(&models),
         vec!["llama-local".to_string(), "qwen-local".to_string()]
     );
 }

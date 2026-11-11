@@ -6,11 +6,12 @@
 
 use perch_store::SessionMeta;
 use rune::{El, col};
-use rune_kit::Kit;
+use rune_kit::glyphs;
 use rune_kit::shell::SidebarRow;
-use rune_kit::{Button, ButtonVariant};
+use rune_kit::{Button, ButtonVariant, IconButton, IconButtonVariant, Kit};
 
 use super::ROW;
+use super::keymap::session_list_key;
 use super::live::Live;
 use super::state::Shell;
 use crate::files::{files_view, note, section_label};
@@ -34,19 +35,22 @@ pub(super) fn sessions<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .pt(12.0)
         .pb(8.0)
         .gap(2.0)
+        .focusable(true)
+        .on_key(session_list_key::<L>)
         .child(section_label(kit, "Sessions", "sessions-label"));
-    if shell.sessions.is_empty() {
+    if shell.session_count() == 0 {
         list = list.child(note(kit, "No folder open"));
         if let Some(words) = shell.notice() {
             list = list.child(note(kit, words));
         }
         return list.child(open_folder::<L>(kit));
     }
-    for (index, session) in shell.sessions.iter().enumerate() {
+    for (index, session) in shell.headers().into_iter().enumerate() {
         list = list.child(
             SidebarRow::new(session.title.clone())
                 .height(ROW)
-                .subtitle(describe(session))
+                .subtitle(describe(&session))
+                .trailing(delete_button::<L>(index, kit))
                 .selected(index == shell.active)
                 .on_select(move |s: &mut Shell<L>, _: &mut rune::Tx| s.select(index))
                 .build(kit)
@@ -110,6 +114,28 @@ pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
             .child(note(kit, words));
     };
     files_view::<L>(panel, kit)
+}
+
+/// The delete control on a session row, and the words when it cannot run.
+///
+/// One press arms the row and says so; the second removes it. Deleting a session drops its log,
+/// which is the only durable copy of the conversation, so a single stray click must not do it.
+fn delete_button<L: Live>(index: usize, kit: &Kit) -> El {
+    IconButton::new(&glyphs::CIRCLE_X)
+        .variant(IconButtonVariant::Ghost)
+        .label(format!("Delete session {index}"))
+        .on_press(move |shell: &mut Shell<L>| {
+            shell.remove_session(index);
+        })
+        .build(kit)
+        .key(format!("session-delete-{index}"))
+}
+
+impl<L: Live> Shell<L> {
+    /// The row's delete control: the first press arms it, the second removes the session.
+    pub fn remove_session(&mut self, index: usize) -> bool {
+        self.confirm_delete(index)
+    }
 }
 
 /// A session row's second line: its branch and its worktree, both as words — or the reason the

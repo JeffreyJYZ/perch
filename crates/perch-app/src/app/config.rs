@@ -1,6 +1,5 @@
 //! Following the settings file: the provider a new session reads and the tools a save rebuilds.
 
-use perch_agent::ModelTransport;
 use perch_store::Settings;
 use perch_store::settings::McpServerConfig;
 use perch_ui::settings::SettingsDraft;
@@ -19,19 +18,6 @@ impl AppState {
     pub fn model(&self) -> Option<String> {
         self.active_session()
             .map(|session| session.meta.model.clone())
-    }
-
-    /// The ids the provider lists, sorted, through whatever transport this app was opened with.
-    ///
-    /// The error is why nothing was listed, in words — a provider without the endpoint answers
-    /// 404 here, and the panel says so and falls back to typing an id.
-    pub fn list_models(&self) -> std::result::Result<Vec<String>, String> {
-        perch_agent::list_models_with(
-            &*self.listings,
-            &self.defaults.base_url,
-            &self.defaults.api_key,
-        )
-        .map_err(|error| error.to_string())
     }
 
     /// Picks `id` for the active session only: its next turn asks for it, its log header says so,
@@ -54,13 +40,6 @@ impl AppState {
         runtime.log.set_model(id)?;
         self.defaults.model = id.to_string();
         Ok(())
-    }
-
-    /// Replaces the model list's transport, as a test does so no socket is opened.
-    #[must_use]
-    pub fn with_listings(mut self, transport: std::sync::Arc<dyn ModelTransport>) -> Self {
-        self.listings = transport;
-        self
     }
 
     /// What the settings panel opens with: the saved values and whether a key is stored.

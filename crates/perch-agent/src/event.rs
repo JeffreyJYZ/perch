@@ -11,14 +11,17 @@ use serde_json::Value;
 pub enum AgentEvent {
     /// Assistant text, appended to the open message as it arrives.
     TextDelta(String),
+    /// The model thinking, as the provider streamed it: shown apart from the answer, because a
+    /// thought is not the reply.
+    ReasoningDelta(String),
     /// A tool call the model finished asking for, with its arguments already parsed.
     ToolCall(ToolCall),
     /// The outcome of executing one call. Emitted by whatever runs the tools, not by the stream.
     ToolResult { id: String, ok: bool, text: String },
-    /// The conversation was too long for the provider, so older exchanges were dropped and the
-    /// request was asked again smaller. `dropped` is how many messages the next request lost;
-    /// the session's own log keeps every one of them.
-    Compacted { dropped: usize },
+    /// Older exchanges were left out of the conversation, because it was too long or because the
+    /// person asked for it. `dropped` counts the messages that went and `exchanges` the whole
+    /// turns they belonged to; the session's own log keeps every one of them.
+    Compacted { dropped: usize, exchanges: usize },
     /// The turn is over. Emitted once per turn, after every other event of that turn.
     TurnEnd { reason: EndReason, usage: Usage },
 }
@@ -28,7 +31,7 @@ impl AgentEvent {
     /// of a reply. `None` for the frames that only build something.
     pub fn notice(&self) -> Option<String> {
         match self {
-            AgentEvent::Compacted { dropped } => Some(format!(
+            AgentEvent::Compacted { dropped, .. } => Some(format!(
                 "The conversation was too long for the model, so perch dropped {dropped} older \
                  messages and asked again. The transcript still has them."
             )),

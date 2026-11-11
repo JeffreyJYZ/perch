@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::job;
 use super::process::run_captured;
 use super::text::truncate;
 use super::{BASH_MAX_OUTPUT, BASH_TIMEOUT, command_arg, object_schema};
@@ -39,12 +40,19 @@ impl Tool for Bash {
         ToolSpec {
             name: "bash".into(),
             description: format!(
-                "Run a shell command with the worktree root as cwd. Killed after {} s; output capped at 16 KiB.",
+                "Run a shell command with the worktree root as cwd. Killed after {} s; output \
+                 capped at 16 KiB. With `background: true` the call returns at once with the job \
+                 id, its pid and its log path, and the command keeps running until it exits or \
+                 the `jobs` tool kills it.",
                 self.timeout.as_secs()
             ),
             parameters: object_schema(
                 json!({
-                    "command": { "type": "string", "description": "Command passed to `sh -c`." }
+                    "command": { "type": "string", "description": "Command passed to `sh -c`." },
+                    "background": {
+                        "type": "boolean",
+                        "description": "Start the command as a job and return immediately instead of waiting. Read or kill it with the `jobs` tool."
+                    }
                 }),
                 &["command"],
                 "Run one shell command.",
@@ -58,6 +66,13 @@ impl Tool for Bash {
 
     fn call(&self, args: &Value, ctx: &ToolCtx) -> Result<ToolOutput> {
         let command = command_arg(args)?;
+        if args
+            .get("background")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return background(&command, ctx);
+        }
         let cwd = confine(&ctx.root, Path::new("."))?;
         let mut child = Command::new("sh");
         child
@@ -89,6 +104,23 @@ impl Tool for Bash {
         let _ = ctx;
         Ok(Some(Preview::Command(command_arg(args)?)))
     }
+}
+
+/// Starts the command under a job and answers at once with what `jobs` can then act on.
+fn background(command: &str, ctx: &ToolCtx) -> Result<ToolOutput> {
+    let (id, pid, log) = job::start(command, &ctx.root)?;
+    let answer = json!({
+        "job": id,
+        "command": command,
+        "pid": pid,
+        "log": log.display().to_string(),
+    });
+    let text = serde_json::to_string(&answer)
+        .map_err(|error| crate::Error::Message(format!("cannot describe the job: {error}")))?;
+    Ok(ToolOutput::with_preview(
+        text,
+        Preview::Command(command.to_string()),
+    ))
 }
 
 fn push_block(text: &mut String, bytes: &[u8]) {

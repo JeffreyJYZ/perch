@@ -1,4 +1,4 @@
-//! perch-tools: the six built-in tools, the registry that owns them, and path confinement.
+//! perch-tools: the built-in tools, the registry that owns them, and path confinement.
 //!
 //! Tools are registered, never enumerated. `ToolRegistry::call` dispatches by name only, so a
 //! plugin tool added later takes exactly the path a built-in takes, and `specs()` is computed
@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub use builtin::{
-    BASH_MAX_OUTPUT, BASH_TIMEOUT, Bash, GREP_MAX_OUTPUT, Grep, LIST_MAX_ENTRIES, READ_MAX_BYTES,
-    builtin_tools,
+    BASH_MAX_OUTPUT, BASH_TIMEOUT, Bash, GREP_MAX_OUTPUT, Glob, Grep, JOB_MAX_CONCURRENT, Jobs,
+    LIST_MAX_ENTRIES, Patch, READ_MAX_BYTES, builtin_tools,
 };
 pub use confine::confine;
 pub use registry::ToolRegistry;

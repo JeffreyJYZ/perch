@@ -54,6 +54,20 @@ pub struct Shell<L: Live = Idle> {
     /// What the plugin column's controls hold: each input's text and the last refusal.
     pub(super) panel: PanelForm,
     pub(super) folder: super::folder::Folder,
+    /// The command list above the composer: whether typing `/` opened it, and the picked row.
+    pub(super) menu: super::composer_menu::Menu,
+    /// The palette, when the pane is the palette.
+    pub(super) palette: Option<super::palette::Palette>,
+    /// Whether the dock is hidden: the palette's Toggle dock action flips it.
+    pub(super) dock_hidden: bool,
+    /// Whether the keyboard is in the session list, where Up and Down move and Escape returns.
+    pub(super) sessions_focused: bool,
+    /// The session row armed by one press of its delete control, waiting for the second.
+    pub(super) pending_delete: Option<usize>,
+    /// `/quit` was run: the next frame closes the window.
+    pub(super) quit: bool,
+    /// `/sessions` asked for the focus: taken once, by the press handler that has a `Tx`.
+    pub(super) focus_sessions: bool,
 }
 
 impl<L: Live> Shell<L> {

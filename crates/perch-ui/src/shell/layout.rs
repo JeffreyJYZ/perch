@@ -74,21 +74,29 @@ fn column<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
 fn workspace<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &mut Cx<Shell<L>>) -> El {
     let pane = match shell.pane() {
         Pane::Settings => settings_view::panel(shell, kit),
+        Pane::Palette => super::palette_view::panel(shell, kit),
         Pane::File(_) => shell
             .files()
             .map_or_else(|| centre(shell, kit), |panel| preview_view::<L>(panel, kit)),
         Pane::Session => centre(shell, kit),
     };
-    col()
+    let mut workspace = col()
         .key("workspace")
         .grow(1.0)
         .min_w(0.0)
         .h_full()
         .fill(kit.c.bg_deep)
         .child(tabs::strip(shell, kit, cx))
-        .child(pane)
+        .child(pane);
+    // A hidden dock is not drawn at all: the transcript gets its height back, and the terminal
+    // tabs are still there when it returns.
+    if shell.dock_hidden() {
+        return workspace;
+    }
+    workspace = workspace
         .child(rule(kit, "dock-rule").w_full().h(1.0))
-        .child(dock(shell, kit, cx))
+        .child(dock(shell, kit, cx));
+    workspace
 }
 
 /// The transcript column: the turns, and the prompt at the bottom of it.

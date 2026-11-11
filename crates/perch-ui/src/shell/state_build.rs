@@ -57,6 +57,13 @@ impl<L: Live> Shell<L> {
             dark: true,
             panel: PanelForm::default(),
             folder: Folder::default(),
+            menu: super::composer_menu::Menu::default(),
+            palette: None,
+            dock_hidden: false,
+            sessions_focused: false,
+            pending_delete: None,
+            quit: false,
+            focus_sessions: false,
         }
     }
 

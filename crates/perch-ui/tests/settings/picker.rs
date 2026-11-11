@@ -16,9 +16,15 @@ fn models() -> Vec<String> {
 }
 
 /// A laid-out window over `fake`, with the settings panel open.
+///
+/// The listing is taken by a pump after the pane opens, exactly as a frame takes it in the window.
 fn settings_of(fake: Fake) -> rune::Runtime<Shell<Fake>> {
     let mut shell = Shell::new(Vec::new(), 0).with_live(fake);
     shell.toggle_settings();
+    shell.pump(std::time::Duration::ZERO);
+    // A panel opened over a chosen model starts folded so it cannot fill the pane; these tests
+    // are about the list, so they unfold it the way the Show list press does.
+    shell.toggle_models();
     layout(shell)
 }
 
@@ -130,6 +136,9 @@ fn the_composer_shows_the_model_and_changing_it_there_picks_for_this_session() {
     );
     runtime.pointer_down(at.0, at.1);
     runtime.pointer_up(at.0, at.1);
+    runtime.frame(0.0);
+    // A press starts the listing; the next frame's pump is what takes the answer.
+    runtime.state.pump(std::time::Duration::ZERO);
     runtime.frame(0.0);
     assert!(runtime.state.settings_open(), "the model list opened");
     let tree = runtime.accessibility_json().to_string();

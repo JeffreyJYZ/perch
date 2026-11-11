@@ -5,7 +5,7 @@
 //! panel falls back to its typed field only when there is no list to draw, so a provider without
 //! the listing endpoint is still configurable.
 
-use rune::{El, Tx, col, row, text};
+use rune::{El, ScrollSpec, Tx, col, row, text};
 use rune_kit::{Button, ButtonVariant, Kit, List, ListItem, TextInput};
 
 use crate::files::{note, section_label};
@@ -14,6 +14,9 @@ use super::live::Live;
 use super::model_picker::{ModelPicker, SHOWN};
 use super::settings::{Panel, settings_key};
 use super::state::Shell;
+
+/// The height the settings list may take before it scrolls inside itself.
+const LIST_HEIGHT: f32 = 180.0;
 
 /// The settings panel's model section: the provider's list, or the typed field when it cannot be
 /// listed, with the reason in words above it either way.
@@ -26,6 +29,17 @@ pub(super) fn settings_model<L: Live>(panel: &Panel, invalid: bool, kit: &Kit) -
             .center_y()
             .child(section_label(kit, "Model", "settings-model-label"))
             .child(
+                Button::new(if panel.models_open {
+                    "Hide list"
+                } else {
+                    "Show list"
+                })
+                .variant(ButtonVariant::GhostMuted)
+                .on_press(|shell: &mut Shell<L>| shell.toggle_models())
+                .build(kit)
+                .key("settings-models-fold"),
+            )
+            .child(
                 Button::new("Refresh list")
                     .variant(ButtonVariant::GhostMuted)
                     .on_press(|shell: &mut Shell<L>| shell.refresh_models())
@@ -33,6 +47,12 @@ pub(super) fn settings_model<L: Live>(panel: &Panel, invalid: bool, kit: &Kit) -
                     .key("settings-models-refresh"),
             ),
     );
+    if picker.loading() {
+        body = body.child(note(
+            kit,
+            "asking the provider for its models. Typing an id works meanwhile.",
+        ));
+    }
     if let Some(failure) = picker.failure() {
         body = body
             .child(
@@ -58,26 +78,44 @@ pub(super) fn settings_model<L: Live>(panel: &Panel, invalid: bool, kit: &Kit) -
                 "Typed ids still work: a provider need not list its models.",
             ));
     } else {
-        body = body.child(picker_list::<L>(
-            picker,
-            &panel.model.text,
-            SHOWN,
-            "settings-models",
-            |shell: &mut Shell<L>| {
-                &mut shell
-                    .settings
-                    .as_mut()
-                    .expect("the panel is open")
-                    .picker
-                    .query
-            },
-            |id| {
-                Box::new(move |shell: &mut Shell<L>, _: &mut Tx| {
-                    shell.pick_settings_model(&id);
-                })
-            },
-            kit,
-        ));
+        // The list is capped and scrolls on its own: grown to its full height it would fill the
+        // pane and take the wheel, leaving the fields under it unreachable.
+        if panel.models_open {
+            body = body.child(
+                col()
+                    .key("settings-models-viewport")
+                    .w_full()
+                    .max_h(LIST_HEIGHT)
+                    .scroll(ScrollSpec {
+                        stick_bottom: false,
+                    })
+                    .child(picker_list::<L>(
+                        picker,
+                        &panel.model.text,
+                        SHOWN,
+                        "settings-models",
+                        |shell: &mut Shell<L>| {
+                            &mut shell
+                                .settings
+                                .as_mut()
+                                .expect("the panel is open")
+                                .picker
+                                .query
+                        },
+                        |id| {
+                            Box::new(move |shell: &mut Shell<L>, _: &mut Tx| {
+                                shell.pick_settings_model(&id);
+                            })
+                        },
+                        kit,
+                    )),
+            );
+        } else {
+            body = body.child(note(
+                kit,
+                "The list is folded, so the fields below stay in reach. Show list unfolds it.",
+            ));
+        }
     }
     body
 }

@@ -7,11 +7,12 @@
 use std::path::Path;
 use std::time::Duration;
 
-use perch_plugins::PanelEntry;
 use perch_ui::Transcript;
-use perch_ui::shell::{Live, Panels, Waiting};
+use perch_ui::shell::{Live, Waiting};
 
 use crate::{AppState, Pending};
+
+mod panels;
 
 impl Live for AppState {
     fn pump(&mut self, budget: Duration) -> bool {
@@ -103,16 +104,63 @@ impl Live for AppState {
         let _ = AppState::switch(self, index);
     }
 
+    fn session(&self, index: usize) -> Option<perch_store::SessionMeta> {
+        self.sessions.get(index).map(|session| session.meta.clone())
+    }
+
     fn model(&self) -> Option<String> {
         AppState::model(self)
     }
 
-    fn models(&mut self) -> std::result::Result<Vec<String>, String> {
+    fn models(&mut self) -> std::result::Result<Vec<perch_agent::ListedModel>, String> {
         AppState::list_models(self)
+    }
+
+    fn start_models(&mut self) {
+        AppState::start_models(self);
+    }
+
+    fn models_ready(
+        &mut self,
+    ) -> Option<std::result::Result<Vec<perch_agent::ListedModel>, String>> {
+        AppState::models_ready(self)
+    }
+
+    fn model_limit(&self) -> Option<u32> {
+        AppState::model_limit(self)
+    }
+
+    fn tokens_used(&self) -> Option<u32> {
+        self.active_session()
+            .and_then(crate::SessionRuntime::tokens_used)
+    }
+
+    fn compact(&mut self) {
+        let _ = AppState::compact(self);
     }
 
     fn choose_model(&mut self, id: String) -> std::result::Result<(), String> {
         AppState::choose_model(self, &id).map_err(|error| error.to_string())
+    }
+
+    fn rename_session(
+        &mut self,
+        index: usize,
+        title: &str,
+    ) -> std::result::Result<perch_store::SessionMeta, String> {
+        AppState::rename_session(self, index, title).map_err(|error| error.to_string())
+    }
+
+    fn delete_session(&mut self, index: usize) -> std::result::Result<usize, String> {
+        AppState::delete_session(self, index).map_err(|error| error.to_string())
+    }
+
+    fn set_theme(&mut self, theme: &str) -> std::result::Result<(), String> {
+        AppState::save_theme(self, theme).map_err(|error| error.to_string())
+    }
+
+    fn data_dir(&self) -> Option<std::path::PathBuf> {
+        Some(self.dir.clone())
     }
 
     fn settings(&self) -> Option<perch_ui::shell::SettingsSnapshot> {
@@ -137,34 +185,4 @@ fn row(
         .map(|session| session.meta.clone())
         .ok_or_else(|| "the session did not open".to_string())?;
     Ok((index, meta))
-}
-
-/// The plugin column, over the worker's last snapshot: the frames and the words are built off the
-/// frame thread, so the window reads them rather than asking a plugin while it draws.
-impl Panels for AppState {
-    /// The plugin panels, then the update offer: the column is the one region a person can read
-    /// without a session open, and an update is exactly that kind of news.
-    fn panels(&self) -> Vec<PanelEntry> {
-        let mut panels = self.snapshot.panels.clone();
-        if let Some(status) = self.update_status.as_ref() {
-            panels.push(status.panel());
-        }
-        panels
-    }
-
-    fn plugin_words(&self) -> Vec<String> {
-        self.snapshot.words.clone()
-    }
-
-    /// A press on a panel control: refused here when the drawn panel cannot address it, and
-    /// otherwise queued for the worker that owns the plugin host. The panel it changes is re-read
-    /// into the next snapshot, which is what draws the change.
-    fn panel_action(
-        &mut self,
-        plugin: &str,
-        control: &str,
-        value: Option<String>,
-    ) -> std::result::Result<(), String> {
-        AppState::panel_action(self, plugin, control, value)
-    }
 }

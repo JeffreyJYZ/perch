@@ -1,8 +1,13 @@
 //! The app behind the window, with no keychain and no provider: a stored key is a word, a draft is
 //! recorded, and the model list is whatever the test put in it.
+//!
+//! The listing is two-step like the real one: asking starts it, and a later frame takes the answer.
+//! That is what makes a test able to prove the pane opened before the provider was asked.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
+use perch_agent::ListedModel;
 use perch_ui::SettingsDraft;
 use perch_ui::Transcript;
 use perch_ui::shell::{KeyStatus, Live, Panels, SettingsSnapshot, Waiting};
@@ -12,8 +17,18 @@ pub struct Fake {
     pub saved: Option<SettingsDraft>,
     pub model: String,
     pub models: Vec<String>,
+    /// The context window each listed model states, by id.
+    pub limits: HashMap<String, u32>,
     pub failure: Option<String>,
     pub picked: Option<String>,
+    /// Whether a listing is "on its way": [`Live::models_ready`] answers it once.
+    pub listing: bool,
+    /// The last prompt sent, so a test can prove `/compact` never becomes one.
+    pub prompted: Option<String>,
+    /// How many compactions were asked for.
+    pub compacted: u32,
+    /// The last turn's tokens, for the meter.
+    pub tokens: Option<u32>,
     /// The theme the saved settings carry, which is what the window draws.
     pub theme: String,
 }
@@ -25,8 +40,13 @@ impl Default for Fake {
             saved: None,
             model: "test/model".to_string(),
             models: Vec::new(),
+            limits: HashMap::new(),
             failure: None,
             picked: None,
+            listing: false,
+            prompted: None,
+            compacted: 0,
+            tokens: None,
             theme: "dark".to_string(),
         }
     }
@@ -48,7 +68,8 @@ impl Live for Fake {
     fn busy(&self) -> bool {
         false
     }
-    fn prompt(&mut self, _: String) -> std::result::Result<(), String> {
+    fn prompt(&mut self, text: String) -> std::result::Result<(), String> {
+        self.prompted = Some(text);
         Ok(())
     }
     fn cancel(&mut self) {}
@@ -59,11 +80,38 @@ impl Live for Fake {
     fn model(&self) -> Option<String> {
         Some(self.model.clone())
     }
-    fn models(&mut self) -> std::result::Result<Vec<String>, String> {
-        match &self.failure {
-            Some(words) => Err(words.clone()),
-            None => Ok(self.models.clone()),
+    fn models(&mut self) -> std::result::Result<Vec<ListedModel>, String> {
+        self.models_ready()
+            .unwrap_or_else(|| panic!("the fake lists nothing until a listing is started"))
+    }
+    fn start_models(&mut self) {
+        self.listing = true;
+    }
+    fn models_ready(&mut self) -> Option<std::result::Result<Vec<ListedModel>, String>> {
+        if !self.listing {
+            return None;
         }
+        self.listing = false;
+        Some(match &self.failure {
+            Some(words) => Err(words.clone()),
+            None => Ok(self
+                .models
+                .iter()
+                .map(|id| ListedModel {
+                    id: id.clone(),
+                    context: self.limits.get(id).copied(),
+                })
+                .collect()),
+        })
+    }
+    fn model_limit(&self) -> Option<u32> {
+        self.limits.get(&self.model).copied()
+    }
+    fn tokens_used(&self) -> Option<u32> {
+        self.tokens
+    }
+    fn compact(&mut self) {
+        self.compacted += 1;
     }
     fn choose_model(&mut self, id: String) -> std::result::Result<(), String> {
         self.picked = Some(id.clone());

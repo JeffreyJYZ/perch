@@ -67,6 +67,8 @@ pub(super) fn strip<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &Cx<Shell<L>>) -> 
         Pane::Settings => Some(SETTINGS.to_string()),
         Pane::File(path) => Some(tab_id(path)),
         Pane::Session => shell.active_session().map(|session| session.id.clone()),
+        // The palette has no tab of its own: it is one chord away, not a place to return to.
+        Pane::Palette => None,
     };
     // The tabs share the strip's own width, so the last one keeps its whole label instead of being
     // clipped at the strip's scroll edge. The first frame has no measurement and takes the

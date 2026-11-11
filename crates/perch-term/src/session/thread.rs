@@ -29,10 +29,30 @@ impl TermSession {
     /// Returns the handle the UI drives and the channel on which it receives
     /// frames. The first frame is published as soon as the emulator exists, so
     /// a caller can paint an empty grid before the shell has printed anything.
+    ///
+    /// This is [`Self::spawn_with_wake`] without a wake callback: a window that
+    /// polls the frame channel on a tick needs nothing more.
     pub fn spawn(
         cwd: &Path,
         cols: u16,
         rows: u16,
+    ) -> Result<(TermHandle, Receiver<Frame>), TermError> {
+        Self::spawn_with_wake(cwd, cols, rows, || {})
+    }
+
+    /// [`Self::spawn`], calling `wake` after every frame is published.
+    ///
+    /// The frame channel has no way to say a frame is ready, so a window that
+    /// only reads it on a timer shows a shell's output one tick late. `wake` is
+    /// that answer: a window passes something that wakes its event loop (Rune's
+    /// `AppHandle::wake`), and an echoed character is drawn on the next display
+    /// tick instead of the next poll. It runs on the terminal thread, so it must
+    /// be cheap and must not block.
+    pub fn spawn_with_wake(
+        cwd: &Path,
+        cols: u16,
+        rows: u16,
+        wake: impl Fn() + Send + 'static,
     ) -> Result<(TermHandle, Receiver<Frame>), TermError> {
         let pty = native_pty_system();
         let pair = pty
@@ -84,6 +104,7 @@ impl TermSession {
                     frames,
                     thread_dirty,
                     ready,
+                    wake,
                 );
             })
             .map_err(|error| TermError::Pty(error.to_string()))?;

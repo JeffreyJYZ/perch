@@ -12,7 +12,10 @@
 
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
 use perch_agent::Dispatcher;
+use perch_codemode::{Execute, RegistryHost};
 use perch_mcp::McpHost;
 use perch_plugins::{Loaded, PanelEntry};
 use perch_store::SessionLog;
@@ -20,6 +23,16 @@ use perch_store::settings::McpServerConfig;
 use perch_tools::ToolRegistry;
 
 use crate::Result;
+
+/// Adds Code Mode last, so a program can call every tool the build produced.
+///
+/// The host is given a *copy* of the registry taken before registration: a host that held the
+/// registry itself would contain `execute`, and a program could then call itself in a loop that
+/// has no bottom.
+fn add_codemode(registry: &mut ToolRegistry) {
+    let host = Arc::new(RegistryHost::new(registry.clone()));
+    registry.register(Arc::new(Execute::new(host)));
+}
 
 /// The live plugin host and MCP connections, and the registry they last built.
 pub struct Sources {
@@ -42,6 +55,7 @@ impl Sources {
     pub fn open(dir: PathBuf, servers: &[McpServerConfig]) -> Result<Sources> {
         let mut loaded = Loaded::open(&dir, Dispatcher::builtin_registry());
         let mcp = McpHost::connect_all(servers, loaded.registry_mut())?;
+        add_codemode(loaded.registry_mut());
         let failures = mcp.failed();
         Ok(Sources {
             dir,
@@ -64,6 +78,7 @@ impl Sources {
         // session's whole log into a plugin that just started.
         next.inherit_feed(&mut self.loaded);
         self.mcp.reconcile(servers, next.registry_mut());
+        add_codemode(next.registry_mut());
         self.loaded = next;
         self.failures = self.mcp.failed();
         self.words()

@@ -23,6 +23,11 @@ impl<L: Live> Shell<L> {
             if let Some(live) = self.live.as_mut() {
                 live.switch(index);
             }
+            // The app may have re-read this session's branch on the switch, so the row takes
+            // whatever it now holds rather than the word it had when the list was built.
+            if let Some(meta) = self.live.as_ref().and_then(|live| live.session(index)) {
+                self.sessions[index] = meta;
+            }
             self.reopen_files();
             self.reset_panes();
             self.refresh();
@@ -120,16 +125,23 @@ impl<L: Live> Shell<L> {
     /// Sends the composer's text as a turn, and empties the box when it was sent.
     ///
     /// The app owns the transcript: a refusal is a turn the app refused, and the sentence saying
-    /// why is in the transcript the app keeps, not one invented here.
+    /// why is in the transcript the app keeps, not one invented here. A line that names a command
+    /// is taken by the same press and never reaches the model as a user message.
     pub fn submit(&mut self) -> bool {
         let text = self.prompt.text.trim().to_owned();
         if text.is_empty() {
             return false;
         }
-        let sent = match self.live.as_mut() {
-            Some(live) => live.prompt(text),
-            None => return false,
+        self.close_menu();
+        if self.run_command(&text) {
+            self.prompt = TextEdit::default();
+            self.refresh();
+            return true;
+        }
+        let Some(live) = self.live.as_mut() else {
+            return false;
         };
+        let sent = live.prompt(text);
         self.refresh();
         if sent.is_ok() {
             self.prompt = TextEdit::default();

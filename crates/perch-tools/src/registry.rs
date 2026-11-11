@@ -23,7 +23,7 @@ impl ToolRegistry {
         Self::default()
     }
 
-    /// The six shipped tools, in the order the model sees them.
+    /// The shipped tools, in the order the model sees them.
     pub fn builtin() -> Self {
         let mut registry = Self::new();
         for tool in builtin_tools() {

@@ -100,6 +100,19 @@ impl Transcript {
         self.since = self.items.len();
     }
 
+    /// Empties the column, as `/clean` asks: no item, no open reply, no card left expanded.
+    ///
+    /// The items are the session's whole conversation as the window shows it, so nothing is kept
+    /// behind: a cleared column and a fresh one are the same column.
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.open = None;
+        self.expanded.clear();
+        self.cancelled.clear();
+        self.since = 0;
+        self.scroll = ScrollWords::new();
+    }
+
     /// Appends a system line — a cancellation, a provider error, a tool the user refused — in the
     /// column's quieter voice. It closes the open assistant item, because a system line is not
     /// part of a reply.

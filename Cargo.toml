@@ -11,6 +11,9 @@ members = [
 	"crates/perch-plugins",
 	"crates/perch-mcp",
 	"crates/perch-update",
+	"crates/perch-codemode",
+	"crates/perch-board",
+	"crates/perch-web",
 ]
 
 [workspace.package]
@@ -18,3 +21,14 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 publish = false
+
+# Line tables only, not full DWARF. A full debuginfo build of this workspace and its dependencies
+# reached 90 GiB of `target/debug/deps` and left 25 GiB free on a 460 GiB volume: every lane that
+# built with a different feature set kept another complete copy of ~300 crates. `debug = 1` keeps a
+# backtrace naming file and line — everything a failing test here has ever needed — at a fraction of
+# that size.
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 1

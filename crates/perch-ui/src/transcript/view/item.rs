@@ -5,7 +5,7 @@ use rune_kit::Kit;
 use rune_kit::markdown::Markdown;
 
 use super::speaker;
-use crate::transcript::card::tool_card;
+use crate::transcript::card::{Card, tool_card};
 use crate::transcript::words::summary_line;
 use crate::transcript::{Item, Transcript};
 
@@ -84,19 +84,46 @@ pub(super) fn item_view(
                         .key("body"),
                 )
         }
+        // Thinking is spoken in the window's own quiet voice: a mark in the margin, the face the
+        // column uses for asides, and plain text, because a model's reasoning is not the reply and
+        // must never look like one.
+        Item::Reasoning { text: body } => col()
+            .key(format!("reasoning-{index}"))
+            .role("group")
+            .label("Thinking")
+            .w_full()
+            .gap(3.0)
+            .px(8.0)
+            .child(
+                text("Thinking")
+                    .font(kit.ty.small_medium)
+                    .color(kit.c.text_faint),
+            )
+            .child(
+                text(body.clone())
+                    .key("reasoning-body")
+                    .w_full()
+                    .font(kit.ty.small)
+                    .color(kit.c.text_muted)
+                    .selectable(true),
+            ),
         Item::Tool {
             id,
             name,
             status,
             output,
             preview,
+            target,
         } => tool_card(
             index,
-            name,
-            *status,
-            output,
-            preview.as_ref(),
-            model.is_expanded(id),
+            &Card {
+                name,
+                status: *status,
+                output,
+                preview: preview.as_ref(),
+                target: target.as_deref(),
+                expanded: model.is_expanded(id),
+            },
             kit,
         ),
         // A system line is drawn as it is written: one text element, no markdown, in the faint

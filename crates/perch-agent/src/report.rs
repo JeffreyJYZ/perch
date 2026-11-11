@@ -55,6 +55,8 @@ pub(crate) fn report(
             // A call here is a violation of the instruction above, and running it would undo the
             // only reason this request exists. The fragments are dropped with the reply.
             Ok(Chunk::ToolCall { .. }) => {}
+            // A spent turn reports what it reached; its thinking is not part of that report.
+            Ok(Chunk::Reasoning(_)) => {}
             Err(error) => return Err(Outcome::Failed(error.to_string())),
         }
     }
