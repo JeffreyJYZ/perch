@@ -36,10 +36,11 @@ cargo run -p perch-app --bin perch
 - `--tree` prints the window's accessibility tree as JSON and exits; it reads no settings and starts no shell.
 - `--offline` opens the window with the session list and the dock only, skipping the app.
 - `--plugins <dir>` loads plugins from that directory instead of `<data>/plugins`.
-- With no saved session, the first launch creates one bound to the current directory. A session never creates or clones a worktree; it attaches to one that already exists.
+- With no saved session, the first launch creates one bound to the current directory when that directory is a project. A window opened from Finder starts at `/`: it opens with no session, the sidebar says why, and **Open folder** asks Rune's native folder picker for one. A session never creates or clones a worktree; it attaches to one that already exists.
+- `--worktree <path>` and a folder picked in the window are taken as chosen: they open wherever they are, a filesystem root and a home directory included. Only the guessed launch directory is refused.
 - `dist/Perch.app` is the bundled build (see below); its executable is the same binary.
 
-Data lives under `~/Library/Application Support/dev.jyz.perch` (the app id from `crates/perch-app/src/main.rs`), which is where `settings.toml` and one `<id>.jsonl` per session live.
+Data lives under `~/Library/Application Support/dev.jyz.perch` (the app id in `crates/perch-app/src/window/boot.rs`), which is where `settings.toml` and one `<id>.jsonl` per session live.
 
 ## Gate
 
