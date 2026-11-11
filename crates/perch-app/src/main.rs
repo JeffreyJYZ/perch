@@ -12,7 +12,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use perch_app::settings;
 use perch_files::Workspace;
 use perch_ui::Shell;
 use rune::{AppSpec, Chrome, Env, KeyEvent, Runtime, Tx};
@@ -22,8 +21,6 @@ use window::{Window, Zed};
 
 /// The window's size, in points.
 const WINDOW: (f32, f32) = (1280.0, 820.0);
-/// The application id, shared with the keychain service name so the data directory matches it.
-const APP_ID: &str = "dev.jyz.perch";
 
 /// The flags perch reads itself. Everything else is Rune's (`--snap`, `--size`, `--theme`, …).
 struct Flags {
@@ -84,10 +81,10 @@ fn main() {
 /// Opens the app, then the window over it.
 fn init() -> Shell<Window> {
     let flags = Flags::parse(std::env::args().skip(1));
-    let window = if flags.offline {
-        Window::Offline("started with --offline".to_string())
+    let (window, notice) = if flags.offline {
+        (Window::Offline("started with --offline".to_string()), None)
     } else {
-        open_app(&flags)
+        window::open(&flags)
     };
     let (sessions, active) = match window.app() {
         Some(app) => (app.metas(), app.active()),
@@ -105,63 +102,29 @@ fn init() -> Shell<Window> {
         // The app's one editor call: the preview's button runs it, and nothing else can.
         .with_editor(Arc::new(Zed))
         .with_live(window);
+    // A launch that had no project is not a failure: the window says why, and the picker in the
+    // sidebar is how the person opens one.
+    if let Some(words) = notice {
+        shell = shell.with_notice(words);
+    }
     // One shell for the first tab: the dock is a real terminal from the first frame, and the pty
-    // starts in the session's worktree. A window with no session has nothing to start it in, and
-    // starting a shell at `/` is the same mistake a root worktree would be.
+    // starts in the session's worktree. A window with no session has nothing to start it in.
     if has_session {
         let _ = shell.open_terminal();
     }
     shell
 }
 
-/// The app behind the window: its data directory, its settings, its MCP servers, its plugins and
-/// its sessions.
-///
-/// The plugins load last, after the app opened, and the order matters only for what a failure
-/// costs: a plugin directory that will not read still leaves a window with an app and no column,
-/// while an app that will not open is the window's one real failure.
-fn open_app(flags: &Flags) -> Window {
-    let Some(dir) = data_dir() else {
-        return Window::Offline("no data directory for this platform".to_string());
-    };
-    let plugins = flags
-        .plugins
-        .clone()
-        .unwrap_or_else(|| dir.join(settings::PLUGINS));
-    match settings::open_with_plugins(&dir, &plugins) {
-        Ok(mut app) => {
-            // An explicit worktree wins on every launch, not only the first: the flag names the
-            // project this window is for, and a session for it is opened or reused.
-            if let Some(path) = flags.worktree.clone() {
-                match perch_app::launch::project_root(Some(path)) {
-                    Ok(path) if app.metas().iter().all(|meta| meta.worktree != path) => {
-                        if let Err(error) = app.new_session(&path) {
-                            return Window::Offline(error.to_string());
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(words) => return Window::Offline(words),
-                }
-            } else if app.sessions().is_empty() {
-                // A first run has no session at all, and a window with nothing to ask is a dead one:
-                // the launch directory is the worktree, which is the design's rule.
-                let worktree = match perch_app::launch::project_root(None) {
-                    Ok(path) => path,
-                    Err(words) => return Window::Offline(words),
-                };
-                if let Err(error) = app.new_session(&worktree) {
-                    return Window::Offline(error.to_string());
-                }
-            }
-            Window::open(app)
-        }
-        Err(error) => Window::Offline(error.to_string()),
-    }
-}
-
 /// One frame of the world: what the turn and the shells posted since the last one.
 fn poll(shell: &mut Shell<Window>, _seconds: f64, tx: &mut Tx) -> bool {
-    let changed = shell.pump(perch_ui::shell::BUDGET);
+    let mut changed = shell.pump(perch_ui::shell::BUDGET);
+    // A folder picked in the window is a session with no shell yet: the dock starts one there
+    // once, exactly as a launch that already had a project does. A spawn that fails leaves its
+    // own tab behind, so this never retries in a loop.
+    if shell.active_session().is_some() && shell.terminals().is_empty() {
+        let _ = shell.open_terminal();
+        changed = true;
+    }
     if let Some(wait) = shell.next_wake() {
         tx.wake_after(wait);
     }
@@ -171,11 +134,6 @@ fn poll(shell: &mut Shell<Window>, _seconds: f64, tx: &mut Tx) -> bool {
 /// Keys the focused control did not take: a focused tool card's Enter, then the window's own map.
 fn on_key(shell: &mut Shell<Window>, ev: &KeyEvent, tx: &mut Tx) -> bool {
     perch_ui::shell::window_key(shell, ev, tx)
-}
-
-/// The app's data directory, or none when the platform gives no home directory.
-fn data_dir() -> Option<PathBuf> {
-    rune::dirs::AppDirs::new(APP_ID).map(|dirs| dirs.data().to_path_buf())
 }
 
 /// Lays the window out once and prints its accessibility tree, then exits.

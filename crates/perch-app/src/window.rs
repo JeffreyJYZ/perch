@@ -3,10 +3,8 @@
 //! A window that refuses to start is worse than one that starts without a session: the layout, the
 //! file panel and the dock all still work, and the reason the app is missing is on stderr. Every
 //! method here forwards to the app, so the window is the same window whether or not one opened.
-//!
-//! The plugins live inside the app now: its sources own the host and the panels, and its live
-//! registry is the one every session dispatches through, so a window laid out over `AppState`
-//! alone shows the same column.
+//! The plugins live inside the app now, so a window laid out over `AppState` alone shows the same
+//! column.
 
 use std::path::Path;
 use std::time::Duration;
@@ -18,6 +16,9 @@ use perch_ui::SettingsDraft;
 use perch_ui::Transcript;
 use perch_ui::files::Editor;
 use perch_ui::shell::{KeyStatus, Live, Panels, SettingsSnapshot, Waiting};
+
+mod boot;
+pub(crate) use boot::open;
 
 /// The app's editor: Zed, through `perch_files`'s one `open -a` call.
 ///
@@ -83,6 +84,16 @@ impl Live for Window {
     ) -> std::result::Result<(usize, SessionMeta), String> {
         match self {
             Window::Open(app) => Live::new_session(app.as_mut(), worktree),
+            Window::Offline(why) => Err(format!("no app is running: {why}")),
+        }
+    }
+
+    fn open_folder(
+        &mut self,
+        path: &std::path::Path,
+    ) -> std::result::Result<(usize, SessionMeta), String> {
+        match self {
+            Window::Open(app) => Live::open_folder(app.as_mut(), path),
             Window::Offline(why) => Err(format!("no app is running: {why}")),
         }
     }

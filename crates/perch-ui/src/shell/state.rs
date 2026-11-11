@@ -43,6 +43,7 @@ pub struct Shell<L: Live = Idle> {
     pub(super) settings: Option<Panel>,
     /// What the plugin column's controls hold: each input's text and the last refusal.
     pub(super) panel: PanelForm,
+    pub(super) folder: super::folder::Folder,
 }
 
 impl Shell<Idle> {
@@ -79,6 +80,7 @@ impl<L: Live> Shell<L> {
             prompt: TextEdit::default(),
             settings: None,
             panel: PanelForm::default(),
+            folder: super::folder::Folder::default(),
         }
     }
 

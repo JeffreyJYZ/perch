@@ -46,6 +46,12 @@ pub trait Live: 'static {
         Err("no app is running, so no session was opened".to_string())
     }
 
+    /// Opens a session on the folder a person picked in the window, as that folder: the window
+    /// asks for nothing about where it is, because choosing it was the decision.
+    fn open_folder(&mut self, _path: &Path) -> std::result::Result<(usize, SessionMeta), String> {
+        Err("no app is running, so no folder was opened".to_string())
+    }
+
     /// What the active session is waiting on.
     fn waiting(&self) -> Waiting;
 

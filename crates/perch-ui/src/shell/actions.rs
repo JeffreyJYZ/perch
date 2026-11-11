@@ -32,7 +32,7 @@ impl<L: Live> Shell<L> {
     /// A worktree that cannot be read leaves no panel rather than the previous session's rows:
     /// the session list already says the worktree is missing, and a stale tree would claim files
     /// that are not this session's. The editor the app handed over outlives the panel.
-    fn reopen_files(&mut self) {
+    pub(super) fn reopen_files(&mut self) {
         let Some(root) = self
             .sessions
             .get(self.active)

@@ -12,6 +12,7 @@
 mod support;
 
 mod approval;
+mod folder;
 mod harness;
 mod keys;
 mod missing;

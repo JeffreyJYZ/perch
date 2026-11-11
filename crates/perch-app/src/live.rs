@@ -35,11 +35,16 @@ impl Live for AppState {
         worktree: &Path,
     ) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
         let index = AppState::new_session(self, worktree).map_err(|error| error.to_string())?;
-        let meta = self
-            .active_session()
-            .map(|session| session.meta.clone())
-            .ok_or_else(|| "the session did not open".to_string())?;
-        Ok((index, meta))
+        row(self, index)
+    }
+
+    /// Opens a session on a folder a person picked, accepted wherever it is.
+    fn open_folder(
+        &mut self,
+        path: &Path,
+    ) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
+        let index = AppState::open_folder(self, path).map_err(|error| error.to_string())?;
+        row(self, index)
     }
 
     fn waiting(&self) -> Waiting {
@@ -108,6 +113,18 @@ impl Live for AppState {
     ) -> std::result::Result<perch_ui::shell::KeyStatus, String> {
         AppState::save_settings(self, draft)
     }
+}
+
+/// The header of the session just opened: the row the window appends without reading the disk.
+fn row(
+    app: &AppState,
+    index: usize,
+) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
+    let meta = app
+        .active_session()
+        .map(|session| session.meta.clone())
+        .ok_or_else(|| "the session did not open".to_string())?;
+    Ok((index, meta))
 }
 
 /// The plugin column, over the worker's last snapshot: the frames and the words are built off the

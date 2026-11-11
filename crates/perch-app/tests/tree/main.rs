@@ -4,6 +4,7 @@
 //! they are drawn into and nowhere else.
 
 mod dock;
+mod empty;
 mod harness;
 mod panels;
 mod regions;

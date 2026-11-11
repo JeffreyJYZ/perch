@@ -36,6 +36,15 @@ impl AppState {
         Ok(self.active)
     }
 
+    /// Opens a session on a folder a person picked in the window.
+    ///
+    /// The folder is taken as chosen: a home directory or a root is a decision, not a mistake,
+    /// so it is canonicalised and opened like any other. Only the launch directory is guarded.
+    pub fn open_folder(&mut self, path: &Path) -> Result<usize> {
+        let root = crate::launch::directory(path.to_path_buf()).map_err(Error::Folder)?;
+        self.new_session(&root)
+    }
+
     /// Shows the session at `index`. Switching is a state swap: nothing reloads from disk and no
     /// process restarts.
     pub fn switch(&mut self, index: usize) -> Result<()> {

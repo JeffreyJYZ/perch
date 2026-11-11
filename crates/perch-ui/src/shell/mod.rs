@@ -18,9 +18,10 @@
 //! seam to the app, and [`paint`] is what a terminal run looks like. [`settings`] is the
 //! provider form the window shows in place of the transcript.
 //!
-//! Four presses reach past a region: [`card`] is the key a focused tool card answers, [`paste`]
+//! Five presses reach past a region: [`card`] is the key a focused tool card answers, [`paste`]
 //! is the clipboard arriving at the app root, [`session`] starts one on the worktree already
-//! open, and [`editor`] hands the selected file to the app's Zed call.
+//! open, [`folder`] opens a picked folder into a session, and [`editor`] hands the selected file
+//! to the app's Zed call.
 
 mod actions;
 mod answer;
@@ -29,6 +30,7 @@ mod card;
 mod composer;
 mod dock;
 mod editor;
+mod folder;
 mod keymap;
 mod layout;
 mod live;

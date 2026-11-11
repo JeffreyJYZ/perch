@@ -17,6 +17,9 @@ use crate::preview::preview_view;
 /// A session whose worktree is gone still has a row: the work is on disk, and hiding it would
 /// hide the only place its reason is said. Starting a new one needs no picker — it is the
 /// directory this window already has open.
+///
+/// A window that opened with no folder is not an empty window: the column says there is none,
+/// repeats why when the launch directory was refused, and offers the picker.
 pub(super) fn sessions<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
     let mut list = col()
         .key("sessions")
@@ -30,7 +33,11 @@ pub(super) fn sessions<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .gap(2.0)
         .child(section_label(kit, "Sessions", "sessions-label"));
     if shell.sessions.is_empty() {
-        list = list.child(note(kit, "No sessions yet"));
+        list = list.child(note(kit, "No folder open"));
+        if let Some(words) = shell.notice() {
+            list = list.child(note(kit, words));
+        }
+        return list.child(open_folder::<L>(kit));
     }
     for (index, session) in shell.sessions.iter().enumerate() {
         list = list.child(
@@ -43,7 +50,23 @@ pub(super) fn sessions<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
                 .key(format!("session-{index}")),
         );
     }
+    // A notice is still news when a session is open: a `--worktree` that opened nothing says so
+    // here rather than nowhere.
+    if let Some(words) = shell.notice() {
+        list = list.child(note(kit, words));
+    }
     list.child(new_session::<L>(kit))
+}
+
+/// The button that asks for a folder, for a window that opened without one.
+fn open_folder<L: Live>(kit: &Kit) -> El {
+    col().key("open-folder-slot").w_full().pt(4.0).child(
+        Button::new("Open folder")
+            .help("Open a folder as this window's project")
+            .on_press_tx(|shell: &mut Shell<L>, tx: &mut rune::Tx| shell.open_folder(tx))
+            .build(kit)
+            .key("open-folder"),
+    )
 }
 
 /// The button that starts a session on the worktree already open.
@@ -63,6 +86,12 @@ fn new_session<L: Live>(kit: &Kit) -> El {
 /// The file tree, with the selected file's preview under it so the Zed handoff is reachable.
 pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
     let Some(panel) = shell.files.as_ref() else {
+        // A window with no folder has no tree to show, and "not loaded" would read as a failure.
+        let words = if shell.sessions.is_empty() {
+            "No folder open"
+        } else {
+            "not loaded"
+        };
         return col()
             .key("files")
             .role("region")
@@ -75,7 +104,7 @@ pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
             .pb(10.0)
             .gap(4.0)
             .child(section_label(kit, "Files", "files-label"))
-            .child(note(kit, "not loaded"));
+            .child(note(kit, words));
     };
     let tree = files_view::<L>(panel);
     // Nothing to preview and nothing to say: the column is the tree, as before.

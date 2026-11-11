@@ -62,6 +62,8 @@ pub enum Error {
     MissingSession(usize),
     #[error("the worktree {0} no longer exists, so this session cannot run a turn")]
     MissingWorktree(PathBuf),
+    #[error("{0}")]
+    Folder(String),
     #[error("update: {0}")]
     Update(#[from] perch_update::Error),
 }

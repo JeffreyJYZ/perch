@@ -9,7 +9,9 @@ name = "perch"
 path = "src/main.rs"
 
 [dependencies]
-rune = { path = "../../../../experiments/rune/crates/rune" }
+# The folder picker is Rune's native sheet: without this feature the runtime answers the
+# picker with an error and a window that opened with no folder could never get one.
+rune = { path = "../../../../experiments/rune/crates/rune", features = ["native-file-dialog"] }
 perch-store = { path = "../perch-store" }
 perch-ui = { path = "../perch-ui" }
 perch-term = { path = "../perch-term" }
