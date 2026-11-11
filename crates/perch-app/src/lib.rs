@@ -13,6 +13,7 @@
 pub mod answer;
 pub mod app;
 pub mod bridge;
+pub mod launch;
 mod live;
 mod live_registry;
 mod panels;

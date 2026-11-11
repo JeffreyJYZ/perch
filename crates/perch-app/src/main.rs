@@ -14,7 +14,6 @@ use std::sync::Arc;
 
 use perch_app::settings;
 use perch_files::Workspace;
-use perch_store::SessionMeta;
 use perch_ui::Shell;
 use rune::{AppSpec, Chrome, Env, KeyEvent, Runtime, Tx};
 
@@ -32,6 +31,8 @@ struct Flags {
     offline: bool,
     /// Where a `.wasm` goes to be installed. `None` is `plugins/` under the data directory.
     plugins: Option<PathBuf>,
+    /// The directory a first-run session belongs to. `None` is the launch directory.
+    worktree: Option<PathBuf>,
 }
 
 impl Flags {
@@ -40,6 +41,7 @@ impl Flags {
             tree: false,
             offline: false,
             plugins: None,
+            worktree: None,
         };
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -49,6 +51,7 @@ impl Flags {
                 // The value follows the flag, and a missing one is no override rather than an
                 // error: the default directory is always a valid answer.
                 "--plugins" => flags.plugins = args.next().map(PathBuf::from),
+                "--worktree" => flags.worktree = args.next().map(PathBuf::from),
                 _ => {}
             }
         }
@@ -88,8 +91,9 @@ fn init() -> Shell<Window> {
     };
     let (sessions, active) = match window.app() {
         Some(app) => (app.metas(), app.active()),
-        None => (fallback_sessions(), 0),
+        None => (Vec::new(), 0),
     };
+    let has_session = !sessions.is_empty();
     let shell = match sessions
         .get(active)
         .and_then(|session| Workspace::open(&session.worktree).ok())
@@ -102,8 +106,11 @@ fn init() -> Shell<Window> {
         .with_editor(Arc::new(Zed))
         .with_live(window);
     // One shell for the first tab: the dock is a real terminal from the first frame, and the pty
-    // starts in the session's worktree.
-    let _ = shell.open_terminal();
+    // starts in the session's worktree. A window with no session has nothing to start it in, and
+    // starting a shell at `/` is the same mistake a root worktree would be.
+    if has_session {
+        let _ = shell.open_terminal();
+    }
     shell
 }
 
@@ -126,7 +133,10 @@ fn open_app(flags: &Flags) -> Window {
             // A first run has no session at all, and a window with nothing to ask is a dead one:
             // the launch directory is the worktree, which is the design's rule.
             if app.sessions().is_empty() {
-                let worktree = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let worktree = match perch_app::launch::project_root(flags.worktree.clone()) {
+                    Ok(path) => path,
+                    Err(words) => return Window::Offline(words),
+                };
                 if let Err(error) = app.new_session(&worktree) {
                     return Window::Offline(error.to_string());
                 }
@@ -156,32 +166,12 @@ fn data_dir() -> Option<PathBuf> {
     rune::dirs::AppDirs::new(APP_ID).map(|dirs| dirs.data().to_path_buf())
 }
 
-/// The session list a window with no app shows: the worktree the app was launched in.
-///
-/// The design's rule is that a session belongs to a worktree that already exists, so the launch
-/// directory is the one thing that is always true without reading anything.
-fn fallback_sessions() -> Vec<SessionMeta> {
-    let worktree = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let title = worktree.file_name().map_or_else(
-        || "perch".to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    vec![SessionMeta {
-        id: "current".to_string(),
-        title,
-        worktree,
-        branch: String::new(),
-        model: "no model".to_string(),
-        created: 0,
-    }]
-}
-
 /// Lays the window out once and prints its accessibility tree, then exits.
 ///
 /// The tree is the layout with nothing behind it, so this reads no settings and starts no shell.
 fn print_tree() {
     let mut runtime = Runtime::new(
-        Shell::idle(fallback_sessions(), 0),
+        Shell::idle(perch_app::launch::fallback_sessions(None), 0),
         perch_ui::shell::view,
         WINDOW,
         Env::new(true, 2.0),
