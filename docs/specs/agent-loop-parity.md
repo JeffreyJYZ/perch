@@ -44,19 +44,22 @@ Two properties decide the shape more than any code does:
   before the first event is retried.
 - `crates/perch-agent/src/report.rs` — when the rounds are spent, one more request with the tools
   removed asks for a written report, so the turn ends with words rather than an error.
+- `crates/perch-agent/src/compact.rs` — a request the provider refuses as too long is answered
+  with a smaller one rather than the same one again: the system message and the exchange being
+  answered are kept, older exchanges are dropped, and the retry is asked at 85%, 70%, 50% then 35%
+  of the size that was refused. Each drop is emitted as `AgentEvent::Compacted`, whose `notice()`
+  reads "the conversation was too long, so perch dropped N older messages and asked again". The
+  session log keeps every message; only the next request carries less.
 - Approvals: `once`, `always` (for the session) and `reject`, in `dispatch.rs`; the same answer
   covers every call of that tool for the rest of the session.
 - Cancellation, per-session model and per-session provider are handles shared with the agent.
 
 ## Not done yet, in the order they matter
 
-1. **Compaction.** A long session eventually sends a context the provider rejects, and perch has
-   no answer for it. Start with the rejection path: on a context-length error, drop the oldest
-   exchanges and resend, aiming below the size that was refused, and say so in the transcript.
-2. **Streaming tool input and progress.** perch emits a tool call once its arguments are complete,
+1. **Streaming tool input and progress.** perch emits a tool call once its arguments are complete,
    so a long `bash` shows nothing until it ends. OpenCode streams the input and then the progress.
-3. **Queued prompts.** A prompt sent mid-turn should queue and be delivered after it, not be
+2. **Queued prompts.** A prompt sent mid-turn should queue and be delivered after it, not be
    refused or interleave.
-4. **Usage per step.** The turn reports a total; a step's cost is what a person wants when a turn
+3. **Usage per step.** The turn reports a total; a step's cost is what a person wants when a turn
    is expensive.
-5. **Revert.** A checkpoint per step, so a turn can be undone without `git`.
+4. **Revert.** A checkpoint per step, so a turn can be undone without `git`.

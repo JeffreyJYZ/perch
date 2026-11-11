@@ -62,10 +62,14 @@ fn size(messages: &[Message]) -> usize {
 /// messages are kept, because they are what makes the model behave, and the exchange being
 /// answered is kept, because it is the question the turn exists to answer.
 pub fn shorten(messages: &[Message], target: usize) -> Option<Vec<Message>> {
-    let head = messages.iter().take_while(|message| message.role == Role::System);
+    let head = messages
+        .iter()
+        .take_while(|message| message.role == Role::System);
     let head: Vec<Message> = head.cloned().collect();
     let rest = &messages[head.len()..];
-    let held = rest.iter().rposition(|message| message.role == Role::User)?;
+    let held = rest
+        .iter()
+        .rposition(|message| message.role == Role::User)?;
     let (older, tail) = rest.split_at(held);
     // One group per exchange, so a dropped turn never leaves its tools answering a call the
     // model can no longer see it making.
@@ -169,12 +173,13 @@ pub(crate) fn open_within(
             tools: config.tools.specs(),
         };
         match open(&request, stopped) {
-            Opened::Failed(error) if is_context_length(&error) => match compact.again(history, events)
-            {
-                Shrunk::Again => continue,
-                Shrunk::Gone => return Opened::Cancelled,
-                Shrunk::Spent => return Opened::Failed(compact.spent()),
-            },
+            Opened::Failed(error) if is_context_length(&error) => {
+                match compact.again(history, events) {
+                    Shrunk::Again => continue,
+                    Shrunk::Gone => return Opened::Cancelled,
+                    Shrunk::Spent => return Opened::Failed(compact.spent()),
+                }
+            }
             other => return other,
         }
     }

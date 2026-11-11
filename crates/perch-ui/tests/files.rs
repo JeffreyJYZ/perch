@@ -150,7 +150,11 @@ fn a_press_is_a_file_pane_and_leaving_it_keeps_the_selection() {
         &Pane::File(a.clone()),
         "the press is the pane"
     );
-    assert_eq!(shell.file_tabs(), &[a.clone()], "the file has a tab");
+    assert_eq!(
+        shell.file_tabs(),
+        std::slice::from_ref(&a),
+        "the file has a tab"
+    );
 
     assert!(shell.leave_pane(), "a file pane is a pane to leave");
     assert_eq!(

@@ -118,7 +118,10 @@ fn a_too_long_request_is_asked_again_smaller_and_the_turn_finishes() {
     let bodies = fixture.bodies.lock().unwrap().clone();
     assert_eq!(bodies.len(), 3, "answered, refused, answered smaller");
     let (refused, smaller) = (&bodies[1], &bodies[2]);
-    assert!(refused.contains("hello there"), "the refusal was the long one");
+    assert!(
+        refused.contains("hello there"),
+        "the refusal was the long one"
+    );
     assert!(
         smaller.len() < refused.len(),
         "the second request is smaller: {} vs {}",
@@ -144,6 +147,7 @@ fn a_conversation_that_never_fits_stops_with_a_clear_error() {
         assert_eq!(collect(&events).end(), &EndReason::Done);
     }
 
+    let before = fixture.requests.load(Ordering::SeqCst);
     handle.prompt("four".into());
     let seen = collect(&events);
     let EndReason::Errored(why) = seen.end() else {
@@ -161,8 +165,10 @@ fn a_conversation_that_never_fits_stops_with_a_clear_error() {
         3,
         "85%, 70% and 50% were each tried with a smaller request"
     );
+    // The counter runs for the whole fixture, and the three turns above already spent one request
+    // each, so this is the fourth turn's own spend: one ask plus its three smaller ones.
     assert_eq!(
-        fixture.requests.load(Ordering::SeqCst),
+        fixture.requests.load(Ordering::SeqCst) - before,
         4,
         "one ask plus three smaller ones, and no fourth at a size nothing shrank"
     );

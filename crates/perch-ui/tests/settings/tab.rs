@@ -93,6 +93,24 @@ fn the_settings_tab_opens_the_pane_and_a_session_tab_returns_to_the_session() {
     assert_eq!(tabs_in(&runtime, "selected"), vec!["t-two".to_string()]);
 }
 
+/// How many nodes the frame's own tree carries under `key`.
+///
+/// The tree, not `Runtime::elements()`: that is the retained scene, where an outgoing pane stays
+/// listed while it animates out, so counting there would call a pane twice drawn.
+fn drawn(runtime: &Runtime<Shell<Fake>>, key: &str) -> usize {
+    let mut found = 0;
+    let mut stack = vec![runtime.accessibility_json()];
+    while let Some(node) = stack.pop() {
+        if node["key"] == key {
+            found += 1;
+        }
+        if let Some(children) = node["children"].as_array() {
+            stack.extend(children.iter().cloned());
+        }
+    }
+    found
+}
+
 #[test]
 fn the_settings_pane_is_drawn_once_and_its_active_state_is_one() {
     let shell = Shell::new(vec![session("one")], 0).with_live(Fake::default());
@@ -100,11 +118,7 @@ fn the_settings_pane_is_drawn_once_and_its_active_state_is_one() {
     click(&mut runtime, "t-settings");
     assert!(runtime.state.settings_open());
 
-    let panes = runtime
-        .elements()
-        .into_iter()
-        .filter(|element| element.key.as_deref() == Some("settings"))
-        .count();
+    let panes = drawn(&runtime, "settings");
     assert!(
         panes == 1,
         "the pane the tab selects is drawn once: {panes}"

@@ -5,10 +5,10 @@
 //! from the call, before the call runs, so the column shows what is being decided rather than
 //! only what came back.
 
-use perch_agent::{AgentEvent, EndReason};
+use perch_agent::AgentEvent;
 use perch_store::SessionEvent;
 
-use super::{CANCELLED, SessionRuntime};
+use super::SessionRuntime;
 use crate::bridge::BridgeEvent;
 use crate::turn::{Pending, question_text, reason_word};
 
@@ -17,6 +17,12 @@ impl SessionRuntime {
     /// is now waiting on the user.
     pub(crate) fn apply(&mut self, event: BridgeEvent) -> bool {
         match event {
+            // A notice changes nothing the turn is waiting on, so it is not a wait: the arm
+            // still has to answer the function's question, which is why it says so explicitly.
+            BridgeEvent::Notice(words) => {
+                self.transcript.note(words);
+                return false;
+            }
             BridgeEvent::Text(text) => {
                 self.transcript.apply(&AgentEvent::TextDelta(text.clone()));
                 self.open_text.push_str(&text);
@@ -64,17 +70,13 @@ impl SessionRuntime {
                 return true;
             }
             BridgeEvent::TurnEnd { reason, usage } => {
+                // The transcript's own ending is the one place the column says a turn was
+                // cancelled: it notes the word and marks the open reply, so nothing here repeats
+                // it as text. The log keeps `reason_word` for the same reason.
                 self.transcript.apply(&AgentEvent::TurnEnd {
                     reason: reason.clone(),
                     usage,
                 });
-                if reason == EndReason::Cancelled {
-                    // The column has no note item and this lane does not own its enum, so the
-                    // word takes the same path a reply's text does — one item, saying the turn
-                    // stopped. When the transcript gains a note item this is one line to change.
-                    self.transcript
-                        .apply(&AgentEvent::TextDelta(CANCELLED.into()));
-                }
                 let reply = std::mem::take(&mut self.open_text);
                 if !reply.is_empty() {
                     let _ = self.log.append(&SessionEvent::Assistant { text: reply });

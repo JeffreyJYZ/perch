@@ -31,6 +31,13 @@ pub(super) fn apply(model: &mut Transcript, event: &AgentEvent) {
                 *output = text.clone();
             }
         }
+        // A compaction is not part of a reply: the model was asked again smaller, so the column
+        // says what happened in its own voice and the next text opens a new reply.
+        AgentEvent::Compacted { .. } => {
+            if let Some(words) = event.notice() {
+                model.note(words);
+            }
+        }
         AgentEvent::TurnEnd { reason, usage } => finish(model, reason, *usage),
     }
 }

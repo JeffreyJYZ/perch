@@ -73,6 +73,8 @@ pub(super) fn drive(
             }
             // The runner emits these, not the agent, so there is nothing to see here.
             AgentEvent::ToolResult { .. } => {}
+            // A compaction is a notice for a person, not part of what the probe measures.
+            AgentEvent::Compacted { .. } => {}
             AgentEvent::TurnEnd { reason, usage } => {
                 run.usage = (usage.input, usage.output);
                 run.final_text = std::mem::take(&mut run.text);

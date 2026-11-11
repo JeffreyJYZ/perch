@@ -139,5 +139,6 @@ The model's tool list is read from the live registry when each request starts, s
 - The bundle is `arm64` and ad-hoc signed: no notarization and no universal build, so Gatekeeper rejects it on any Mac but the one that built it (see Bundle).
 - The update check stages and verifies a download; installing is the person's step after perch quits. Nothing swaps the running bundle.
 - A session's `branch` is stored empty: the app does not read the worktree's git branch, so the row says "no branch". Ahead/behind and a diff view do not exist.
+- The file tab's close control acts on the press; the release then lands on the tab that reflows under the pointer, so closing the last file tab ends on `Settings`. `Shell::close_tab` itself returns to the session; the press geometry is rune-kit's.
 - The accessibility tree names regions, text rows, and the terminal's caret and selection; it does not name individual terminal cells.
 - The MCP host records every call, but the window shows a call only as its namespaced tool card; the host's connection and call notes are not drawn anywhere, and only a failed server is said in the right-hand column.

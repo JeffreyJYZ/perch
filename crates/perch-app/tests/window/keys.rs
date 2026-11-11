@@ -1,5 +1,6 @@
 //! What the keys do to a live turn: Enter sends, Ctrl+C stops, Shift+Enter breaks the line.
 
+use perch_ui::Item;
 use perch_ui::Shell;
 use perch_ui::shell::composer_key;
 use rune::{Env, Key, KeyEvent, Mods, Runtime, Tx};
@@ -81,7 +82,10 @@ fn ctrl_c_stops_the_running_turn() {
     assert!(
         said(&shell)
             .iter()
-            .any(|text| text.to_lowercase().contains("cancelled")),
+            .any(|text| text.to_lowercase().contains("cancelled"))
+            || shell.transcript().items().iter().any(
+                |item| matches!(item, Item::Note(text) if text.to_lowercase().contains("cancelled"))
+            ),
         "the column says the turn was cancelled: {:?}",
         said(&shell)
     );

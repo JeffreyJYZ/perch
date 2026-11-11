@@ -5,10 +5,10 @@
 //! it saved decided the kit and the system did not.
 
 use perch_ui::Shell;
+use perch_ui::kit;
 use perch_ui::shell::{Live, Panels};
 use rune::Color;
 use rune::Runtime;
-use perch_ui::kit;
 
 use crate::fake::Fake;
 use crate::harness::{click, fill, layout, settle};

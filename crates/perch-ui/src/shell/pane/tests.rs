@@ -35,7 +35,7 @@ fn a_file_opens_a_tab_and_reopening_it_focuses_the_same_one() {
     let a = root(&shell).join("a.rs");
     assert!(shell.open_file("a.rs".as_ref()), "a live file previews");
     assert_eq!(shell.pane(), &Pane::File(a.clone()));
-    assert_eq!(shell.file_tabs(), &[a.clone()]);
+    assert_eq!(shell.file_tabs(), std::slice::from_ref(&a));
 
     assert!(shell.open_file("b.rs".as_ref()));
     assert_eq!(

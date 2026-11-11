@@ -48,6 +48,8 @@ pub enum BridgeEvent {
     },
     /// The turn is over; there is exactly one of these per turn.
     TurnEnd { reason: EndReason, usage: Usage },
+    /// Something the harness did to the conversation itself, said in the column's own voice.
+    Notice(String),
 }
 
 /// The answer to whatever a session is waiting on.

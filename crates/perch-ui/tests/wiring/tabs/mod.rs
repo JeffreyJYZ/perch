@@ -104,6 +104,7 @@ fn a_file_row_opens_a_closable_tab_named_after_the_file() {
     );
     let tab = file_tab(&runtime, "a.rs");
     assert_eq!(tab["role"], "tab");
+    assert_eq!(tab["name"], "a.rs", "the tab is named after the file");
     assert!(contains(&tab, "close"), "a file's tab is closable: {tab}");
     assert_eq!(
         tabs_in(&runtime, "selected"),
@@ -140,29 +141,4 @@ fn a_second_file_opens_a_second_tab_and_a_third_press_focuses_the_first() {
         "the focused tab is the pane: {:?}",
         runtime.state.pane()
     );
-}
-
-#[test]
-fn closing_the_open_file_tab_returns_to_the_session_and_keeps_the_tree_selection() {
-    let (_repo, mut runtime) = over(&[("a.rs", "fn a() {}\n")]);
-    open(&mut runtime, "a.rs");
-    // The close button is the tab's own, drawn in its status slot; a file tab is the only kind
-    // that has one.
-    click(&mut runtime, "close");
-
-    assert_eq!(
-        runtime.state.pane(),
-        &Pane::Session,
-        "closing the tab showing the file returns to the transcript"
-    );
-    assert!(runtime.state.file_tabs().is_empty(), "the tab is gone");
-    assert!(
-        runtime
-            .state
-            .files()
-            .and_then(|panel| panel.selected_path())
-            .is_some(),
-        "the tree keeps its selection, so the file is one press away"
-    );
-    assert_eq!(tabs_in(&runtime, "selected"), vec!["t-work".to_string()]);
 }

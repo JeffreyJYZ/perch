@@ -35,6 +35,11 @@ pub(super) fn run(
             AgentEvent::TurnEnd { reason, usage } => {
                 out.send(BridgeEvent::TurnEnd { reason, usage }).is_ok()
             }
+            // A compaction is not a reply: the column says what happened in its own voice.
+            AgentEvent::Compacted { .. } => match event.notice() {
+                Some(words) => out.send(BridgeEvent::Notice(words)).is_ok(),
+                None => true,
+            },
         };
         // A closed channel means the window is gone; nothing left to show a result to.
         if !posted {

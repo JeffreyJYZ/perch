@@ -34,7 +34,7 @@ fn temp_repo_with(files: &[(&str, &str)]) -> TempDir {
 }
 
 /// Every node of `node`, depth first.
-fn nodes(node: &Value, out: &mut Vec<&Value>) {
+fn nodes<'a>(node: &'a Value, out: &mut Vec<&'a Value>) {
     out.push(node);
     for child in node["children"].as_array().into_iter().flatten() {
         nodes(child, out);
