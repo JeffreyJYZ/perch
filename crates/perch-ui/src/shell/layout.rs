@@ -44,6 +44,11 @@ pub fn view<L: Live + Panels>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
             .child(rule(&kit, "panel-rule").w(1.0).h_full())
             .child(panels);
     }
+    // The finder is a layer over everything rather than a pane, so the pane it was opened over
+    // is still there when the overlay closes.
+    if let Some(finder) = super::finder_view::layer(shell, &kit) {
+        root = root.child(finder);
+    }
     root
 }
 

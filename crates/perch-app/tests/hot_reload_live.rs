@@ -18,7 +18,13 @@ use perch_ui::shell::Panels;
 use support::{fixtures, session};
 
 /// How long a frame is given to notice the change. Bounded, not timed.
-const TIMEOUT: Duration = Duration::from_secs(10);
+///
+/// The bound exists so a broken watcher fails the suite instead of hanging it, not as a latency
+/// promise: the worker opens the plugin engine on its own thread, and a box running ten sibling
+/// cargo jobs can take seconds to schedule the poll sweep and the wasm engine between two frames.
+/// Ten seconds was tight enough to fail on a loaded machine while the feature worked, so the guard
+/// is thirty — still finite, still far below a hang.
+const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long a dead server is given to be named. The window opens before any source is built, so
 /// the refusal arrives when the connect gives up rather than at boot, and that is the MCP

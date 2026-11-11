@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use perch_agent::{AgentHandle, Dispatcher, EndReason, Endpoint, Model};
+use perch_agent::{AgentHandle, Dispatcher, EndReason, Endpoint, Model, Usage};
 use perch_store::{SessionEvent, SessionLog, SessionMeta};
 use perch_ui::Transcript;
 
@@ -53,11 +53,12 @@ pub struct SessionRuntime {
     /// Messages sent while a turn was running: they go out, in order, as soon as it ends. A
     /// prompt that arrives mid-turn is queued, never interleaved into the turn in flight.
     queued: Vec<String>,
-    /// The tokens the last turn reported, which is what the meter counts.
+    /// The tokens the last turn reported and what it cost, which is what the meter counts.
     ///
     /// `None` before the first turn: a fresh session has spent nothing, and drawing `0%` would
-    /// claim a measurement nobody made.
-    tokens: Option<u32>,
+    /// claim a measurement nobody made. The split is kept because money is charged per kind of
+    /// token, so the total alone cannot be priced.
+    usage: Option<Usage>,
     /// How the last turn ended. A cancelled turn has no answer to name, so auto-titling skips it.
     last_reason: Option<EndReason>,
     /// Whether a compaction is on its way. Requests travel the agent's own queue, so one sent
@@ -95,7 +96,7 @@ impl SessionRuntime {
             turns: 0,
             open_text: String::new(),
             queued: Vec::new(),
-            tokens: None,
+            usage: None,
             compacting: false,
             last_reason: None,
         }
@@ -129,7 +130,13 @@ impl SessionRuntime {
 
     /// The tokens the last turn reported, when a turn has ended.
     pub fn tokens_used(&self) -> Option<u32> {
-        self.tokens
+        self.usage
+            .map(|usage| usage.input.saturating_add(usage.output))
+    }
+
+    /// The split the last turn reported, which is what its dollars are computed from.
+    pub fn usage(&self) -> Option<Usage> {
+        self.usage
     }
 
     /// Marks a compaction as asked for, and answers false when one already was.

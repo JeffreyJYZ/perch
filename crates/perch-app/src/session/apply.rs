@@ -87,7 +87,7 @@ impl SessionRuntime {
                 // reported nothing leaves the previous number rather than claiming zero.
                 let spent = usage.input.saturating_add(usage.output);
                 if spent > 0 {
-                    self.tokens = Some(spent);
+                    self.usage = Some(usage);
                 }
                 self.pending = None;
                 self.running = false;

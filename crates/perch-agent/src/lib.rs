@@ -18,6 +18,8 @@ mod report;
 mod retry;
 mod rounds;
 pub mod rules;
+pub mod skills;
+pub mod skills_tool;
 pub mod subagent;
 mod tools;
 pub mod turn;
@@ -30,9 +32,11 @@ pub use event::{AgentEvent, EndReason, ToolCall, Usage};
 pub use instructions::{for_session, for_session_with, for_worktree};
 pub use provider::{
     ChatRequest, ChunkStream, Endpoint, HttpTransport, ListedModel, Message, Model, ModelTransport,
-    Role, SecretString, ToolCallRecord, ToolSpec, list_models, list_models_with, stream,
+    Price, Role, SecretString, ToolCallRecord, ToolSpec, list_models, list_models_with, stream,
 };
 pub use rules::{Permission, Rule, Rules};
+pub use skills::{Found, Skill};
+pub use skills_tool::SkillTool;
 pub use subagent::{Delegate, TASK, Task};
 pub use tools::Tools;
 pub use turn::{Agent, AgentConfig, AgentHandle, MAX_ROUNDS};

@@ -13,6 +13,9 @@ use perch_ui::shell::{Live, Waiting};
 use crate::{AppState, Pending};
 
 mod panels;
+mod row;
+
+use row::row;
 
 impl Live for AppState {
     fn pump(&mut self, budget: Duration) -> bool {
@@ -37,6 +40,15 @@ impl Live for AppState {
     ) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
         let index = AppState::new_session(self, worktree).map_err(|error| error.to_string())?;
         row(self, index)
+    }
+
+    /// Forks the session at `index` into one of its own, and answers its index and header.
+    fn fork_session(
+        &mut self,
+        index: usize,
+    ) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
+        let fork = AppState::fork_session(self, index).map_err(|error| error.to_string())?;
+        row(self, fork)
     }
 
     /// Opens a session on a folder a person picked, accepted wherever it is.
@@ -135,6 +147,10 @@ impl Live for AppState {
             .and_then(crate::SessionRuntime::tokens_used)
     }
 
+    fn turn_cost(&self) -> Option<f64> {
+        AppState::turn_cost(self)
+    }
+
     fn todos(&self) -> Vec<perch_tools::Todo> {
         AppState::todos(self)
     }
@@ -177,16 +193,4 @@ impl Live for AppState {
     ) -> std::result::Result<perch_ui::shell::KeyStatus, String> {
         AppState::save_settings(self, draft)
     }
-}
-
-/// The header of the session just opened: the row the window appends without reading the disk.
-fn row(
-    app: &AppState,
-    index: usize,
-) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
-    let meta = app
-        .active_session()
-        .map(|session| session.meta.clone())
-        .ok_or_else(|| "the session did not open".to_string())?;
-    Ok((index, meta))
 }

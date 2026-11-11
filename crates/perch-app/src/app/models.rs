@@ -1,15 +1,33 @@
-//! The provider's model list: what it offers, what window each model states, and the one thread
-//! that asks for it without the window waiting.
+//! The provider's model list: what it offers, what window each model states, what it charges, and
+//! the one thread that asks for it without the window waiting.
 //!
-//! The list is two things at once. The picker draws the ids, and the meter divides by the context
-//! window the provider states for the chosen one — so the payload is read once and both answers
-//! are kept, rather than asking the provider again for a number it already sent.
+//! The list is three things at once. The picker draws the ids, the meter divides by the context
+//! window the provider states for the chosen one, and it turns the last turn's tokens into dollars
+//! at the price stated for that same model — so the payload is read once and every answer is kept,
+//! rather than asking the provider again for numbers it already sent.
 
 use std::sync::Arc;
 
-use perch_agent::{ListedModel, ModelTransport};
+use perch_agent::{ListedModel, ModelTransport, Price};
 
 use super::AppState;
+
+/// What the provider stated about one model: its window and its price.
+///
+/// Both are optional and independent. A provider may state a window and no price, or a price and
+/// no window, or neither; the meter shows what is known and never a number nobody sent.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ModelFacts {
+    pub(crate) limit: Option<u32>,
+    pub(crate) price: Option<Price>,
+}
+
+impl ModelFacts {
+    /// The dollars a turn reporting `usage` cost, when this model's price is stated.
+    fn cost(&self, usage: perch_agent::Usage) -> Option<f64> {
+        Some(self.price?.cost(usage.input, usage.output))
+    }
+}
 
 impl AppState {
     /// The models the provider lists, sorted, through whatever transport this app was opened with.
@@ -60,7 +78,7 @@ impl AppState {
             Ok(listed) => {
                 self.models_job = None;
                 if let Ok(models) = &listed {
-                    self.remember_limits(models);
+                    self.remember_models(models);
                 }
                 Some(listed)
             }
@@ -77,17 +95,87 @@ impl AppState {
     /// The number comes from the last listing read, so a window that has never asked the provider
     /// has no limit yet and the meter says only how many tokens went out.
     pub fn model_limit(&self) -> Option<u32> {
-        let model = &self.sessions.get(self.active)?.meta.model;
-        self.limits.get(model).copied()
+        self.facts()?.limit
     }
 
-    /// Keeps every limit the listing stated, so the meter does not ask again for a number the
-    /// provider already sent.
-    fn remember_limits(&mut self, models: &[ListedModel]) {
+    /// What the active session's model charges, when the provider stated both rates.
+    pub fn model_price(&self) -> Option<Price> {
+        self.facts()?.price
+    }
+
+    /// The dollars the active session's last turn cost, when the provider stated the price.
+    ///
+    /// A session that has run no turn has no usage to price, so nothing is claimed; a provider
+    /// that stated no price says nothing about money either.
+    pub fn turn_cost(&self) -> Option<f64> {
+        let session = self.sessions.get(self.active)?;
+        self.facts()?.cost(session.usage()?)
+    }
+
+    /// What the provider stated for the active session's model.
+    fn facts(&self) -> Option<&ModelFacts> {
+        let model = &self.sessions.get(self.active)?.meta.model;
+        self.limits.get(model)
+    }
+
+    /// Keeps every window and price the listing stated, so the meter does not ask again for
+    /// numbers the provider already sent.
+    fn remember_models(&mut self, models: &[ListedModel]) {
         for model in models {
-            if let Some(limit) = model.context {
-                self.limits.insert(model.id.clone(), limit);
+            let price = Price::of(model.prompt_price, model.completion_price);
+            if model.context.is_none() && price.is_none() {
+                continue;
             }
+            let facts = self.limits.entry(model.id.clone()).or_default();
+            facts.limit = facts.limit.or(model.context);
+            facts.price = facts.price.or(price);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// $0.15 per million in, $0.60 per million out.
+    fn priced() -> ModelFacts {
+        ModelFacts {
+            limit: Some(200_000),
+            price: Some(Price {
+                prompt: 0.15 / 1_000_000.0,
+                completion: 0.60 / 1_000_000.0,
+            }),
+        }
+    }
+
+    #[test]
+    fn a_turn_is_priced_at_the_models_own_rates() {
+        let cost = priced()
+            .cost(perch_agent::Usage {
+                input: 1_000,
+                output: 500,
+            })
+            .expect("the rates are stated");
+
+        assert!(
+            (cost - 0.00045).abs() < 1e-12,
+            "1000 in at $0.15/M and 500 out at $0.60/M is $0.00045, got {cost:?}"
+        );
+    }
+
+    #[test]
+    fn a_model_with_no_stated_price_costs_nothing_claimed() {
+        assert_eq!(
+            ModelFacts {
+                limit: Some(200_000),
+                price: None,
+            }
+            .cost(perch_agent::Usage {
+                input: 9_000,
+                output: 3_000,
+            }),
+            None,
+            "a window with no price says nothing about money"
+        );
     }
 }

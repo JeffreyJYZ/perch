@@ -21,6 +21,22 @@ impl<L: Live> Shell<L> {
         Ok(Some(format!("new session: {opened}")))
     }
 
+    /// `/fork`: the conversation on screen, copied into a session of its own.
+    pub(super) fn command_fork(&mut self) -> Result<Option<String>, String> {
+        let index = self.active;
+        let (index, meta) = match self.live.as_mut() {
+            Some(live) => live.fork_session(index)?,
+            None => return Err("no app is running, so no session was forked".to_string()),
+        };
+        let title = meta.title.clone();
+        self.sessions.push(meta);
+        self.active = index.min(self.sessions.len().saturating_sub(1));
+        self.reopen_files();
+        self.reset_panes();
+        self.refresh();
+        Ok(Some(format!("forked: {title}")))
+    }
+
     /// `/rename <title>`: the name the session list and its log carry from now on.
     pub(super) fn command_rename(&mut self, arg: &str) -> Result<Option<String>, String> {
         if arg.trim().is_empty() {

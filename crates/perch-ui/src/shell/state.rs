@@ -58,6 +58,8 @@ pub struct Shell<L: Live = Idle> {
     pub(super) menu: super::composer_menu::Menu,
     /// The palette, when the pane is the palette.
     pub(super) palette: Option<super::palette::Palette>,
+    /// The file finder, when its overlay is open: the list read on the way in and the rows kept.
+    pub(super) finder: Option<super::finder::Finder>,
     /// Whether the dock is hidden: the palette's Toggle dock action flips it.
     pub(super) dock_hidden: bool,
     /// Whether the keyboard is in the session list, where Up and Down move and Escape returns.

@@ -15,7 +15,7 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Reopen a session after relaunch with its transcript and model context — **HAVE** — `crates/perch-app/src/app/boot/replay*` (the log folded through the same `AgentEvent` path a live turn uses: replies, tool cards with status and output, summaries and the `cancelled` word; the last 8 exchanges and 8 KiB of history, newest kept, with one note naming how many were left out; a torn line skipped and counted; nothing sent on open) plus `perch-store/src/session/logged.rs` — tests `crates/perch-app/tests/reopen/` (8)
 - Rename a session — **HAVE** — `/rename` and `AppState::rename_session`, persisted through `SessionLog::set_title`, the sidebar row redrawn — tests `crates/perch-app/tests/sessions/commands.rs` — opencode `session.update`, `/rename`
 - Delete a session — **HAVE** — the sidebar's arm-then-remove control, which also stops the bridge and drops the runtime — test `the_sidebar_delete_control_arms_then_removes_and_the_window_follows` — opencode `session.remove`
-- Fork a session from an earlier message — **MISSING** — opencode `session.fork`, `routes/session/dialog-fork.tsx`
+- Fork a session from an earlier message — **HAVE** — `crates/perch-store/src/session/fork.rs` (`SessionLog::fork`: new id, header rewritten, source bytes untouched, cut only after a `TurnEnd` and an interior boundary refused naming why) plus `crates/perch-app/src/app/fork.rs` and `/fork` — 6 store + 3 app tests — opencode `session.fork`, `routes/session/dialog-fork.tsx`
 - Undo/redo by reverting to a boundary and restoring its files — **MISSING** — opencode `session.revert.stage`, `session.revert.commit`; `packages/core/src/session/revert.ts`
 - Export or import a transcript — **MISSING** — the raw JSONL log sits at `<data dir>/<id>.jsonl` with no export path — opencode `experimental.session.export`, `experimental.session.import`
 - Search sessions or inside a transcript — **MISSING** — no search over `crates/perch-store/src/session.rs`
@@ -79,7 +79,7 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Choose between several configured agents — **MISSING** — one hard-coded system prompt, `crates/perch-app/src/app/boot.rs:116` — opencode `agent.list`, `session.switchAgent`
 - Give an agent its own model and permissions — **MISSING** — opencode `agent.get`, `packages/core/src/agent.ts`
 - Load machine-wide and project instructions into the system prompt — **HAVE** — `crates/perch-agent/src/instructions.rs` (`for_session`: `~/.config/perch/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.agents/AGENTS.md`, `~/.claude/CLAUDE.md`, then every `AGENTS.md`/`CLAUDE.md` from the worktree up to the root, outermost first so the deepest wins; 32 KiB per file, 96 KiB total, the cut named; a symlink is followed only inside the worktree; `PERCH_HOME` overrides home so a test never reads the real machine) wired at `app/boot.rs:104` — 12 tests — opencode `packages/core/src/instruction-discovery.ts`
-- Activate a skill by name from the prompt — **MISSING** — opencode `skill.list`, `/skills`
+- Activate a skill by name from the prompt — **HAVE** — `crates/perch-agent/src/skills*.rs` (`SKILL.md` front matter, machine roots plus every `.perch/skills` from the worktree up, nearest wins on a duplicate, 64 KiB body cut named) with the `skill` tool registered in `crates/perch-app/src/sources/build.rs`, `/skills` and `/skill <name>` in the composer — 9 agent tests + 5 command tests — opencode `skill.list`, `/skills`
 - Extend the tool set from a plugin or an MCP server without touching the agent — **HAVE** — `crates/perch-tools/src/registry.rs`, `crates/perch-plugins/src/tool.rs`, `crates/perch-mcp/src/tools.rs` — opencode `tool/runtime.ts`
 
 ## 5. Commands
@@ -97,7 +97,7 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Open a file read-only in a tab — **HAVE** — `crates/perch-files/src/preview.rs`, `crates/perch-ui/src/preview.rs` — opencode `fs.read`
 - Edit a file in the app — **MISSING** — read-only by design, `crates/perch-files/src/preview.rs`, `docs/specs/2026-11-10-perch-design.md` non-goals — opencode `experimental.fs.write`
 - Hand a file to Zed — **HAVE** — `crates/perch-files/src/open.rs` — opencode `$EDITOR` route
-- Find a file by name across the project — **MISSING** — the tree is the only way in — opencode `fs.find`
+- Find a file by name across the project — **HAVE** — ⌘P finder in `crates/perch-ui/src/shell/finder*.rs` (fuzzy subsequence on the path, 12 rows with the total named, scan capped and skipping `target/`, `.git/` and gitignored paths, list read when the overlay opens) — 8 tests `crates/perch-ui/tests/finder/` — opencode `fs.find`
 - Find and replace inside the open file — **MISSING** — no buffer to edit, `crates/perch-ui/src/files/editor.rs` exposes only `open_in_zed` — opencode `tool/plugin/edit.ts` in the editor
 - Report a formatter or parse failure for the file being viewed — **MISSING** — no formatter or diagnostics in `crates/*/src` — opencode `packages/core/src/formatter.ts`
 - View a git diff — **PARTIAL** — `crates/perch-files/src/diff.rs` (`file_diff`, `worktree_diff`, untracked as added lines, 256 KiB cap, binary named) — absent: the view that draws it — opencode `vcs.diff`, `feature-plugins/system/diff-viewer.tsx`

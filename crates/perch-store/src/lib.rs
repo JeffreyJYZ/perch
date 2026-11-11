@@ -20,6 +20,8 @@ pub enum Error {
     TomlEncode(#[from] toml::ser::Error),
     #[error("keyring: {0}")]
     Keyring(#[from] keyring::Error),
+    #[error("fork: {0}")]
+    Fork(String),
 }
 
 /// A perch-store result.

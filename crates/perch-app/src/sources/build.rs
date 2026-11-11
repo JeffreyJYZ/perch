@@ -25,3 +25,11 @@ pub(super) fn add_codemode(registry: &mut ToolRegistry) {
 pub(super) fn add_task(registry: &mut ToolRegistry, agents: Option<&Agents>) -> Option<String> {
     subagent::register(registry, agents?)
 }
+
+/// Adds `skill`, which reads a `SKILL.md` from the machine or the project.
+///
+/// Registered before `task` and Code Mode so both are handed a registry that can already load a
+/// skill: a child turn and a program are exactly the places a skill's instructions are needed.
+pub(super) fn add_skills(registry: &mut ToolRegistry) {
+    registry.register(Arc::new(perch_agent::SkillTool::new()));
+}

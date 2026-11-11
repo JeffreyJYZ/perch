@@ -170,3 +170,26 @@ fn both_tools_are_offered_and_none_needs_approval() {
     assert_eq!(names, ["webfetch", "websearch"]);
     assert!(crate::tools().iter().all(|tool| !tool.needs_approval()));
 }
+
+/// The one test that touches the network, so the suite itself stays offline:
+/// `cargo test -p perch-web -- --ignored --nocapture the_live_endpoint`.
+///
+/// It pins the invariant the brief cares most about: a challenge is named with its status and a
+/// quoted body, and never comes back as a successful empty result.
+#[test]
+#[ignore = "network: hits the public search endpoint"]
+fn the_live_endpoint_answers_a_query_or_names_its_refusal() {
+    let outcome = WebSearch::new().call(&json!({"query": "rust async book", "count": 3}), &ctx());
+    match outcome {
+        Ok(out) => {
+            println!("{}", out.text);
+            assert!(out.text.starts_with("1. "), "results are numbered");
+        }
+        Err(Error::Message(words)) => {
+            println!("{words}");
+            assert!(words.contains("answered HTTP "), "{words}");
+            assert!(words.contains("no parseable results"), "{words}");
+        }
+        Err(other) => panic!("unexpected error shape: {other:?}"),
+    }
+}

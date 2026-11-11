@@ -7,6 +7,7 @@
 
 mod branch;
 mod commands;
+mod fork;
 mod harness;
 mod list;
 mod missing;

@@ -34,6 +34,8 @@ pub enum Intent {
     Settings,
     /// Show the command palette, or hide it when it is open: ⌘K.
     Palette,
+    /// Show the file finder, or hide it when it is open: ⌘P.
+    Finder,
     /// Nothing this window does with that key.
     Ignore,
 }
@@ -65,6 +67,11 @@ pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
     // neither: the dock owns ⌘C and ⌘V, and the settings own ⌘, and ⌘Enter.
     if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command('k')) {
         return Intent::Palette;
+    }
+    // ⌘P is the file finder. P is not a composer key and not a terminal key either, and the dock
+    // owns ⌘C and ⌘V only, so nothing else answers this chord.
+    if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command('p')) {
+        return Intent::Finder;
     }
     // ⌘Enter is the second approval key, read before the chord guard below: it is the window's
     // chord, and only an approval has anything to allow for the session.

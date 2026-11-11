@@ -167,11 +167,13 @@ impl<L: Live> Shell<L> {
         self.pane = Pane::Session;
     }
 
-    /// Every pane starts over for a session the window switched to: the settings draft is dropped
-    /// and the file tabs go, because they name files in the tree that was just replaced.
+    /// Every pane starts over for a session the window switched to: the settings draft and the
+    /// finder's file list are dropped and the file tabs go, because they name files in the tree
+    /// that was just replaced.
     pub(super) fn reset_panes(&mut self) {
         self.settings = None;
         self.palette = None;
+        self.finder = None;
         self.pane = Pane::Session;
         self.files_open.clear();
     }

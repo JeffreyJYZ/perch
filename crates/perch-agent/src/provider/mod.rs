@@ -15,6 +15,7 @@ mod endpoint;
 mod message;
 mod model;
 mod models;
+mod price;
 mod secret;
 mod send;
 mod stream;
@@ -30,6 +31,7 @@ pub use model::Model;
 pub use models::{
     Http as HttpTransport, ListedModel, Transport as ModelTransport, list_models, list_models_with,
 };
+pub use price::Price;
 pub use secret::SecretString;
 pub use stream::ChunkStream;
 

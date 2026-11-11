@@ -29,6 +29,8 @@ pub struct Fake {
     pub compacted: u32,
     /// The last turn's tokens, for the meter.
     pub tokens: Option<u32>,
+    /// The last turn's dollars, for the meter, when the provider stated a price.
+    pub cost: Option<f64>,
     /// The theme the saved settings carry, which is what the window draws.
     pub theme: String,
 }
@@ -47,6 +49,7 @@ impl Default for Fake {
             prompted: None,
             compacted: 0,
             tokens: None,
+            cost: None,
             theme: "dark".to_string(),
         }
     }
@@ -100,6 +103,10 @@ impl Live for Fake {
                 .map(|id| ListedModel {
                     id: id.clone(),
                     context: self.limits.get(id).copied(),
+                    // The fake's provider states no prices: a listing that says nothing about
+                    // money is the ordinary case, and what a price draws is the meter's business.
+                    prompt_price: None,
+                    completion_price: None,
                 })
                 .collect()),
         })
@@ -109,6 +116,9 @@ impl Live for Fake {
     }
     fn tokens_used(&self) -> Option<u32> {
         self.tokens
+    }
+    fn turn_cost(&self) -> Option<f64> {
+        self.cost
     }
     fn compact(&mut self) {
         self.compacted += 1;

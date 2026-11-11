@@ -134,7 +134,11 @@ impl<L: Live> Shell<L> {
         }
         self.close_menu();
         if self.run_command(&text) {
-            self.prompt = TextEdit::default();
+            // A command that found nothing to change leaves the box as it was sent, and is
+            // emptied; `/skill` replaced the text with a prompt the person edits, which is kept.
+            if self.prompt.text.trim() == text {
+                self.prompt = TextEdit::default();
+            }
             self.refresh();
             return true;
         }

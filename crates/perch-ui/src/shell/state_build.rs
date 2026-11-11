@@ -59,6 +59,7 @@ impl<L: Live> Shell<L> {
             folder: Folder::default(),
             menu: super::composer_menu::Menu::default(),
             palette: None,
+            finder: None,
             dock_hidden: false,
             sessions_focused: false,
             pending_delete: None,

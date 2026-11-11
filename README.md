@@ -25,6 +25,8 @@ Why Zig 0.15.2 and not the 0.17 on `PATH`:
 
 `rune` and `rune-kit` are path dependencies on `../../experiments/rune/crates/*`, because Rune has no stable release. The path is the pin.
 
+The workspace sets `[profile.dev] debug = 1` on purpose: full debuginfo for this tree and its dependencies reached 90 GiB of `target/debug/deps`, and `debug = 1` still gives a backtrace with file and line.
+
 ## Run
 
 ```sh
@@ -47,11 +49,14 @@ Data lives under `~/Library/Application Support/dev.jyz.perch` (the app id in `c
 
 A composer text starting with `/` is a command. An empty composer plus `/` opens the filtered list; a row writes the command's typed form.
 
-- `/new` opens a session on the worktree already open; `/rename <title>` renames it; `/sessions` moves the keyboard into the session list (Up/Down, Escape returns).
+- `/new` opens a session on the worktree already open; `/fork` copies this conversation into a new session; `/rename <title>` renames it; `/sessions` moves the keyboard into the session list (Up/Down, Escape returns).
 - `/model [id]` opens the picker or sets an id; `/compact` compacts the conversation now.
+- `/skills` lists the skills this session can load; `/skill <name>` loads one's body into the prompt.
 - `/theme [light|dark]`, `/terminal`, `/editor` (hands the selected file to Zed).
 - `/export` writes the transcript as text to `<data>/export-<id>.txt`; `/clean` empties the column but not the log; `/help`; `/quit`.
 - Anything unknown is answered in words, and a command whose precondition is missing says what is missing instead of doing nothing.
+
+⌘K opens the palette: the same command table plus Settings, New session, Toggle dock and Close tab. ⌘P opens the file finder as a full-window layer over the current pane — Escape returns to it — which reads the worktree once per open (skipping `.git`, `target`, `node_modules`, capped at 20 000 files), ranks a subsequence over the whole path with one dropped letter forgiven on needles of five or more, draws twelve rows, and opens the pick through the same path a tree-row press takes.
 
 A session names itself once, after its first turn, with one small provider request; it only does so while the title is still the folder name, so `/rename` always wins. A session row's delete control arms on the first press and deletes the session and its log on the second.
 
@@ -63,6 +68,14 @@ Nine builtins: `read`, `write`, `edit`, `patch`, `bash`, `jobs`, `list`, `grep`,
 - `patch` applies a multi-file unified diff all-or-nothing; `edit` replaces one exact occurrence; both preview a diff.
 - `read` 64 KiB with line numbers, `list` 512 entries, `grep` via `rg` (30 s, names a missing `rg`), `glob` ignore-aware with `**`, sorted, capped, refusing a pattern that escapes the worktree.
 - `ask_user` is an ordinary tool: options (one or several) and a free-text answer.
+
+Three tools are registered by the app's build in the order that makes them safe — `skill`, then `task`, then `execute` — and the last two take a copy of the registry as it is at that moment, which is why a child has no `task` and no `execute`:
+
+- `skill`: `SKILL.md` directories under `~/.config/perch/skills` first, then `.perch/skills` from the root down to the worktree, nearest last so a project overrides a machine-wide skill; body capped at 64 KiB. `/skills` lists, `/skill <name>` loads.
+- `task`: one child turn from a self-contained brief, answering `task "<label>" -> done[ in N rounds]` and the child's text. The child gets only approval-free tools, so it cannot write, patch or run a shell; it never gets `task` itself, so a task has no grandchildren; the parent's cancel stops it; 64 KiB prompt refused, 64 KiB answer cut.
+- `execute`: Code Mode. Real JavaScript (boa) with `tools.call`, `tools.list` and `print`, so several calls and the work between them cost one tool call and only what is printed reaches the transcript. Approval-needing tools throw instead of running; each execution gets 30 s, 32 tool calls and 64 KiB.
+
+Two more crates are built and tested but not registered by the app: `perch-web` (`webfetch`, `websearch`) and `perch-board` (the project board's tools).
 
 A saved rules file would let an approval outlive the session (`Dispatcher::with_rules`), and project `AGENTS.md`/`CLAUDE.md` can be assembled for the system prompt (`instructions::for_worktree`). Neither is wired into the app yet: the dispatcher is built with `Dispatcher::new()` and the system prompt is still the fixed sentence in `crates/perch-app/src/app/mod.rs`.
 
@@ -167,6 +180,7 @@ The model's tool list is read from the live registry when each request starts, s
 - The update check stages and verifies a download; installing is the person's step after perch quits. Nothing swaps the running bundle.
 - A session's `branch` is stored empty: the app does not read the worktree's git branch, so the row says "no branch". Ahead/behind and a diff view do not exist.
 - Saved permission rules are implemented in `perch-agent` but never read, because the app's dispatcher is built without one; `AGENTS.md`/`CLAUDE.md` are assembled but not sent, because the system prompt is still fixed.
+- `webfetch`, `websearch` and the project board's tools exist in their own crates and are tested; the app registers none of them, so a model is never offered them.
 - The close chip on a file tab is invisible until the pointer is over that tab. A press computed from the pre-hover tree can therefore address a neighbour, which is why the headless test drives `Shell::close_tab` rather than the chip; `close_tab` itself returns to the session.
 - The accessibility tree names regions, text rows, and the terminal's caret and selection; it does not name individual terminal cells.
 - The MCP host records every call, but the window shows a call only as its namespaced tool card; the host's connection and call notes are not drawn anywhere, and only a failed server is said in the right-hand column.

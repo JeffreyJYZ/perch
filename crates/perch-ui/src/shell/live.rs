@@ -6,17 +6,11 @@ use std::time::Duration;
 use perch_agent::ListedModel;
 use perch_store::SessionMeta;
 
+mod tick;
+
 use crate::settings::SettingsDraft;
 use crate::transcript::Transcript;
-
-/// What one frame may spend folding a turn's events. The rest of the frame is the frame's: a
-/// drawing thread that waits on a turn is a window that stops responding.
-pub const BUDGET: Duration = Duration::from_millis(1);
-/// How long the window waits before polling again while a turn is streaming.
-pub const TURN_TICK: Duration = Duration::from_millis(8);
-/// The same for a live shell, which has no channel to wake the window with: it is polled on a
-/// tick because its output arrives whether or not anyone asked.
-pub const SHELL_TICK: Duration = Duration::from_millis(16);
+pub use tick::{BUDGET, SHELL_TICK, TURN_TICK};
 
 /// What the window asks of the app behind it.
 ///
@@ -30,10 +24,8 @@ pub trait Live: 'static {
     /// The active session's transcript, when a session is open.
     fn transcript(&self) -> Option<&Transcript>;
 
-    /// The transcript a press may change — a card opened or closed — when a session is open.
-    ///
-    /// The window draws a copy of this transcript, so a change made to the copy alone would last
-    /// one frame. `None` is a window with no app behind it, or no session to change.
+    /// The transcript a press may change. The window draws a copy, so a change to the copy alone
+    /// lasts one frame; `None` is no app, or no session to change.
     fn transcript_mut(&mut self) -> Option<&mut Transcript> {
         None
     }
@@ -45,6 +37,11 @@ pub trait Live: 'static {
         _worktree: &Path,
     ) -> std::result::Result<(usize, SessionMeta), String> {
         Err("no app is running, so no session was opened".to_string())
+    }
+
+    /// Forks the session at `index` into one of its own; answers its index and header.
+    fn fork_session(&mut self, _index: usize) -> std::result::Result<(usize, SessionMeta), String> {
+        Err("no app is running, so no session was forked".to_string())
     }
 
     /// Opens a session on the folder a person picked in the window, as that folder: the window
@@ -106,12 +103,8 @@ pub trait Live: 'static {
         None
     }
 
-    /// The provider's model ids, sorted as it returned them. The error is why nothing could be
-    /// listed, in words, and it is what leaves the panel's typed field as the fallback.
-    ///
-    /// This is the blocking form: only a path that is already off the frame thread may call it.
-    /// A menu that opens on a click uses [`Live::start_models`] and [`Live::models_ready`], because
-    /// one network round trip on the click path is a tab that takes a second to appear.
+    /// The provider.rs model ids, sorted as returned; the error is why nothing was listed. This is
+    /// the blocking form — a click path uses [`Live::start_models`] and [`Live::models_ready`].
     fn models(&mut self) -> std::result::Result<Vec<ListedModel>, String> {
         Err("no app is running, so no models were listed".to_string())
     }
@@ -131,6 +124,14 @@ pub trait Live: 'static {
 
     /// The tokens the last turn reported, when one has ended.
     fn tokens_used(&self) -> Option<u32> {
+        None
+    }
+
+    /// The dollars the last turn cost, when the provider stated the model's price.
+    ///
+    /// A window with no price states no money at all: an invented bill is worse than no bill, so
+    /// the meter leaves the amount out rather than showing a zero.
+    fn turn_cost(&self) -> Option<f64> {
         None
     }
 

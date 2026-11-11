@@ -82,6 +82,9 @@ pub fn composer_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -
     if shell.typing() {
         return answer_key(shell, ev, tx);
     }
+    if shell.finder_key(ev) {
+        return true;
+    }
     if shell.palette_key(ev) {
         return true;
     }
@@ -150,6 +153,13 @@ pub fn composer_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -
         Intent::Palette => {
             tx.instant();
             shell.toggle_palette();
+            true
+        }
+        // ⌘P, the same way: the finder's field takes the keyboard on the frame it is mounted, so
+        // the overlay is committed instantly rather than fading in with an unfocusable field.
+        Intent::Finder => {
+            tx.instant();
+            shell.toggle_finder();
             true
         }
     }

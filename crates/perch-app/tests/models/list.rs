@@ -1,6 +1,53 @@
 //! The provider's list: whatever it returns, sorted, and a failure in words.
 
+use perch_agent::Price;
+
 use crate::harness::{Answer, Table, app, defaults};
+use crate::lazy::wait_for_models;
+
+#[test]
+fn the_listed_window_and_prices_reach_the_app() {
+    let data = tempfile::tempdir().unwrap();
+    let worktree = tempfile::tempdir().unwrap();
+    let table = Table::new(Answer::Body(
+        r#"{"data":[
+            {"id":"test/model","context_length":200000,
+             "pricing":{"prompt":"0.00000015","completion":"0.0000006"}}
+        ]}"#,
+    ));
+    let mut app =
+        app(&data, defaults("https://provider.test/v1", "test/model")).with_listings(table);
+    let index = app.new_session(worktree.path()).unwrap();
+    app.switch(index).unwrap();
+
+    assert_eq!(
+        app.turn_cost(),
+        None,
+        "a session with no turn has no usage to price"
+    );
+
+    app.start_models();
+    wait_for_models(&mut app).expect("the table answers");
+
+    assert_eq!(
+        app.model_limit(),
+        Some(200_000),
+        "the window the listing stated is reachable from the app"
+    );
+    assert_eq!(
+        app.model_price(),
+        Some(Price {
+            prompt: 0.00000015,
+            completion: 0.0000006,
+        }),
+        "the price the listing stated is kept beside the window, in dollars per token"
+    );
+    assert_eq!(
+        app.turn_cost(),
+        None,
+        "a price is not a bill: only a turn that reported usage has a cost"
+    );
+}
 
 #[test]
 fn the_list_is_the_providers_sorted_and_free_models_are_not_privileged() {

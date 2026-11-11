@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Result;
 
+mod fork;
 mod logged;
 pub use logged::Logged;
 

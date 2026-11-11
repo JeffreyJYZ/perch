@@ -24,7 +24,7 @@ use crate::app::subagent::Agents;
 
 mod build;
 
-use build::{add_codemode, add_task};
+use build::{add_codemode, add_skills, add_task};
 
 /// The live plugin host and MCP connections, and the registry they last built.
 pub struct Sources {
@@ -66,6 +66,7 @@ impl Sources {
     ) -> Result<Sources> {
         let mut loaded = Loaded::open(&dir, Dispatcher::builtin_registry());
         let mcp = McpHost::connect_all(servers, loaded.registry_mut())?;
+        add_skills(loaded.registry_mut());
         let refused = add_task(loaded.registry_mut(), agents.as_ref());
         add_codemode(loaded.registry_mut());
         let failures = mcp.failed();
@@ -92,6 +93,7 @@ impl Sources {
         // session's whole log into a plugin that just started.
         next.inherit_feed(&mut self.loaded);
         self.mcp.reconcile(servers, next.registry_mut());
+        add_skills(next.registry_mut());
         self.refused = add_task(next.registry_mut(), self.agents.as_ref());
         add_codemode(next.registry_mut());
         self.loaded = next;

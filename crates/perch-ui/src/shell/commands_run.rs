@@ -48,6 +48,7 @@ impl<L: Live> Shell<L> {
     fn command(&mut self, command: &Command, arg: &str) -> Result<Option<String>, String> {
         match command.name {
             "new" => self.command_new(),
+            "fork" => self.command_fork(),
             "rename" => self.command_rename(arg),
             "model" => self.command_model(arg),
             "compact" => self.command_compact(),
@@ -57,6 +58,8 @@ impl<L: Live> Shell<L> {
                 .map(|index| Some(format!("terminal: tab {}", index + 1))),
             "editor" => self.command_editor(),
             "sessions" => self.command_sessions(),
+            "skills" => self.command_skills(),
+            "skill" => self.command_skill(arg),
             "export" => self.command_export(),
             "help" => {
                 for line in help_lines() {

@@ -1,17 +1,16 @@
 //! The models a provider offers: `GET <base_url>/models`.
 //!
 //! The list is the provider's own, sorted and deduplicated and nothing else: no preferred model,
-//! no free-model rule, because a provider that returns one id returns one id. The one GET goes
-//! through [`Transport`], so the picker's test answers it from a table and opens no socket.
-//!
-//! OpenAI-compatible gateways answer `data[].id`; a few (Ollama among them) answer
-//! `models[].name`. Both are read, so a provider is not refused for its field name.
+//! no free-model rule. The one GET goes through [`Transport`], so the picker's test answers it
+//! from a table and opens no socket. Gateways answer `data[].id`, a few (Ollama among them)
+//! `models[].name`; both are read, so a provider is not refused for its field name.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
 use serde::Deserialize;
 
+use super::price::WirePricing;
 use crate::{Error, Result};
 
 /// A listing's deadline. Shorter than a turn's on purpose: a picker that waits is a picker that
@@ -52,17 +51,22 @@ impl Transport for Http {
     }
 }
 
-/// One model a provider offers: its id, and the context window the provider states for it.
+/// One model a provider offers: its id, the context window it states, and what it charges.
 ///
-/// The limit travels with the id because the meter needs it: a list of bare ids would make the
-/// window fetch the same payload again just to learn one number. `context_length` is the field
-/// OpenRouter and its imitators state, in tokens; a provider that states none leaves the limit
-/// unknown, which the meter shows as a token count with no share.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The window and the prices travel with the id because the meter needs both: a list of bare ids
+/// would make it fetch the same payload again just to learn two numbers. `context_length` and
+/// `pricing` are the fields OpenRouter and its imitators state, in tokens and dollars per token;
+/// a provider that states neither leaves both unknown, so the meter shows a token count with no
+/// share and no money.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ListedModel {
     pub id: String,
     /// The context window in tokens, when the provider states one.
     pub context: Option<u32>,
+    /// Dollars per input token, when the provider states it.
+    pub prompt_price: Option<f64>,
+    /// Dollars per output token, when the provider states it.
+    pub completion_price: Option<f64>,
 }
 
 /// The ids `base_url` lists, through the real client.
@@ -114,7 +118,6 @@ struct WireModel {
     id: Option<String>,
     #[serde(default)]
     name: Option<String>,
-    /// The context window, on the shapes that state one at the top level.
     #[serde(default)]
     context_length: Option<u32>,
     #[serde(default)]
@@ -122,6 +125,9 @@ struct WireModel {
     /// Some gateways put the limit on the serving provider instead.
     #[serde(default)]
     top_provider: Option<WireProvider>,
+    /// The dollars-per-token rates, on the gateways that state them.
+    #[serde(default)]
+    pricing: Option<WirePricing>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,14 +146,23 @@ impl WireModel {
     }
 }
 
+/// What one id is known to state, gathered across the copies a listing carries.
+#[derive(Default)]
+struct Facts {
+    context: Option<u32>,
+    prompt: Option<f64>,
+    completion: Option<f64>,
+}
+
 /// The models in `body`, trimmed, deduplicated and sorted by id.
 ///
-/// A duplicate entry keeps the limit whenever either copy states one: a gateway that lists a model
-/// twice must not lose the number that makes the meter work.
+/// A duplicate entry keeps the limit and the prices whenever either copy states one: a gateway that
+/// lists a model twice must not lose the numbers that make the meter work.
 fn parse(body: &[u8]) -> Result<Vec<ListedModel>> {
     let list: WireList = serde_json::from_slice(body)?;
-    let mut listed: BTreeMap<String, Option<u32>> = BTreeMap::new();
+    let mut listed: BTreeMap<String, Facts> = BTreeMap::new();
     for model in list.data.into_iter().chain(list.models) {
+        let prices = model.pricing.as_ref().and_then(WirePricing::values);
         let context = model.context();
         let Some(id) = model.id.or(model.name) else {
             continue;
@@ -156,14 +171,19 @@ fn parse(body: &[u8]) -> Result<Vec<ListedModel>> {
         if id.is_empty() {
             continue;
         }
-        let entry = listed.entry(id).or_insert(context);
-        if entry.is_none() {
-            *entry = context;
-        }
+        let facts = listed.entry(id).or_default();
+        facts.context = facts.context.or(context);
+        facts.prompt = facts.prompt.or(prices.map(|pair| pair.0));
+        facts.completion = facts.completion.or(prices.map(|pair| pair.1));
     }
     Ok(listed
         .into_iter()
-        .map(|(id, context)| ListedModel { id, context })
+        .map(|(id, facts)| ListedModel {
+            id,
+            context: facts.context,
+            prompt_price: facts.prompt,
+            completion_price: facts.completion,
+        })
         .collect())
 }
 

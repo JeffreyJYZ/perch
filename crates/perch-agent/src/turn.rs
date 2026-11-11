@@ -118,6 +118,15 @@ impl AgentHandle {
         CancelWatch::new(Arc::clone(&self.cancel))
     }
 
+    /// The counter this agent's turns are cancelled through.
+    ///
+    /// For work that runs *beside* a turn rather than inside it — a child turn a tool starts —
+    /// which must stop when the user stops this one instead of running on under a counter
+    /// nothing ever bumps. [`CancelWatch`] is the read-only twin for code that only asks.
+    pub fn cancel_token(&self) -> Arc<Cancel> {
+        Arc::clone(&self.cancel)
+    }
+
     /// Stop the running turn.
     ///
     /// Cooperative and lossless: the counter only ever increases, so a turn that checks it before

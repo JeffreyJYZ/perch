@@ -143,6 +143,10 @@ impl Live for Window {
         self.app().and_then(Live::tokens_used)
     }
 
+    fn turn_cost(&self) -> Option<f64> {
+        self.app().and_then(Live::turn_cost)
+    }
+
     fn compact(&mut self) {
         if let Some(app) = self.app_mut() {
             Live::compact(app);

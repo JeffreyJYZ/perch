@@ -21,6 +21,7 @@ mod answers;
 mod boot;
 mod commands;
 mod config;
+mod fork;
 mod models;
 mod open;
 mod sessions;
@@ -127,11 +128,13 @@ pub struct AppState {
     pub(crate) update_transport: Option<Arc<dyn Transport>>,
     /// The transport the provider's model list is fetched through: the real client, or a test's.
     pub(crate) listings: Arc<dyn ModelTransport>,
-    /// The context window each listed model states, by id: what the meter divides by.
+    /// What the provider stated about each listed model, by id: the window the meter divides by
+    /// and the dollars-per-token price it turns into money.
     ///
-    /// A provider need not state one, and the map simply has no entry for it; the meter then
-    /// shows the token count with no share rather than inventing a denominator.
-    pub(crate) limits: std::collections::HashMap<String, u32>,
+    /// A provider need not state either, and the map then has no entry, or an entry holding
+    /// nothing; the meter shows the token count alone rather than inventing a denominator or a
+    /// bill.
+    pub(crate) limits: std::collections::HashMap<String, models::ModelFacts>,
     /// The listing on its way, when one is: the thread that fetched it posts one answer and ends.
     ///
     /// The panel opens on the click and takes the answer on a later frame, so the tab appears at

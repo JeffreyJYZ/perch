@@ -35,3 +35,61 @@ pub(super) fn system(worktree: &Path) -> (String, Option<String>) {
     });
     (format!("{SYSTEM}\n\n{instructions}"), note)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::system;
+    use crate::app::SYSTEM;
+
+    /// The tests read no machine-wide instructions: this machine's own `AGENTS.md` would join
+    /// every message and decide whether these assertions hold. `PERCH_HOME` is the loader's seam.
+    fn hermetic() {
+        static HOME: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let home = HOME.get_or_init(|| {
+            let dir = tempfile::tempdir().unwrap();
+            // Safety: set once per test process, before any session is built.
+            unsafe { std::env::set_var("PERCH_HOME", dir.path()) };
+            dir
+        });
+        assert!(home.path().is_dir(), "the emptying home exists");
+    }
+
+    #[test]
+    fn a_worktree_without_instructions_sends_the_system_message_alone() {
+        hermetic();
+        let dir = tempfile::tempdir().unwrap();
+        let (message, note) = system(dir.path());
+        assert_eq!(
+            message, SYSTEM,
+            "an app with nothing to add changed the message"
+        );
+        assert!(
+            note.is_none(),
+            "nothing was added, so there is nothing to say"
+        );
+    }
+
+    #[test]
+    fn a_worktree_with_instructions_carries_them_after_a_blank_line() {
+        hermetic();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "Use tabs.").unwrap();
+        let (message, note) = system(dir.path());
+        assert!(
+            message.starts_with(SYSTEM),
+            "the system message was replaced: {message}"
+        );
+        assert!(
+            message.contains(&format!("{SYSTEM}\n\n")),
+            "no blank line between the system message and the file: {message}"
+        );
+        assert!(
+            message.ends_with("Use tabs."),
+            "the file's text is not last: {message}"
+        );
+        assert!(
+            note.is_none(),
+            "one small file is not worth a line: {note:?}"
+        );
+    }
+}

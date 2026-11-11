@@ -5,3 +5,4 @@ mod effects_files;
 mod harness;
 mod menu;
 mod palette;
+mod skills;

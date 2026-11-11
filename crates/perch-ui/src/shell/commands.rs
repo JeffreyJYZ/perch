@@ -16,6 +16,24 @@ pub struct Command {
 }
 
 impl Command {
+    /// A command that takes nothing: only the bare word is the control.
+    const fn bare(name: &'static str, about: &'static str) -> Command {
+        Command {
+            name,
+            about,
+            arg: None,
+        }
+    }
+
+    /// A command whose typed form carries an argument, named by its placeholder.
+    const fn taking(name: &'static str, about: &'static str, arg: &'static str) -> Command {
+        Command {
+            name,
+            about,
+            arg: Some(arg),
+        }
+    }
+
     /// The name as it is typed: `/rename <title>`.
     #[must_use]
     pub fn label(&self) -> String {
@@ -34,66 +52,25 @@ impl Command {
 
 /// Every command, in the order `/help` and the autocomplete list show them.
 pub const COMMANDS: &[Command] = &[
-    Command {
-        name: "new",
-        about: "start a session on this worktree",
-        arg: None,
-    },
-    Command {
-        name: "rename",
-        about: "name this session",
-        arg: Some("<title>"),
-    },
-    Command {
-        name: "model",
-        about: "open the model list, or set one by id",
-        arg: Some("[id]"),
-    },
-    Command {
-        name: "compact",
-        about: "drop the older exchange from the conversation",
-        arg: None,
-    },
-    Command {
-        name: "theme",
-        about: "switch between the dark and light kits",
-        arg: Some("[light|dark]"),
-    },
-    Command {
-        name: "terminal",
-        about: "open a new terminal tab",
-        arg: None,
-    },
-    Command {
-        name: "editor",
-        about: "hand the open file to Zed",
-        arg: None,
-    },
-    Command {
-        name: "sessions",
-        about: "focus the session list",
-        arg: None,
-    },
-    Command {
-        name: "export",
-        about: "write this transcript to a file",
-        arg: None,
-    },
-    Command {
-        name: "help",
-        about: "list every command",
-        arg: None,
-    },
-    Command {
-        name: "quit",
-        about: "close the window",
-        arg: None,
-    },
-    Command {
-        name: "clean",
-        about: "empty this session's transcript",
-        arg: None,
-    },
+    Command::bare("new", "start a session on this worktree"),
+    Command::bare("fork", "copy this conversation into a new session"),
+    Command::taking("rename", "name this session", "<title>"),
+    Command::taking("model", "open the model list, or set one by id", "[id]"),
+    Command::bare("compact", "drop the older exchange from the conversation"),
+    Command::taking(
+        "theme",
+        "switch between the dark and light kits",
+        "[light|dark]",
+    ),
+    Command::bare("terminal", "open a new terminal tab"),
+    Command::bare("editor", "hand the open file to Zed"),
+    Command::bare("sessions", "focus the session list"),
+    Command::bare("skills", "list the skills this session can load"),
+    Command::taking("skill", "load a skill's body into the prompt", "<name>"),
+    Command::bare("export", "write this transcript to a file"),
+    Command::bare("help", "list every command"),
+    Command::bare("quit", "close the window"),
+    Command::bare("clean", "empty this session's transcript"),
 ];
 
 /// The command named `name`, without its slash.
