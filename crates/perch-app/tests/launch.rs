@@ -1,6 +1,6 @@
 //! A window opens on a project, never on a filesystem root or a home directory.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use perch_app::launch::{project_root, refusal, refusal_with};
 
@@ -25,6 +25,15 @@ fn a_real_directory_is_accepted_and_a_missing_one_is_not() {
     let root = project_root(Some(dir.path().to_path_buf())).expect("accepted");
     assert_eq!(root, dir.path().canonicalize().unwrap());
     assert!(project_root(Some(dir.path().join("gone"))).is_err());
+}
+
+#[test]
+fn an_explicit_choice_is_never_refused_even_if_it_is_a_root() {
+    // `--worktree /` is a person saying what they want; only the implicit launch-directory guess
+    // is guarded, because walking `/` is never what anyone meant.
+    let root = project_root(Some(PathBuf::from("/"))).expect("explicit root accepted");
+    assert_eq!(root, Path::new("/").canonicalize().unwrap());
+    assert!(refusal(Path::new("/")).is_some(), "the guard still speaks");
 }
 
 #[test]

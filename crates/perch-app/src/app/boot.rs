@@ -170,12 +170,7 @@ pub(super) fn headers(dir: &Path) -> Result<Vec<SessionMeta>> {
             continue;
         }
         if let Ok(meta) = serde_json::from_str::<SessionMeta>(&line) {
-            // A session recorded before the launch rule existed can name `/` or a home directory.
-            // Reopening it would walk the disk again, so it is skipped, not migrated: the window
-            // opens without it and the file is left untouched on disk.
-            if crate::launch::refusal(&meta.worktree).is_none() {
-                metas.push(meta);
-            }
+            metas.push(meta);
         }
     }
     metas.sort_by_key(|meta| meta.created);
