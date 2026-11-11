@@ -68,6 +68,7 @@ mod state_keys;
 mod tabs;
 mod term_keys;
 mod terminal;
+mod todo;
 mod waiting;
 
 pub use card::window_key;

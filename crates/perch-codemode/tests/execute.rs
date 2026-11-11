@@ -49,7 +49,10 @@ print(tools.call("read", { path: "d.txt" }).text);
     );
 
     assert_eq!(answer["ok"], json!(true));
-    assert_eq!(field(&answer, "output"), "values: 1 true null\nalpha\nalpha\n");
+    assert_eq!(
+        field(&answer, "output"),
+        "values: 1 true null\nalpha\nalpha\n"
+    );
     assert_eq!(host.calls()[0].1, json!({ "path": "c.txt" }));
     assert_eq!(host.calls()[1].1, json!({ "path": "d.txt" }));
 }
@@ -127,7 +130,11 @@ fn an_uncaught_throw_ends_the_program_with_its_message() {
     let answer = result(&tool, "throw new Error('boom');");
 
     assert_eq!(answer["ok"], json!(false));
-    assert!(field(&answer, "error").contains("boom"), "{}", field(&answer, "error"));
+    assert!(
+        field(&answer, "error").contains("boom"),
+        "{}",
+        field(&answer, "error")
+    );
     assert!(
         !field(&answer, "diagnostic").is_empty(),
         "the stack or the message is reported"

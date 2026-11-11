@@ -16,6 +16,7 @@ use perch_store::{SessionLog, SessionMeta, meta_path};
 
 use super::Snapshot;
 use super::queue::{settle, take};
+use crate::app::subagent::Agents;
 use crate::sources::Sources;
 
 /// The worker thread: open the sources, publish them, then take whatever is queued.
@@ -27,13 +28,14 @@ use crate::sources::Sources;
 pub(super) fn run(
     dir: PathBuf,
     servers: Vec<McpServerConfig>,
+    agents: Option<Agents>,
     latest: &ArcSwap<Snapshot>,
     wanted: &Mutex<super::queue::Wanted>,
     wake: &Receiver<()>,
 ) {
     // One handle per session, so a feed is a read of what is new rather than a replay of the log.
     let mut logs: HashMap<PathBuf, SessionLog> = HashMap::new();
-    let mut sources = open(&dir, &servers, latest);
+    let mut sources = open(&dir, &servers, agents.as_ref(), latest);
     if let Some(sources) = sources.as_mut() {
         latest.store(Arc::new(published(sources)));
     }
@@ -45,7 +47,7 @@ pub(super) fn run(
             // Sources that failed to open are tried again on the next change: a save is the
             // reason a person expects a plugin to come back, and the words still say it failed.
             if sources.is_none() {
-                sources = open(&dir, &servers, latest);
+                sources = open(&dir, &servers, agents.as_ref(), latest);
             }
             if let Some(sources) = sources.as_mut() {
                 // The presses go first: each one was accepted against the panel the window drew,
@@ -83,8 +85,13 @@ pub(super) fn run(
 ///
 /// A plugin engine that will not build is not a window that will not open: nothing is produced
 /// but the words, which reach the column as the note saying what is missing.
-fn open(dir: &Path, servers: &[McpServerConfig], latest: &ArcSwap<Snapshot>) -> Option<Sources> {
-    match Sources::open(dir.to_path_buf(), servers) {
+fn open(
+    dir: &Path,
+    servers: &[McpServerConfig],
+    agents: Option<&Agents>,
+    latest: &ArcSwap<Snapshot>,
+) -> Option<Sources> {
+    match Sources::open_for(dir.to_path_buf(), servers, agents.cloned()) {
         Ok(sources) => Some(sources),
         Err(error) => {
             latest.store(Arc::new(Snapshot::failed(&error)));

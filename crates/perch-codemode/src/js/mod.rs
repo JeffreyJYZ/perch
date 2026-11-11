@@ -85,7 +85,7 @@ fn evaluate(program: &str, context: &mut Context) -> Outcome {
                 return Outcome::Ok;
             }
             match state::with(|state| {
-                let bytes = state.out.line(&text);
+                let bytes = state.out.value(&text);
                 state.budget.charge_output(bytes)
             }) {
                 Some(Err(stop)) => Outcome::Stopped(stop),
@@ -116,23 +116,26 @@ fn thrown(error: &JsError) -> Outcome {
     let text = error.to_string();
     // boa counts loop iterations instead of watching a clock, so this is how a spin ends. The
     // stop is built here because no host function saw it happen.
-    if text.contains("maximum number of iteration loops") {
-        if let Some(stop) = state::with(|state| {
+    if text.contains("maximum number of iteration loops")
+        && let Some(stop) = state::with(|state| {
             let steps = state.budget.limits().steps;
             state
                 .stop
                 .clone()
                 .unwrap_or_else(|| state.budget.steps_hit(steps))
-        }) {
-            return Outcome::Stopped(stop);
-        }
+        })
+    {
+        return Outcome::Stopped(stop);
     }
     let message = text
         .lines()
         .next()
         .unwrap_or("the program threw")
         .to_string();
-    Outcome::Threw { message, stack: text }
+    Outcome::Threw {
+        message,
+        stack: text,
+    }
 }
 
 /// A program that does not parse: its line and column, drawn against the source.

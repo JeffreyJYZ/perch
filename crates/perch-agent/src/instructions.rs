@@ -56,7 +56,7 @@ pub fn for_worktree(worktree: &Path) -> String {
 }
 
 /// Adds one file's content, cut to its share, to the assembly.
-fn absorb(out: &mut String, path: &Path, bytes: &[u8]) {
+pub(crate) fn absorb(out: &mut String, path: &Path, bytes: &[u8]) {
     let used = out.len();
     let room = MAX_TOTAL_BYTES.saturating_sub(used);
     if room == 0 {
@@ -102,7 +102,7 @@ fn absorb(out: &mut String, path: &Path, bytes: &[u8]) {
 }
 
 /// Whether `path` is something this module would read: a file, or a link that stays in the work.
-fn is_readable(path: &Path, worktree: &Path) -> bool {
+pub(crate) fn is_readable(path: &Path, worktree: &Path) -> bool {
     let Ok(meta) = std::fs::symlink_metadata(path) else {
         return false;
     };
@@ -126,9 +126,52 @@ fn floor_boundary(bytes: &[u8], mut end: usize) -> usize {
 }
 
 /// Appends one block, with a blank line between it and whatever came before.
-fn push(out: &mut String, block: &str) {
+pub(crate) fn push(out: &mut String, block: &str) {
     if !out.is_empty() {
         out.push_str("\n\n");
     }
     out.push_str(block);
+}
+
+/// The person's own instruction files, then the project's: global rules first, and the repository
+/// nearest the work last, so a project can still overrule a machine-wide default.
+pub fn for_session(worktree: &Path) -> String {
+    match crate::instructions_home::home() {
+        Some(home) => for_session_with(worktree, &home),
+        // No home to read: a session still runs on its project's files rather than on nothing.
+        None => for_worktree(worktree),
+    }
+}
+
+/// [`for_session`] with the home directory stated, which is what a test and a sandbox use so no
+/// test ever reads the machine it happens to run on.
+pub fn for_session_with(worktree: &Path, home: &Path) -> String {
+    let mut out = String::new();
+    crate::instructions_home::absorb_home(&mut out, home);
+    absorb_worktree(&mut out, worktree);
+    out
+}
+
+/// The project half alone, appended after whatever the machine contributed.
+fn absorb_worktree(out: &mut String, worktree: &Path) {
+    let mut dirs: Vec<PathBuf> = worktree.ancestors().map(Path::to_path_buf).collect();
+    dirs.reverse();
+    for dir in dirs {
+        for name in NAMES {
+            let path = dir.join(name);
+            if !is_readable(&path, worktree) {
+                continue;
+            }
+            match std::fs::read(&path) {
+                Ok(bytes) => absorb(out, &path, &bytes),
+                Err(error) => push(
+                    out,
+                    &format!(
+                        "Instructions from {} could not be read: {error}",
+                        path.display()
+                    ),
+                ),
+            }
+        }
+    }
 }

@@ -62,6 +62,9 @@ fn lines(state: &AppState, plugin: &str) -> Vec<String> {
 fn a_button_press_reaches_the_plugin_and_the_column_changes() {
     let data = data_with(&[("counter.wasm", "counter.wasm")]);
     let mut state = app(data.path());
+    // The window opens before the sources are built, so the first snapshot carries the panels:
+    // a test that read them on the open would be reading the frame before the plugins loaded.
+    settled(&mut state);
     assert_eq!(
         lines(&state, "counter"),
         ["count: 0"],
@@ -92,6 +95,9 @@ fn a_button_press_reaches_the_plugin_and_the_column_changes() {
 fn a_press_for_a_control_the_panel_does_not_declare_is_stated() {
     let data = data_with(&[("counter.wasm", "counter.wasm")]);
     let mut state = app(data.path());
+    // The window opens before the sources are built, so the first snapshot carries the panels:
+    // a test that read them on the open would be reading the frame before the plugins loaded.
+    settled(&mut state);
 
     let refused = state
         .panel_action("counter", "no-such-control", None)
@@ -126,6 +132,9 @@ fn a_press_for_a_plugin_that_is_gone_is_stated() {
 fn a_press_that_traps_disables_the_plugin_and_says_so_in_the_column() {
     let data = data_with(&[("trap-action/trap-action.wasm", "trap-action.wasm")]);
     let mut state = app(data.path());
+    // The window opens before the sources are built, so the first snapshot carries the panels:
+    // a test that read them on the open would be reading the frame before the plugins loaded.
+    settled(&mut state);
     assert_eq!(lines(&state, "trap-action"), ["press the button"]);
 
     // The press is accepted; the trap happens on the worker's thread, which is where the host is.

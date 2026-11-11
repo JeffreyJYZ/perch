@@ -10,7 +10,9 @@ use super::{SEARCH_COUNT_DEFAULT, SEARCH_COUNT_MAX, WebSearch, parse};
 use crate::net::{MemoryFetcher, Response};
 
 fn ctx() -> ToolCtx {
-    ToolCtx { root: PathBuf::from("/") }
+    ToolCtx {
+        root: PathBuf::from("/"),
+    }
 }
 
 /// One result block in the shape DuckDuckGo serves: a `result__a` anchor around the title and a
@@ -26,7 +28,11 @@ fn page(count: usize) -> String {
     let mut page = String::new();
     for index in 0..count {
         let url = format!("https://example.test/{index}");
-        page.push_str(&block(&url, &format!("Title <b>{index}</b>"), "Snippet\n   over two lines."));
+        page.push_str(&block(
+            &url,
+            &format!("Title <b>{index}</b>"),
+            "Snippet\n   over two lines.",
+        ));
     }
     page
 }
@@ -64,14 +70,17 @@ fn a_result_carries_its_title_url_and_one_line_snippet() {
     assert!(out.contains("   https://example.test/0"), "{out}");
     assert!(out.contains("   Snippet over two lines."), "{out}");
     assert!(out.contains("2. Title 1"), "{out}");
-    assert!(!out.contains("uddg="), "the redirect was not unwrapped:\n{out}");
+    assert!(
+        !out.contains("uddg="),
+        "the redirect was not unwrapped:\n{out}"
+    );
 }
 
 #[test]
 fn the_same_url_twice_is_reported_once_with_the_first_snippet() {
-    let page = block("https://example.test/same", "First", "best") +
-        &block("https://example.test/other", "Second", "second") +
-        &block("https://example.test/same", "Again", "worse");
+    let page = block("https://example.test/same", "First", "best")
+        + &block("https://example.test/other", "Second", "second")
+        + &block("https://example.test/same", "Again", "worse");
     let hits = parse::dedupe(parse::results(&page));
     assert_eq!(hits.len(), 2, "{hits:?}");
     assert_eq!(hits[0].title, "First");
@@ -101,7 +110,10 @@ fn a_challenge_page_is_quoted_rather_than_reported_as_no_results() {
     let (tool, _) = tool(MemoryFetcher::new().answer("duckduckgo", response(202, body)));
     let error = message(tool.call(&json!({"query": "rune"}), &ctx()).unwrap_err());
     assert!(error.contains("answered HTTP 202"), "{error}");
-    assert!(error.contains("If this persists, please let us know."), "{error}");
+    assert!(
+        error.contains("If this persists, please let us know."),
+        "{error}"
+    );
     assert!(error.contains("q=rune"), "{error}");
 }
 
@@ -130,7 +142,10 @@ fn the_query_is_percent_encoded_into_the_endpoint_it_names() {
     call(&tool, json!({"query": "rust & rune"}));
     let asked = fetcher.asked();
     assert_eq!(asked.len(), 1);
-    assert_eq!(asked[0], "https://html.duckduckgo.com/html/?q=rust+%26+rune");
+    assert_eq!(
+        asked[0],
+        "https://html.duckduckgo.com/html/?q=rust+%26+rune"
+    );
 }
 
 #[test]

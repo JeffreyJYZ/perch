@@ -1,8 +1,8 @@
 //! The three host functions a program sees: `print`, `tools.call` and `tools.list`.
 
 use boa_engine::{
-    Context, JsNativeError, JsResult, JsValue, NativeFunction, js_string, object::ObjectInitializer,
-    property::Attribute,
+    Context, JsNativeError, JsResult, JsValue, NativeFunction, js_string,
+    object::ObjectInitializer, property::Attribute,
 };
 use perch_tools::{Preview, ToolOutput};
 use serde_json::{Map, Value, json};
@@ -70,9 +70,7 @@ fn call(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<Js
     // The approval boundary: refused before it is charged or run, and thrown as an ordinary
     // error, so a program learns why and a person still approves the call made directly.
     if state::with(|state| state.host.gated(&name)).unwrap_or(false) {
-        return Err(JsNativeError::error()
-            .with_message(refusal(&name))
-            .into());
+        return Err(JsNativeError::error().with_message(refusal(&name)).into());
     }
     let answer = ask(|state| {
         state.budget.poll()?;

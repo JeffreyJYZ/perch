@@ -48,6 +48,22 @@ fn type_text(runtime: &mut Runtime<Shell<Fake>>, text: &str) {
     }
 }
 
+/// Clicks the composer's field so the keys land in it, as a person's first click does.
+fn focus_composer(runtime: &mut Runtime<Shell<Fake>>) {
+    let field = runtime
+        .elements()
+        .into_iter()
+        .find(|element| element.role == "textbox")
+        .expect("the composer's field is in the tree");
+    let at = (
+        field.rect[0] + field.rect[2] * 0.5,
+        field.rect[1] + field.rect[3] * 0.5,
+    );
+    runtime.pointer_down(at.0, at.1);
+    runtime.pointer_up(at.0, at.1);
+    runtime.frame(0.0);
+}
+
 #[test]
 fn command_k_opens_the_palette_over_the_registry_and_the_actions() {
     let dir = tempfile::tempdir().unwrap();
@@ -78,6 +94,11 @@ fn typing_filters_and_enter_takes_the_app_action() {
     let rows = runtime.state.palette_rows();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(rows[0].label(), "Toggle dock");
+    assert_eq!(
+        runtime.state.prompt_text(),
+        "",
+        "the keys narrowed the filter: the composer under the palette received none"
+    );
 
     runtime.key(KeyEvent {
         key: Key::Enter,
@@ -92,17 +113,31 @@ fn typing_filters_and_enter_takes_the_app_action() {
 fn escape_closes_the_palette_and_a_command_row_runs() {
     let dir = tempfile::tempdir().unwrap();
     let mut runtime = window(Fake::one("one", dir.path()));
+    focus_composer(&mut runtime);
+    type_text(&mut runtime, "draft");
+    assert_eq!(runtime.state.prompt_text(), "draft");
     chord(&mut runtime);
+    assert!(runtime.state.palette_open());
     runtime.key(KeyEvent {
         key: Key::Escape,
         mods: Mods::default(),
     });
     runtime.frame(0.0);
     assert!(!runtime.state.palette_open());
+    assert_eq!(
+        runtime.state.prompt_text(),
+        "draft",
+        "Escape leaves the composer exactly as it was"
+    );
 
     chord(&mut runtime);
     click(&mut runtime, "palette-query");
     type_text(&mut runtime, "new");
+    assert_eq!(
+        runtime.state.prompt_text(),
+        "draft",
+        "typing in the palette is not typing in the composer"
+    );
     runtime.key(KeyEvent {
         key: Key::Enter,
         mods: Mods::default(),

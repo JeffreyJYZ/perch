@@ -132,7 +132,10 @@ fn the_file_watcher_starts_without_waiting_on_the_filesystem() {
         "starting the watcher cost the window {started:?}"
     );
 
-    // And it is watching from the first sweep: a save written now is one it reports.
+    // The poller takes its baseline on its first sweep, so a write that lands before that sweep is
+    // part of the baseline rather than a change to it. Three intervals put the write well past
+    // the sweep that records that baseline, whatever phase the poller happened to start on.
+    std::thread::sleep(perch_app::watch::POLL_INTERVAL * 3);
     std::fs::write(&settings, "model = \"saved\"").unwrap();
     assert!(
         changed(&watcher),

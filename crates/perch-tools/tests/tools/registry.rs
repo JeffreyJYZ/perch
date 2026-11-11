@@ -15,7 +15,17 @@ fn every_builtin_tool_is_registered_with_a_schema() {
     assert_eq!(
         names,
         [
-            "read", "write", "edit", "bash", "jobs", "list", "grep", "glob", "patch"
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "jobs",
+            "list",
+            "grep",
+            "glob",
+            "patch",
+            "todowrite",
+            "todoread"
         ]
     );
 

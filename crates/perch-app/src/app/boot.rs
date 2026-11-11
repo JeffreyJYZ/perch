@@ -9,18 +9,24 @@ use perch_store::secret::SecretStore;
 use perch_store::settings::{self as settings_file, McpServerConfig};
 use perch_store::{SessionLog, SessionMeta};
 use perch_tools::ToolCtx;
-use perch_ui::Transcript;
 
+use super::tools::live_source;
+pub(super) use super::words::say;
 use super::{AppState, ProviderDefaults, Result};
 
 mod instructions;
+mod replay;
 mod rules;
+pub use replay::MAX_EXCHANGES;
+
 use crate::bridge;
 use crate::live_registry::Live;
 use crate::session::SessionRuntime;
 use crate::update::{Plan, Worker as UpdateWorker};
 use crate::watch;
 use crate::worker::Worker;
+
+use super::subagent;
 
 impl AppState {
     #[allow(
@@ -39,7 +45,10 @@ impl AppState {
         // The tools are opened on the worker's own thread: the plugin engine and the MCP
         // handshakes are what used to stand between the launch and the first frame. What is read
         // here is a snapshot of the built-ins; the window draws with it and the worker replaces it.
-        let worker = Worker::start(plugins.to_path_buf(), servers.to_vec());
+        // The provider a child `task` turn asks is fixed here too, because the sources are built
+        // before any session exists and a child always needs a model of its own.
+        let agents = subagent::Agents::new(&defaults);
+        let worker = Worker::start(plugins.to_path_buf(), servers.to_vec(), Some(agents));
         let snapshot = worker.latest();
         let live = Live::new(snapshot.registry.clone());
         let watch = watch::watch(&settings_file::path_in(dir), plugins);
@@ -71,6 +80,7 @@ impl AppState {
             live,
             worker,
             snapshot,
+            spoken: Vec::new(),
             watch,
             update,
             update_url,
@@ -96,9 +106,14 @@ pub(super) fn runtime(
     notes: &[String],
 ) -> Result<SessionRuntime> {
     let log = SessionLog::open(dir, meta.clone())?;
+    // What this session did before it was closed: the rows the column draws, and the record the
+    // model's system message carries so the first turn of this run is not the first of its life.
+    // Read here and never sent, so opening a session talks to nobody.
+    let replayed = replay::read(&log)?;
     // The project's own instructions travel in the system message, read from this session's
     // worktree: a session opened on another repository must be told that repository's rules.
     let (system, large) = instructions::system(&meta.worktree);
+    let system = replayed.seeded(system);
     // The saved rules are read per session, which is one small file and the only place a session
     // is built. A file that will not parse leaves no rules at all, so every gated call asks.
     let (rules, refused) = rules::load(dir);
@@ -122,12 +137,16 @@ pub(super) fn runtime(
         // leaves the request already out exactly as it was sent.
         tools: Tools::live(live_source(live)),
     });
+    // The `task` tool is built before this session exists, so the child it starts finds its
+    // parent's cancellation here: by worktree, which is the only thing a call carries. Without
+    // this line a cancel would leave a child working for nobody.
+    subagent::watching(&meta.worktree, agent.watch());
     let dispatcher = Arc::new(Mutex::new(Dispatcher::new().with_rules(rules.clone())));
     let ctx = ToolCtx {
         root: meta.worktree.clone(),
     };
     let bridge = bridge::spawn(agent.clone(), events, live, ctx, &dispatcher);
-    let mut transcript = Transcript::default();
+    let mut transcript = replayed.transcript;
     // A server that did not load is said once per session, in the column the user is reading.
     for note in notes {
         say(&mut transcript, note);
@@ -143,33 +162,6 @@ pub(super) fn runtime(
     Ok(SessionRuntime::new(
         meta, transcript, log, agent, dispatcher, bridge, model, endpoint,
     ))
-}
-
-/// Says `words` in a transcript as one item: the transcript has no note kind, so a note takes the
-/// path a reply's text does. Only used while no turn streams — a startup note, a refused prompt —
-/// so it never joins a reply.
-pub(super) fn say(transcript: &mut Transcript, words: &str) {
-    transcript.apply(&perch_agent::AgentEvent::TextDelta(words.to_string()));
-}
-
-/// The app's live registry as the agent's tool source: a snapshot of `specs()` each time the agent
-/// starts a request, so the next request carries whatever the last rebuild published.
-///
-/// The two `ToolSpec` types are separate because the wire shape is the agent crate's; the map here
-/// is the only conversion, and it is what keeps the model's list and the dispatch list the same
-/// list.
-fn live_source(live: &Live) -> impl Fn() -> Vec<perch_agent::ToolSpec> + Send + Sync + 'static {
-    let live = live.clone();
-    move || {
-        live.specs()
-            .into_iter()
-            .map(|spec| perch_agent::ToolSpec {
-                name: spec.name,
-                description: spec.description,
-                parameters: spec.parameters,
-            })
-            .collect()
-    }
 }
 
 /// Every session header in `dir`, oldest first.

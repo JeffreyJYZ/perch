@@ -29,10 +29,16 @@ pub struct Style {
 }
 
 /// `#` for headings and `text (url)` for links: what `webfetch` hands the model by default.
-pub const MARKDOWN: Style = Style { headings: true, links: true };
+pub const MARKDOWN: Style = Style {
+    headings: true,
+    links: true,
+};
 
 /// Words only, one link label per anchor, no markdown syntax.
-pub const PLAIN: Style = Style { headings: false, links: false };
+pub const PLAIN: Style = Style {
+    headings: false,
+    links: false,
+};
 
 /// Reduces one HTML document to text.
 pub fn reduce(html: &str, style: Style) -> String {

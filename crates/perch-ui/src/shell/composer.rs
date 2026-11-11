@@ -144,8 +144,11 @@ pub fn composer_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -
             shell.toggle_settings();
             true
         }
-        // ⌘K, wherever the keyboard is: one list over the commands and the app actions.
+        // ⌘K, wherever the keyboard is: one list over the commands and the app actions. It
+        // lands in one frame rather than fading in, because its own filter takes the keyboard
+        // at once and a field still entering cannot be focused.
         Intent::Palette => {
+            tx.instant();
             shell.toggle_palette();
             true
         }

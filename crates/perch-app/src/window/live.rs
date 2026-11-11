@@ -8,7 +8,6 @@
 use std::time::Duration;
 
 use perch_agent::ListedModel;
-use perch_app::AppState;
 use perch_store::SessionMeta;
 use perch_ui::SettingsDraft;
 use perch_ui::Transcript;

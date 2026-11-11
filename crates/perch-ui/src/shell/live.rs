@@ -134,6 +134,14 @@ pub trait Live: 'static {
         None
     }
 
+    /// The active session's todo list, from the table `todowrite` writes.
+    ///
+    /// Read on every frame rather than kept by the window: a `todowrite` inside a turn changes it
+    /// mid-run, and a copy taken once would draw the plan the model has already moved past.
+    fn todos(&self) -> Vec<perch_tools::Todo> {
+        Vec::new()
+    }
+
     /// Asks the session to compact its conversation, and returns at once: mid-turn the request
     /// runs at the end of the current turn, ahead of any prompt queued behind it.
     fn compact(&mut self) {}

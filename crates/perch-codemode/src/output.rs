@@ -22,7 +22,7 @@ impl Out {
         self.push(line, true)
     }
 
-    /// Appends text with no line ending, which is how a program's last value reads.
+    /// Appends text with no line ending, which is how a program.rs last value reads.
     pub fn value(&mut self, value: &str) -> usize {
         self.push(value, false)
     }

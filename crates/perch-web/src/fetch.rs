@@ -11,11 +11,12 @@ use serde_json::{Value, json};
 use crate::html;
 use crate::net::{self, FetchError, Fetcher, Http};
 
+mod kind;
+
+use kind::{binary, is_html, media_type, texty};
+
 /// `webfetch` never hands the model more than this many bytes of text.
 pub const FETCH_MAX_BYTES: usize = 64 * 1024;
-/// A body is sniffed for binary content in this many leading bytes.
-const SNIFF: usize = 1024;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Format {
     Markdown,
@@ -29,7 +30,9 @@ pub struct WebFetch {
 
 impl WebFetch {
     pub fn new() -> Self {
-        Self { fetcher: Arc::new(Http::new()) }
+        Self {
+            fetcher: Arc::new(Http::new()),
+        }
     }
 
     /// A tool whose transport is the caller's, which is how a test stays offline.
@@ -82,11 +85,16 @@ impl Tool for WebFetch {
         let response = self.fetcher.get(&url).map_err(refused)?;
 
         if !(200..300).contains(&response.status) {
-            return Err(Error::Message(format!("{url} answered HTTP {}", response.status)));
+            return Err(Error::Message(format!(
+                "{url} answered HTTP {}",
+                response.status
+            )));
         }
         let content_type = media_type(&response.content_type);
         if !texty(&content_type) || binary(&response.body) {
-            return Err(Error::Message(format!("refusing a non-text body: {content_type}")));
+            return Err(Error::Message(format!(
+                "refusing a non-text body: {content_type}"
+            )));
         }
 
         let raw = String::from_utf8_lossy(&response.body);
@@ -141,50 +149,4 @@ fn format_arg(args: &Value) -> Result<Format> {
 
 fn refused(error: FetchError) -> Error {
     Error::Message(error.to_string())
-}
-
-/// The declared type without its parameters, so `text/html; charset=utf-8` is `text/html`.
-fn media_type(content_type: &str) -> String {
-    content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase()
-}
-
-/// Whether a body with this declared type is readable text. An unlabelled body is given the
-/// benefit of the doubt here and judged by its bytes instead.
-fn texty(content_type: &str) -> bool {
-    if content_type.is_empty() {
-        return true;
-    }
-    content_type.starts_with("text/")
-        || content_type.ends_with("+json")
-        || content_type.ends_with("+xml")
-        || matches!(
-            content_type,
-            "application/json"
-                | "application/xml"
-                | "application/javascript"
-                | "application/x-javascript"
-                | "application/xhtml+xml"
-                | "application/rss+xml"
-                | "application/atom+xml"
-                | "application/ld+json"
-                | "application/x-ndjson"
-                | "application/graphql"
-        )
-}
-
-/// A NUL in the first [`SNIFF`] bytes is the signature of a body that is not text, whatever the
-/// server labelled it.
-fn binary(body: &[u8]) -> bool {
-    body[..body.len().min(SNIFF)].contains(&0)
-}
-
-fn is_html(content_type: &str, body: &[u8]) -> bool {
-    if content_type.contains("html") {
-        return true;
-    }
-    if !content_type.is_empty() {
-        return false;
-    }
-    let head = String::from_utf8_lossy(&body[..body.len().min(512)]).to_ascii_lowercase();
-    head.contains("<html") || head.contains("<!doctype html")
 }

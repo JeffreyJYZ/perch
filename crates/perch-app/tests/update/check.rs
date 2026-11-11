@@ -112,7 +112,10 @@ fn an_empty_url_never_reaches_the_network() {
     let dir = data(None);
     let mut app = app(&dir, Arc::clone(&fake));
 
-    for _ in 0..20 {
+    // Opening the plugin engine happens on the worker, so "nothing pending" is a state the frame
+    // arrives at, not one it starts in: a fixed number of pumps is a bet on how fast the machine is.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while app.busy() && std::time::Instant::now() < deadline {
         app.pump(Duration::from_millis(5));
     }
 

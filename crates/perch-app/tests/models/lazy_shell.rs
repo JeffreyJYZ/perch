@@ -77,8 +77,10 @@ fn opening_settings_does_not_wait_and_a_pump_fills_the_picker() {
     {
         runtime.state.toggle_models();
     }
-    // A zero-length frame does not re-run the view, so the frame that shows the filled list has
-    // time on it, as a real one always does.
+    // The pump and the fold changed the shell outside a handler. The window's `poll` hook is what
+    // tells Rune that in the app; a test driving the state directly says it here, or the frame
+    // redraws the tree it last committed.
+    runtime.invalidate();
     runtime.frame(1.0 / 60.0);
     let tree = runtime.accessibility_json().to_string();
     for id in ["vendor/wide", "vendor/narrow", "vendor/silent"] {

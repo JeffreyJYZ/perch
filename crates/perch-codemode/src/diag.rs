@@ -6,7 +6,10 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit {
     /// The clock is checked around every host call; this is that check firing.
-    Clock { after: Duration, cap: Duration },
+    Clock {
+        after: Duration,
+        cap: Duration,
+    },
     /// The loop allowance injected through boa's runtime limits, which is how the clock binds to a
     /// program that computes without ever reaching the host. boa 0.22 has no clock hook, so a pure
     /// loop is counted rather than timed.
@@ -15,8 +18,14 @@ pub enum Hit {
         cap: u64,
         wall: Duration,
     },
-    Calls { calls: u32, cap: u32 },
-    Output { bytes: usize, cap: usize },
+    Calls {
+        calls: u32,
+        cap: u32,
+    },
+    Output {
+        bytes: usize,
+        cap: usize,
+    },
 }
 
 impl Hit {

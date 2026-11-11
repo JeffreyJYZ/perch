@@ -66,7 +66,7 @@ fn a_repo_one_commit_ahead_names_its_branch_and_its_drift() {
 
 #[test]
 fn a_plain_directory_has_no_branch_and_the_row_still_renders() {
-    let (data, roots, _one, two) = fixture();
+    let (data, _roots, _one, two) = fixture();
     let mut app = AppState::open_with(data.path(), defaults()).unwrap();
     app.new_session(&two).unwrap();
     assert_eq!(app.metas()[0].branch, "");

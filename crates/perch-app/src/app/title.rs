@@ -28,6 +28,7 @@ impl AppState {
     /// whether one was started, which is what keeps frames coming while it is in flight.
     pub(crate) fn start_titles(&mut self) -> bool {
         let mut started = Vec::new();
+        let mut skipped = Vec::new();
         for runtime in &self.sessions {
             let id = runtime.meta.id.clone();
             if self.titles.asked.contains(&id) || self.titles.jobs.contains_key(&id) {
@@ -36,9 +37,19 @@ impl AppState {
             if runtime.turns_ended() != 1 || runtime.meta.title != default_title(&runtime.meta) {
                 continue;
             }
+            // A cancelled or failed first turn has no answer to name, so it is recorded as asked
+            // and left with the folder name: a session named after a turn that was stopped is
+            // worse than one named after its directory.
+            if !runtime.ended_normally() {
+                skipped.push(id);
+                continue;
+            }
             if let Some(request) = request(runtime, &self.defaults) {
                 started.push((id, request));
             }
+        }
+        for id in skipped {
+            self.titles.asked.insert(id);
         }
         let mut any = false;
         for (id, request) in started {

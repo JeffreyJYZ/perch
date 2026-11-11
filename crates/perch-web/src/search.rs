@@ -29,12 +29,18 @@ pub struct WebSearch {
 
 impl WebSearch {
     pub fn new() -> Self {
-        Self { fetcher: Arc::new(Http::new()), endpoint: ENDPOINT.to_string() }
+        Self {
+            fetcher: Arc::new(Http::new()),
+            endpoint: ENDPOINT.to_string(),
+        }
     }
 
     /// A tool whose transport is the caller's, which is how a test stays offline.
     pub fn with_fetcher(fetcher: Arc<dyn Fetcher>) -> Self {
-        Self { fetcher, endpoint: ENDPOINT.to_string() }
+        Self {
+            fetcher,
+            endpoint: ENDPOINT.to_string(),
+        }
     }
 }
 
@@ -77,9 +83,10 @@ impl Tool for WebSearch {
         let query = query_arg(args)?;
         let count = count_arg(args)?;
         let url = format!("{}{}", self.endpoint, encode::query(&query));
-        let response = self.fetcher.get(&url).map_err(|error: FetchError| {
-            Error::Message(error.to_string())
-        })?;
+        let response = self
+            .fetcher
+            .get(&url)
+            .map_err(|error: FetchError| Error::Message(error.to_string()))?;
         let page = String::from_utf8_lossy(&response.body);
 
         if !(200..300).contains(&response.status) {

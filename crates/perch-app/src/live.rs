@@ -135,6 +135,10 @@ impl Live for AppState {
             .and_then(crate::SessionRuntime::tokens_used)
     }
 
+    fn todos(&self) -> Vec<perch_tools::Todo> {
+        AppState::todos(self)
+    }
+
     fn compact(&mut self) {
         let _ = AppState::compact(self);
     }

@@ -24,9 +24,13 @@ mod config;
 mod models;
 mod open;
 mod sessions;
+pub(crate) mod subagent;
 mod title;
 mod title_ask;
 mod title_words;
+mod todo;
+mod tools;
+mod words;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,6 +47,7 @@ use crate::watch::Watch;
 use crate::worker::{Snapshot, Worker};
 
 pub use crate::session::CANCELLED;
+pub use boot::MAX_EXCHANGES;
 
 /// How long one pump waits for the next event before calling the session quiet.
 ///
@@ -106,6 +111,12 @@ pub struct AppState {
     pub(crate) worker: Worker,
     /// The snapshot the frame last absorbed: what it draws and what every call dispatches through.
     pub(crate) snapshot: Arc<Snapshot>,
+    /// The words already said in the sessions that were open when they arrived.
+    ///
+    /// The sources open on the worker, so a server that failed is known a frame or two after the
+    /// window draws rather than before it. Each word is said once, and a session opened later gets
+    /// the words its snapshot carries at creation.
+    pub(crate) spoken: Vec<String>,
     /// The debounced filesystem watcher, when the platform gave one.
     pub(crate) watch: Option<Watch>,
     /// The update check on its own thread, when `settings.toml` names a manifest.

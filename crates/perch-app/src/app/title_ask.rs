@@ -18,9 +18,8 @@ pub const TITLE_SYSTEM: &str = "You name conversations. Answer with a title of a
 pub(super) fn ask(request: &ChatRequest) -> Result<String, String> {
     let mut text = String::new();
     for chunk in perch_agent::stream(request).map_err(|error| error.to_string())? {
-        match chunk.map_err(|error| error.to_string())? {
-            perch_agent::Chunk::Text(part) => text.push_str(&part),
-            _ => {}
+        if let perch_agent::Chunk::Text(part) = chunk.map_err(|error| error.to_string())? {
+            text.push_str(&part);
         }
     }
     Ok(text)

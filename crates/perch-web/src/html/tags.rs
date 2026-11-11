@@ -1,13 +1,34 @@
 //! One tag at a time: element names, block breaks, heading levels and attribute values.
 
-use super::entities;
 use super::Style;
+use super::entities;
 
 /// Elements that end a line.
 const BLOCK: [&str; 24] = [
-    "p", "div", "table", "tr", "ul", "ol", "pre", "blockquote", "section", "article", "header",
-    "footer", "nav", "main", "dl", "dt", "dd", "figure", "figcaption", "form", "fieldset",
-    "thead", "tbody", "address",
+    "p",
+    "div",
+    "table",
+    "tr",
+    "ul",
+    "ol",
+    "pre",
+    "blockquote",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "nav",
+    "main",
+    "dl",
+    "dt",
+    "dd",
+    "figure",
+    "figcaption",
+    "form",
+    "fieldset",
+    "thead",
+    "tbody",
+    "address",
 ];
 
 /// Applies one tag that is not part of a link.
@@ -70,9 +91,7 @@ pub fn attribute(inner: &str, key: &str) -> Option<String> {
         let after = start + key.len();
         let before = inner[..start].chars().next_back();
         let boundary = before.is_none_or(|c| !c.is_ascii_alphanumeric() && c != '-');
-        if boundary
-            && let Some(value) = inner[after..].trim_start().strip_prefix('=')
-        {
+        if boundary && let Some(value) = inner[after..].trim_start().strip_prefix('=') {
             return Some(entities::decode(raw_value(value.trim_start())));
         }
         at = after;

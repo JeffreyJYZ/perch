@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use perch_agent::for_worktree;
+use perch_agent::for_session;
 
 use super::super::SYSTEM;
 
@@ -21,7 +21,7 @@ const BUDGET: usize = 32 * 1024;
 /// already capped it, and dropping a file here would be the app deciding something the person
 /// cannot see — so a message carrying too much says so rather than losing a file.
 pub(super) fn system(worktree: &Path) -> (String, Option<String>) {
-    let instructions = for_worktree(worktree);
+    let instructions = for_session(worktree);
     if instructions.is_empty() {
         return (SYSTEM.to_string(), None);
     }

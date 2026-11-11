@@ -17,6 +17,8 @@ fn enter(runtime: &mut rune::Runtime<perch_ui::Shell<AppState>>) {
         },
         &mut Tx::default(),
     );
+    // The state was mutated outside a handler, so the view is only re-run once it is marked.
+    runtime.invalidate();
     runtime.frame(1.0 / 60.0);
 }
 

@@ -12,10 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use std::sync::Arc;
-
 use perch_agent::Dispatcher;
-use perch_codemode::{Execute, RegistryHost};
 use perch_mcp::McpHost;
 use perch_plugins::{Loaded, PanelEntry};
 use perch_store::SessionLog;
@@ -23,26 +20,28 @@ use perch_store::settings::McpServerConfig;
 use perch_tools::ToolRegistry;
 
 use crate::Result;
+use crate::app::subagent::Agents;
 
-/// Adds Code Mode last, so a program can call every tool the build produced.
-///
-/// The host is given a *copy* of the registry taken before registration: a host that held the
-/// registry itself would contain `execute`, and a program could then call itself in a loop that
-/// has no bottom.
-fn add_codemode(registry: &mut ToolRegistry) {
-    let host = Arc::new(RegistryHost::new(registry.clone()));
-    registry.register(Arc::new(Execute::new(host)));
-}
+mod build;
+
+use build::{add_codemode, add_task};
 
 /// The live plugin host and MCP connections, and the registry they last built.
 pub struct Sources {
     /// The directory a `*.wasm` is dropped into. A rebuild re-reads it from the start.
     dir: PathBuf,
+    /// The provider a child `task` turn asks, when one was stated.
+    ///
+    /// Kept across a rebuild: a plugin or a server changing is not a reason for the child's
+    /// provider to change, and the registry a person reloads is the same one they had.
+    agents: Option<Agents>,
     loaded: Loaded,
     mcp: McpHost,
     /// The servers the last build could not connect, kept as words after the host has dropped the
     /// entries: a failure stays visible until the configuration changes, not until the next frame.
     failures: Vec<(String, String)>,
+    /// What the last build that could not offer `task` said about it, kept for the same reason.
+    refused: Option<String>,
     /// The words of the last press that reached no plugin, cleared by the next press that did.
     ///
     /// A press is answered by the worker's thread and no frame waits for it, so the refusal has
@@ -52,16 +51,31 @@ pub struct Sources {
 
 impl Sources {
     /// Loads the plugins in `dir` beside the built-ins, then connects every configured server.
+    ///
+    /// No provider is stated, so no child turn can be run and `task` is not offered: what a test
+    /// or a script builds when it only wants to know what the plugins and servers produced.
     pub fn open(dir: PathBuf, servers: &[McpServerConfig]) -> Result<Sources> {
+        Sources::open_for(dir, servers, None)
+    }
+
+    /// The same, with the provider a child `task` turn asks.
+    pub(crate) fn open_for(
+        dir: PathBuf,
+        servers: &[McpServerConfig],
+        agents: Option<Agents>,
+    ) -> Result<Sources> {
         let mut loaded = Loaded::open(&dir, Dispatcher::builtin_registry());
         let mcp = McpHost::connect_all(servers, loaded.registry_mut())?;
+        let refused = add_task(loaded.registry_mut(), agents.as_ref());
         add_codemode(loaded.registry_mut());
         let failures = mcp.failed();
         Ok(Sources {
             dir,
+            agents,
             loaded,
             mcp,
             failures,
+            refused,
             action_error: None,
         })
     }
@@ -78,6 +92,7 @@ impl Sources {
         // session's whole log into a plugin that just started.
         next.inherit_feed(&mut self.loaded);
         self.mcp.reconcile(servers, next.registry_mut());
+        self.refused = add_task(next.registry_mut(), self.agents.as_ref());
         add_codemode(next.registry_mut());
         self.loaded = next;
         self.failures = self.mcp.failed();
@@ -96,6 +111,9 @@ impl Sources {
         let mut words = self.loaded.words();
         for (server, error) in &self.failures {
             words.push(format!("mcp {server} failed: {error}"));
+        }
+        if let Some(refused) = &self.refused {
+            words.push(refused.clone());
         }
         if let Some(error) = &self.action_error {
             words.push(error.clone());

@@ -12,14 +12,14 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Start a session on an existing worktree — **HAVE** — `crates/perch-app/src/app/sessions.rs` (`new_session`) — opencode `session.create`
 - Pick a folder for a new session from a native dialog — **HAVE** — `crates/perch-ui/src/shell/folder.rs`, `crates/perch-app/src/app/sessions.rs` (`open_folder`) — opencode `prompt/directory-completion.ts`
 - Switch between the sessions open in this run — **HAVE** — `crates/perch-app/src/app/sessions.rs` (`switch`) — opencode `session.active`
-- Reopen a session after relaunch with its transcript and model context — **PARTIAL** — `crates/perch-app/src/app/boot.rs` (`headers`), `crates/perch-store/src/session.rs` (`events`) — absent: the log is never replayed into the transcript and never sent to the model; `events()` is used by tests only
-- Rename a session — **MISSING** — title is the worktree folder name, set once at creation, `crates/perch-app/src/app/sessions.rs:20` — opencode `session.update`, `/rename`
-- Delete a session — **MISSING** — no remove path in `crates/perch-store/src/session.rs` — opencode `session.remove`
+- Reopen a session after relaunch with its transcript and model context — **HAVE** — `crates/perch-app/src/app/boot/replay*` (the log folded through the same `AgentEvent` path a live turn uses: replies, tool cards with status and output, summaries and the `cancelled` word; the last 8 exchanges and 8 KiB of history, newest kept, with one note naming how many were left out; a torn line skipped and counted; nothing sent on open) plus `perch-store/src/session/logged.rs` — tests `crates/perch-app/tests/reopen/` (8)
+- Rename a session — **HAVE** — `/rename` and `AppState::rename_session`, persisted through `SessionLog::set_title`, the sidebar row redrawn — tests `crates/perch-app/tests/sessions/commands.rs` — opencode `session.update`, `/rename`
+- Delete a session — **HAVE** — the sidebar's arm-then-remove control, which also stops the bridge and drops the runtime — test `the_sidebar_delete_control_arms_then_removes_and_the_window_follows` — opencode `session.remove`
 - Fork a session from an earlier message — **MISSING** — opencode `session.fork`, `routes/session/dialog-fork.tsx`
 - Undo/redo by reverting to a boundary and restoring its files — **MISSING** — opencode `session.revert.stage`, `session.revert.commit`; `packages/core/src/session/revert.ts`
 - Export or import a transcript — **MISSING** — the raw JSONL log sits at `<data dir>/<id>.jsonl` with no export path — opencode `experimental.session.export`, `experimental.session.import`
 - Search sessions or inside a transcript — **MISSING** — no search over `crates/perch-store/src/session.rs`
-- Generate a session title from the conversation — **MISSING** — opencode `packages/core/src/session/title.ts`
+- Generate a session title from the conversation — **HAVE** — `crates/perch-app/src/app/title.rs` (one request per session after the first turn that finished on its own, off the frame and off the turn; a cancelled or failed turn is skipped and recorded as asked; the answer is cut to one line of six words; `/rename` always wins) — tests in `crates/perch-app/tests/title/` — opencode `packages/core/src/session/title.ts`
 - Show unread or seen state per session — **MISSING** — opencode `session.view`
 - Move a session to another directory at a delivery boundary — **MISSING** — opencode `session.move`
 - Aggregate session stats over a time range — **MISSING** — opencode `experimental.session.stats`, `feature-plugins/system/stats.tsx`
@@ -59,10 +59,10 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Run a shell command with a timeout and truncated output — **HAVE** — `crates/perch-tools/src/builtin/bash.rs` — opencode `tool/plugin/shell.ts`
 - Confine every path to the session worktree — **HAVE** — `crates/perch-tools/src/confine.rs` — opencode `packages/core/src/file-access.ts`
 - Put a question to the user and wait for the answer — **HAVE** — `crates/perch-agent/src/ask.rs` — opencode `tool/plugin/question.ts`
-- Fetch a URL into the conversation — **MISSING** — opencode `tool/plugin/webfetch.ts`
-- Search the web — **MISSING** — opencode `tool/plugin/websearch.ts`, `websearch.query`
-- Keep a todo list the model edits — **MISSING** — opencode `tool/plugin/todo.ts`, `feature-plugins/sidebar/todo.tsx`
-- Delegate work to a subagent — **MISSING** — opencode `tool/plugin/subagent.ts`, `packages/core/src/session/subagent-job.ts`
+- Fetch a URL into the conversation — **HAVE** — `crates/perch-web/src/fetch*` (http/https only, HTML reduced to markdown, 64 KiB cap with the cut named, binary reported by type, non-2xx as a message; 30 tests against fixtures, no network) — opencode `tool/plugin/webfetch.ts`
+- Search the web — **HAVE** — `crates/perch-web/src/search*` (public endpoint, title/url/snippet, deduplicated, a challenge or empty page reported with status and the first 200 characters rather than as "no results") — opencode `tool/plugin/websearch.ts`, `websearch.query`
+- Keep a todo list the model edits — **HAVE** — `crates/perch-tools/src/builtin/todo*.rs` (`todowrite` replaces the list, `todoread` returns it; a process-wide table keyed by worktree root, 32-item cap, at most one `in_progress`) plus a read-only PLAN panel in `crates/perch-ui/src/shell/todo.rs` drawn from the same table — 32 tool tests + a frame test — opencode `tool/plugin/todo.ts`, `feature-plugins/sidebar/todo.tsx`
+- Delegate work to a subagent — **HAVE** — `task` in `crates/perch-agent/src/subagent/*` (a child turn with its own loop and round cap, the parent's cancel token, a 64 KiB brief and result cap) wired through `crates/perch-app/src/app/subagent/*` into the registry; the child's registry is filtered to tools that need no approval and never contains `task`, so a task has no grandchildren and cannot write — tests `crates/perch-app/tests/live/subagent.rs` (2 end-to-end) — opencode `tool/plugin/subagent.ts`, `packages/core/src/session/subagent-job.ts`
 - Run several tool calls in one program (Code Mode) — **HAVE** — `crates/perch-codemode` (`execute`: a program calling tools, budgets 30 s / 32 calls / 64 KiB, a tool needing approval is refused through it), registered in `crates/perch-app/src/sources.rs` — opencode `packages/codemode`
 - Load a skill into the conversation — **MISSING** — opencode `tool/plugin/skill.ts`, `experimental.session.skill`
 - Read an MCP server's resources as a tool result — **MISSING** — MCP tools only, no resource tool — opencode `tool/plugin/mcp-resource.ts`, `mcp.resource.catalog`
@@ -78,16 +78,16 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 
 - Choose between several configured agents — **MISSING** — one hard-coded system prompt, `crates/perch-app/src/app/boot.rs:116` — opencode `agent.list`, `session.switchAgent`
 - Give an agent its own model and permissions — **MISSING** — opencode `agent.get`, `packages/core/src/agent.ts`
-- Load project instructions (AGENTS.md / CLAUDE.md) into the system prompt — **PARTIAL** — `crates/perch-agent/src/instructions.rs` (`for_worktree`, ancestor walk, per-file cap with the cut named, 9 tests) — absent: the call in `app/boot.rs` that appends it to `SYSTEM` — opencode `packages/core/src/instruction-discovery.ts`
+- Load machine-wide and project instructions into the system prompt — **HAVE** — `crates/perch-agent/src/instructions.rs` (`for_session`: `~/.config/perch/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.agents/AGENTS.md`, `~/.claude/CLAUDE.md`, then every `AGENTS.md`/`CLAUDE.md` from the worktree up to the root, outermost first so the deepest wins; 32 KiB per file, 96 KiB total, the cut named; a symlink is followed only inside the worktree; `PERCH_HOME` overrides home so a test never reads the real machine) wired at `app/boot.rs:104` — 12 tests — opencode `packages/core/src/instruction-discovery.ts`
 - Activate a skill by name from the prompt — **MISSING** — opencode `skill.list`, `/skills`
 - Extend the tool set from a plugin or an MCP server without touching the agent — **HAVE** — `crates/perch-tools/src/registry.rs`, `crates/perch-plugins/src/tool.rs`, `crates/perch-mcp/src/tools.rs` — opencode `tool/runtime.ts`
 
 ## 5. Commands
 
-- Type a slash command with autocomplete — **MISSING** — no command registry in `crates/perch-ui/src/shell/composer.rs` — opencode `command.list`, `component/prompt/autocomplete.tsx`
+- Type a slash command with autocomplete — **HAVE** — `crates/perch-ui/src/shell/{commands*,composer_menu}.rs` (a registry of twelve commands, `/` opens a filtered list, Tab/Enter takes it, Escape closes and keeps the text) — tests `crates/perch-ui/tests/commands/` — opencode `command.list`, `component/prompt/autocomplete.tsx`
 - Compact the conversation — **HAVE** — the only command, `crates/perch-ui/src/shell/actions.rs:133` — opencode `/compact`
 - Define a custom command in config or markdown — **MISSING** — opencode `packages/core/src/command.ts`, `session.command`
-- Open a command palette for app actions — **MISSING** — opencode `component/command-palette.tsx`, `command.palette.show`
+- Open a command palette for app actions — **HAVE** — `crates/perch-ui/src/shell/{palette,palette_take,palette_view}.rs` (the same registry plus the app actions that already exist, filtered as you type) — tests `crates/perch-ui/tests/commands/palette.rs` — opencode `component/command-palette.tsx`, `command.palette.show`
 
 ## 6. Files and editor
 

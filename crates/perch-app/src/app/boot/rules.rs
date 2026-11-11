@@ -14,7 +14,7 @@ pub(super) fn load(dir: &Path) -> (Rules, Option<String>) {
     match Rules::load(rules_path(dir)) {
         Ok(rules) => (rules, None),
         Err(error) => (
-            Rules::default(),
+            Rules::none(rules_path(dir)),
             Some(format!("saved permissions were not read: {error}")),
         ),
     }

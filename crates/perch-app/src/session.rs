@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use perch_agent::{AgentHandle, Dispatcher, Endpoint, Model};
+use perch_agent::{AgentHandle, Dispatcher, EndReason, Endpoint, Model};
 use perch_store::{SessionEvent, SessionLog, SessionMeta};
 use perch_ui::Transcript;
 
@@ -58,6 +58,8 @@ pub struct SessionRuntime {
     /// `None` before the first turn: a fresh session has spent nothing, and drawing `0%` would
     /// claim a measurement nobody made.
     tokens: Option<u32>,
+    /// How the last turn ended. A cancelled turn has no answer to name, so auto-titling skips it.
+    last_reason: Option<EndReason>,
     /// Whether a compaction is on its way. Requests travel the agent's own queue, so one sent
     /// mid-turn lands right after that turn and before any prompt queued behind it.
     compacting: bool,
@@ -95,6 +97,7 @@ impl SessionRuntime {
             queued: Vec::new(),
             tokens: None,
             compacting: false,
+            last_reason: None,
         }
     }
 
@@ -116,6 +119,12 @@ impl SessionRuntime {
     /// How many turns have ended. One is the promise; a count makes a second one visible.
     pub fn turns_ended(&self) -> u32 {
         self.turns
+    }
+
+    /// Whether the last turn finished on its own terms. A cancelled or failed first turn has no
+    /// answer worth naming a session after, so the auto-title leaves it alone.
+    pub fn ended_normally(&self) -> bool {
+        matches!(self.last_reason, Some(EndReason::Done))
     }
 
     /// The tokens the last turn reported, when a turn has ended.

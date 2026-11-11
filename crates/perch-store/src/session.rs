@@ -5,12 +5,15 @@
 //! the line being written, and a torn last line is dropped when the file is read back.
 
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
+
+mod logged;
+pub use logged::Logged;
 
 /// Everything the session list needs, written as the first line of the log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,20 +95,11 @@ impl SessionLog {
     }
 
     /// Every readable event, in file order. A line that does not parse is dropped.
+    ///
+    /// [`SessionLog::logged`] is the same read with the number of dropped lines, which is what a
+    /// reader that has to tell the truth about a damaged log wants.
     pub fn events(&self) -> Result<Vec<SessionEvent>> {
-        let mut events = Vec::new();
-        for (index, line) in BufReader::new(File::open(&self.path)?).lines().enumerate() {
-            let Ok(line) = line else {
-                continue;
-            };
-            if index == 0 && serde_json::from_str::<SessionMeta>(&line).is_ok() {
-                continue;
-            }
-            if let Ok(event) = serde_json::from_str::<SessionEvent>(&line) {
-                events.push(event);
-            }
-        }
-        Ok(events)
+        Ok(self.logged()?.events)
     }
 
     /// The header this log was opened with.

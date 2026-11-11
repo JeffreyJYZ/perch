@@ -112,7 +112,7 @@ impl<L: Live> Shell<L> {
             }
             Row::Action(action) => {
                 self.close_palette();
-                self.run_action(&action)
+                self.run_action(action)
             }
         }
     }

@@ -111,6 +111,8 @@ impl AppState {
         }
         self.live.store(snapshot.registry.clone());
         self.snapshot = snapshot;
+        // The sources open on the worker, so a word about them can arrive after the window is up.
+        self.say_new_words();
         true
     }
 

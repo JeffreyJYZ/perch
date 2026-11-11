@@ -29,6 +29,9 @@ pub fn window_against(fixture: &str) -> (Shell<AppState>, TempDir, TempDir) {
     let server = crate::support::serve(fixture);
     let data = tempfile::tempdir().unwrap();
     let worktree = tempfile::tempdir().unwrap();
+    // No machine-wide instructions: a real home file would join every system prompt and decide
+    // what the column says. See `crate::support::hermetic`.
+    crate::support::hermetic();
     let mut app = AppState::open_with(data.path(), defaults(&server.base_url)).unwrap();
     let index = app.new_session(worktree.path()).unwrap();
     app.switch(index).unwrap();
@@ -78,7 +81,9 @@ pub fn said(shell: &Shell<AppState>) -> Vec<String> {
         .items()
         .iter()
         .filter_map(|item| match item {
-            Item::Assistant { text } => Some(text.clone()),
+            // Both voices: a refusal or a notice is something the column says, though it is not
+            // a reply. This helper answers "what is on screen", not "what did the model write".
+            Item::Assistant { text } | Item::Note(text) => Some(text.clone()),
             _ => None,
         })
         .collect()

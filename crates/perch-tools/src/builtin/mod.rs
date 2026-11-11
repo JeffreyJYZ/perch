@@ -18,6 +18,9 @@ mod patch_hunk;
 mod process;
 mod read;
 mod text;
+mod todo;
+mod todo_read;
+mod todo_write;
 mod write;
 
 use std::sync::Arc;
@@ -36,6 +39,9 @@ pub use jobs::Jobs;
 pub use list::List;
 pub use patch::Patch;
 pub use read::Read;
+pub use todo::{MAX_TODOS, Status as TodoStatus, Todo, todos};
+pub use todo_read::TodoRead;
+pub use todo_write::TodoWrite;
 pub use write::Write;
 
 /// A shell call is killed after this long.
@@ -61,6 +67,8 @@ pub fn builtin_tools() -> Vec<Arc<dyn Tool>> {
         Arc::new(Grep::new()),
         Arc::new(Glob),
         Arc::new(Patch),
+        Arc::new(TodoWrite),
+        Arc::new(TodoRead),
     ]
 }
 

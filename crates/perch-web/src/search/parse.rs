@@ -38,7 +38,11 @@ pub fn results(page: &str) -> Vec<Hit> {
         let (snippet, next) = snippet_after(page, label_end + 4);
         let url = unwrap(&href);
         if !url.is_empty() && !title.is_empty() {
-            hits.push(Hit { title, url, snippet });
+            hits.push(Hit {
+                title,
+                url,
+                snippet,
+            });
         }
         at = next.max(at + 1);
     }
@@ -69,7 +73,10 @@ fn snippet_after(page: &str, from: usize) -> (String, usize) {
         return (String::new(), page.len());
     };
     let label_end = head_end + label_len;
-    (one_line(&html::reduce(&page[head_end + 1..label_end], PLAIN)), label_end + 4)
+    (
+        one_line(&html::reduce(&page[head_end + 1..label_end], PLAIN)),
+        label_end + 4,
+    )
 }
 
 /// The result's real URL: DuckDuckGo wraps it in a `uddg=` redirect, and some links are

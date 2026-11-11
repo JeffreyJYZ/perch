@@ -19,4 +19,5 @@ mod harness;
 mod question;
 mod queue;
 mod stream;
+mod subagent;
 mod thinking;

@@ -37,7 +37,11 @@ impl Default for Http {
 impl Fetcher for Http {
     fn get(&self, url: &str) -> Result<Response, FetchError> {
         super::check_url(url)?;
-        let response = self.client.get(url).send().map_err(|error| transport(url, &error))?;
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .map_err(|error| transport(url, &error))?;
         let status = response.status().as_u16();
         let url = response.url().to_string();
         let content_type = response
@@ -47,10 +51,19 @@ impl Fetcher for Http {
             .unwrap_or("")
             .to_string();
         let mut body = Vec::new();
-        response.take(MAX_BODY).read_to_end(&mut body).map_err(|error| {
-            FetchError::Transport { url: url.clone(), reason: error.to_string() }
-        })?;
-        Ok(Response { status, url, content_type, body })
+        response
+            .take(MAX_BODY)
+            .read_to_end(&mut body)
+            .map_err(|error| FetchError::Transport {
+                url: url.clone(),
+                reason: error.to_string(),
+            })?;
+        Ok(Response {
+            status,
+            url,
+            content_type,
+            body,
+        })
     }
 }
 
@@ -76,7 +89,13 @@ fn build() -> Client {
 
 fn transport(url: &str, error: &reqwest::Error) -> FetchError {
     if error.is_timeout() {
-        return FetchError::Timeout { url: url.to_string(), after: TIMEOUT };
+        return FetchError::Timeout {
+            url: url.to_string(),
+            after: TIMEOUT,
+        };
     }
-    FetchError::Transport { url: url.to_string(), reason: error.to_string() }
+    FetchError::Transport {
+        url: url.to_string(),
+        reason: error.to_string(),
+    }
 }

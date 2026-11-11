@@ -85,7 +85,18 @@ fn starting_a_listing_returns_at_once_and_the_answer_carries_the_stated_window()
         "the answer cannot exist before the transport is released"
     );
 
-    // A second press while the first is out is not a second request.
+    // A second press while the first is out is not a second request. The transport records its
+    // URL on the listing's own thread, so wait until that thread has reached it before counting:
+    // pressing twice in the same microsecond says nothing about how many listing threads there are.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while gate.asked().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(
+        gate.asked().len(),
+        1,
+        "the listing thread reached the provider"
+    );
     app.start_models();
     assert_eq!(gate.asked().len(), 1, "one listing on its way at a time");
 

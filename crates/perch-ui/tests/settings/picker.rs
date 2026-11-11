@@ -137,8 +137,12 @@ fn the_composer_shows_the_model_and_changing_it_there_picks_for_this_session() {
     runtime.pointer_down(at.0, at.1);
     runtime.pointer_up(at.0, at.1);
     runtime.frame(0.0);
-    // A press starts the listing; the next frame's pump is what takes the answer.
-    runtime.state.pump(std::time::Duration::ZERO);
+    // A press starts the listing and returns at once. The answer is taken by the window's own
+    // poll, exactly as the open window takes it, and the frame that poll asks for is the one
+    // that draws the list — so the test asks for that frame rather than poking the state.
+    runtime.poll = Some(|shell: &mut Shell<Fake>, _: f64, _: &mut rune::Tx| {
+        shell.pump(std::time::Duration::ZERO)
+    });
     runtime.frame(0.0);
     assert!(runtime.state.settings_open(), "the model list opened");
     let tree = runtime.accessibility_json().to_string();

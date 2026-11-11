@@ -51,7 +51,16 @@ Status: contract for the next wave. The board is shipped (`crates/perch-board`);
 - Failure: an empty `post` is an error. An unreadable board directory is an error naming the io failure. A malformed line is not an error, because it is skipped.
 - The token cost of a read is the entries plus one line; a wave of five workers returning 200 words each costs a paragraph, which is why results are terse.
 
-## What the board cannot do
+## The task tool
+
+- One tool, `task`, runs a child turn: `description` names it in the result line, `prompt` is the whole brief, and the answer is the child's final text.
+- **No recursion, structurally.** The tool refuses when the registry it was handed already contains `task`, so a child that was given a registry without it cannot spawn grandchildren even if something misuses the API. A depth counter can be argued with; a missing tool cannot.
+- **The child may only call tools that need no approval.** The registry is filtered to `!needs_approval()` before the child runs, so `read`, `list`, `grep`, `glob` and the web tools are available while `write`, `edit`, `bash` and `patch` are not. A subagent that silently writes files while the parent waits is the failure this rule exists to prevent, and the tool's own description says so, because the model should not plan a task that writes.
+- **Cancellation is the parent's.** The delegate receives the parent's cancel token; a cancelled child returns a plain error saying it was cancelled, and the tool reports that as a tool result rather than a panic.
+- **Caps live in the tool**: prompt and result are each capped at 64 KiB with the cut named. The round limit belongs to the delegate, which is the only part that knows how a turn is run.
+- It does not stream: the parent sees one tool card and then a result. Streaming a child's thinking into the parent's transcript would need a second transcript, and that is not this feature.
+
+
 
 - It is not a scheduler: it holds no ready set, no dependency graph and no notion of which unit may run next. The lead owns that.
 - It is not a queue: two readers of the same board see the same entries, and nothing is claimed, leased or acknowledged.

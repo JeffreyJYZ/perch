@@ -63,5 +63,6 @@ fn read(lock: &RwLock<String>) -> String {
 }
 
 fn write(lock: &RwLock<String>) -> RwLockWriteGuard<'_, String> {
-    lock.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

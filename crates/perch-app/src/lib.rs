@@ -27,7 +27,7 @@ pub mod update;
 pub mod watch;
 mod worker;
 
-pub use app::{AppState, Error, ProviderDefaults, Result};
+pub use app::{AppState, Error, MAX_EXCHANGES, ProviderDefaults, Result};
 pub use bridge::{BridgeEvent, Reply};
 pub use live_registry::Live;
 pub use session::SessionRuntime;

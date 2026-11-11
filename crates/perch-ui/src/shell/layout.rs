@@ -15,6 +15,7 @@ use super::settings_view;
 use super::sidebar::{files, sessions};
 use super::state::Shell;
 use super::tabs;
+use super::todo;
 use crate::preview::preview_view;
 use crate::transcript::transcript_view;
 
@@ -52,9 +53,10 @@ fn rule(kit: &Kit, key: &str) -> El {
     el().key(key).fill(kit.c.border_base).a11y_hidden()
 }
 
-/// The left column, full window height: the session list above the file tree.
+/// The left column, full window height: the session list above the file tree, and the model's plan
+/// under both when it has one.
 fn column<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
-    col()
+    let mut column = col()
         .key("left-column")
         .role("region")
         .label("Sidebar")
@@ -63,7 +65,11 @@ fn column<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .min_h(0.0)
         .fill(kit.c.bg_base)
         .child(sessions(shell, kit))
-        .child(files(shell, kit))
+        .child(files(shell, kit));
+    if let Some(plan) = todo::plan(shell, kit) {
+        column = column.child(plan);
+    }
+    column
 }
 
 /// The centre: the tab strip, then whatever pane it names, and the dock under both.

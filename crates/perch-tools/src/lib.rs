@@ -13,7 +13,8 @@ use std::time::Duration;
 
 pub use builtin::{
     BASH_MAX_OUTPUT, BASH_TIMEOUT, Bash, GREP_MAX_OUTPUT, Glob, Grep, JOB_MAX_CONCURRENT, Jobs,
-    LIST_MAX_ENTRIES, Patch, READ_MAX_BYTES, builtin_tools,
+    LIST_MAX_ENTRIES, MAX_TODOS, Patch, READ_MAX_BYTES, Todo, TodoRead, TodoStatus, TodoWrite,
+    builtin_tools, todos,
 };
 pub use confine::confine;
 pub use registry::ToolRegistry;

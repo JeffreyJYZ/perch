@@ -65,6 +65,37 @@ fn a_truncated_last_line_is_dropped_not_fatal() {
 }
 
 #[test]
+fn a_corrupt_line_is_counted_and_the_rest_is_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let meta = meta_for(dir.path(), "perch-dev");
+    let mut log = SessionLog::open(dir.path(), meta.clone()).unwrap();
+    log.append(&SessionEvent::User { text: "hi".into() })
+        .unwrap();
+    drop(log);
+    let path = meta_path_for(dir.path(), &meta.id);
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(b"not json at all\n")
+        .unwrap();
+    let mut log = SessionLog::open(dir.path(), meta).unwrap();
+    log.append(&SessionEvent::Assistant {
+        text: "hello".into(),
+    })
+    .unwrap();
+
+    let logged = log.logged().unwrap();
+    assert_eq!(logged.skipped, 1, "the damaged line is counted, not hidden");
+    assert_eq!(
+        logged.events.len(),
+        2,
+        "the lines either side of it are still read: {:?}",
+        logged.events
+    );
+}
+
+#[test]
 fn a_new_title_rewrites_the_header_and_keeps_every_event() {
     let dir = tempfile::tempdir().unwrap();
     let meta = meta_for(dir.path(), "perch-dev");

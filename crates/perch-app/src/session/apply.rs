@@ -92,6 +92,7 @@ impl SessionRuntime {
                 self.pending = None;
                 self.running = false;
                 self.turns += 1;
+                self.last_reason = Some(reason);
                 // A prompt sent while this turn ran goes out now, in the order it was written —
                 // unless a compaction is queued ahead of it, which is the request that must run
                 // at this step boundary first.

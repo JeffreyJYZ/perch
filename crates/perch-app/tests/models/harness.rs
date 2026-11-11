@@ -66,6 +66,7 @@ pub fn defaults(base_url: &str, model: &str) -> ProviderDefaults {
 
 /// An app over `data` that never reaches the keychain.
 pub fn app(data: &TempDir, defaults: ProviderDefaults) -> AppState {
+    hermetic();
     AppState::open_with_secrets(data.path(), defaults, Box::new(MemorySecrets::new()))
         .expect("a data directory with no sessions opens")
 }
@@ -78,7 +79,10 @@ pub fn said(app: &AppState) -> String {
         .items()
         .iter()
         .filter_map(|item| match item {
+            // Both voices count here: this helper answers "what does the column say", and a
+            // refusal or a notice is something the column says, even though it is not a reply.
             Item::Assistant { text } => Some(text.as_str()),
+            Item::Note(text) => Some(text.as_str()),
             _ => None,
         })
         .collect()
@@ -91,4 +95,16 @@ pub fn header_model(data: &TempDir, meta: &SessionMeta) -> String {
     serde_json::from_str::<SessionMeta>(first)
         .expect("the header parses")
         .model
+}
+
+/// Tests must not read the machine they run on: a real `AGENTS.md` would join every system prompt
+/// and change what the column says. `PERCH_HOME` is the seam the instruction loader documents.
+fn hermetic() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let home = std::env::temp_dir().join("perch-tests-home");
+        let _ = std::fs::create_dir_all(&home);
+        // Safety: set once per process, before any app is built, and only under test.
+        unsafe { std::env::set_var("PERCH_HOME", &home) };
+    });
 }

@@ -4,7 +4,7 @@ pub mod secret;
 pub mod session;
 pub mod settings;
 
-pub use session::{SessionEvent, SessionLog, SessionMeta, meta_path};
+pub use session::{Logged, SessionEvent, SessionLog, SessionMeta, meta_path};
 pub use settings::Settings;
 
 /// Every failure perch-store can produce.

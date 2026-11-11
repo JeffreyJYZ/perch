@@ -87,6 +87,15 @@ pub struct Rules {
 }
 
 impl Rules {
+    /// No rules at all, but the file they will be written to: the state a corrupt file starts
+    /// from. Every call that needs permission asks, and a `remember` still has somewhere to go.
+    pub fn none(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            rules: Vec::new(),
+        }
+    }
+
     /// Reads `path`, which is simply absent until a person saves something.
     pub fn load(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();

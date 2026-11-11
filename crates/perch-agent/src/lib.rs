@@ -10,6 +10,7 @@ pub mod compact;
 pub mod dispatch;
 pub mod event;
 pub mod instructions;
+mod instructions_home;
 mod open;
 pub mod provider;
 mod replies;
@@ -17,6 +18,7 @@ mod report;
 mod retry;
 mod rounds;
 pub mod rules;
+pub mod subagent;
 mod tools;
 pub mod turn;
 
@@ -25,12 +27,13 @@ pub use cancel::CancelWatch;
 pub use chunk::Chunk;
 pub use dispatch::{Answer, Decision, Dispatcher, Interactor, ToolReply};
 pub use event::{AgentEvent, EndReason, ToolCall, Usage};
-pub use instructions::for_worktree;
+pub use instructions::{for_session, for_session_with, for_worktree};
 pub use provider::{
     ChatRequest, ChunkStream, Endpoint, HttpTransport, ListedModel, Message, Model, ModelTransport,
     Role, SecretString, ToolCallRecord, ToolSpec, list_models, list_models_with, stream,
 };
 pub use rules::{Permission, Rule, Rules};
+pub use subagent::{Delegate, TASK, Task};
 pub use tools::Tools;
 pub use turn::{Agent, AgentConfig, AgentHandle, MAX_ROUNDS};
 

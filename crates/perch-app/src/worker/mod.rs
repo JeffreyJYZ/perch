@@ -26,6 +26,8 @@ use perch_store::settings::McpServerConfig;
 use body::run;
 use queue::{PanelAction, Wanted, lock};
 
+use crate::app::subagent::Agents;
+
 /// One published state of the tools: everything the frame would otherwise have computed.
 pub struct Snapshot {
     /// What every dispatch reads from now on.
@@ -80,7 +82,10 @@ impl Worker {
     /// on this thread instead, and the snapshot they produce replaces the built-ins when it is
     /// ready. The caller draws with the tools every build starts from; [`Worker::busy`] is true
     /// from the start, so frames keep coming until the real one lands.
-    pub fn start(dir: PathBuf, servers: Vec<McpServerConfig>) -> Worker {
+    ///
+    /// `agents` is the provider a child `task` turn asks, kept here rather than passed in per
+    /// rebuild: a plugin changing is not a reason for the child's provider to change.
+    pub fn start(dir: PathBuf, servers: Vec<McpServerConfig>, agents: Option<Agents>) -> Worker {
         let latest = Arc::new(ArcSwap::from_pointee(Snapshot::builtins()));
         let wanted = Arc::new(Mutex::new(Wanted {
             outstanding: true,
@@ -91,7 +96,7 @@ impl Worker {
         let queued = Arc::clone(&wanted);
         std::thread::Builder::new()
             .name("perch-tools".to_string())
-            .spawn(move || run(dir, servers, &running, &queued, &woken))
+            .spawn(move || run(dir, servers, agents, &running, &queued, &woken))
             .expect("spawn the tool source thread");
         Worker {
             latest,

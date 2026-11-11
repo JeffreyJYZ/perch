@@ -40,18 +40,10 @@ pub const ACTIONS: &[Action] = &[
 ];
 
 /// The palette's state: the filter field and which row is picked.
+#[derive(Default)]
 pub(super) struct Palette {
     pub(super) query: TextEdit,
     pub(super) index: usize,
-}
-
-impl Default for Palette {
-    fn default() -> Self {
-        Palette {
-            query: TextEdit::default(),
-            index: 0,
-        }
-    }
 }
 
 /// One row of the palette: a command, or an app action.

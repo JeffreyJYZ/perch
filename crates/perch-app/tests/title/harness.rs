@@ -3,7 +3,7 @@
 //! The worktree is a real `work` directory inside a throwaway root, so the default title is the
 //! word a folder-name title would be and a rename is visibly a different one.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use perch_app::{AppState, ProviderDefaults};
@@ -36,6 +36,9 @@ pub fn app_against(
     let root = tempfile::tempdir().unwrap();
     let work = root.path().join("work");
     std::fs::create_dir_all(&work).unwrap();
+    // No machine-wide instructions: a real `AGENTS.md` would add a note to the column and decide
+    // whether this test's "nothing was said about a title" assertion holds.
+    crate::support::hermetic();
     let mut app = AppState::open_with(data.path(), defaults(&server.base_url)).unwrap();
     app.new_session(&work).unwrap();
     (app, server, data, root, work)
@@ -117,9 +120,4 @@ pub fn log_notes(app: &AppState) -> Vec<String> {
             _ => None,
         })
         .collect()
-}
-
-/// Whether `path` names a file.
-pub fn exists(path: &Path) -> bool {
-    path.exists()
 }

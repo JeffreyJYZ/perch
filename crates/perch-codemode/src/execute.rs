@@ -62,17 +62,13 @@ impl Execute {
     fn run(&self, program: &str, ctx: &ToolCtx) -> String {
         let budget = Budget::start(self.limits, self.cancel.clone());
         let out = Out::new(self.limits.output);
-        let finished = js::run(
-            program,
-            self.host.clone(),
-            ctx.clone(),
-            budget,
-            out,
-        );
+        let finished = js::run(program, self.host.clone(), ctx.clone(), budget, out);
         match finished.outcome {
             Outcome::Ok => success(finished.out.text()),
             Outcome::Stopped(stop) => failure(&stop.words(), finished.out.text()),
-            Outcome::Threw { message, stack } => failure(&message, &with_output(&finished.out, &stack)),
+            Outcome::Threw { message, stack } => {
+                failure(&message, &with_output(&finished.out, &stack))
+            }
             Outcome::Unparsed {
                 message,
                 diagnostic,
