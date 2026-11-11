@@ -130,10 +130,22 @@ fn open_app(flags: &Flags) -> Window {
         .unwrap_or_else(|| dir.join(settings::PLUGINS));
     match settings::open_with_plugins(&dir, &plugins) {
         Ok(mut app) => {
-            // A first run has no session at all, and a window with nothing to ask is a dead one:
-            // the launch directory is the worktree, which is the design's rule.
-            if app.sessions().is_empty() {
-                let worktree = match perch_app::launch::project_root(flags.worktree.clone()) {
+            // An explicit worktree wins on every launch, not only the first: the flag names the
+            // project this window is for, and a session for it is opened or reused.
+            if let Some(path) = flags.worktree.clone() {
+                match perch_app::launch::project_root(Some(path)) {
+                    Ok(path) if app.metas().iter().all(|meta| meta.worktree != path) => {
+                        if let Err(error) = app.new_session(&path) {
+                            return Window::Offline(error.to_string());
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(words) => return Window::Offline(words),
+                }
+            } else if app.sessions().is_empty() {
+                // A first run has no session at all, and a window with nothing to ask is a dead one:
+                // the launch directory is the worktree, which is the design's rule.
+                let worktree = match perch_app::launch::project_root(None) {
                     Ok(path) => path,
                     Err(words) => return Window::Offline(words),
                 };
