@@ -15,7 +15,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use crate::cancel::{Cancel, CancelWatch};
 use crate::dispatch::ToolReply;
 use crate::event::AgentEvent;
-use crate::provider::{Message, SecretString};
+use crate::provider::{Endpoint, Message, Model};
 use crate::rounds;
 use crate::tools::Tools;
 
@@ -30,10 +30,13 @@ pub const MAX_ROUNDS: usize = 12;
 /// Everything an agent needs to talk to one provider.
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
-    /// The API root; `/chat/completions` is appended by the provider client.
-    pub base_url: String,
-    pub api_key: SecretString,
-    pub model: String,
+    /// The address and key every request uses, read at the start of the request rather than at
+    /// spawn: a key saved in Settings reaches the session that is already open, and a request
+    /// already out keeps what it was sent with.
+    pub endpoint: Endpoint,
+    /// The model every request names, read at the start of the request rather than at spawn: the
+    /// session that owns this handle picks a different model and the next turn asks for it.
+    pub model: Model,
     /// Prepended to every conversation as the system message.
     pub system: String,
     /// The tools the model may call, read at the start of every request rather than at spawn: a

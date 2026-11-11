@@ -1,7 +1,7 @@
 //! The tree as it is drawn: one row per file, each row's press selecting what it names.
 
 use perch_files::DIR_ICON;
-use rune::{El, col, text};
+use rune::{El, ScrollSpec, col, text};
 use rune_kit::Kit;
 
 use super::FilePanel;
@@ -10,10 +10,12 @@ use crate::shell::{Live, Shell};
 
 /// The worktree tree: a label, then one row per node, indented by depth.
 ///
-/// A file row's press selects the file it names, which fills the preview beside the tree. The
-/// press carries the path the row was built from, so a tree read before a file changed cannot
-/// select a path it never showed. A directory row has no press: it is not a file to preview, and
-/// pressing it would only make the panel say so.
+/// The column is the whole of the sidebar's lower region: it scrolls on its own, clipped to its
+/// box, so a long tree never paints over the sessions above it. A file row's press selects the
+/// file it names, which is what puts the preview in the centre column. The press carries the path
+/// the row was built from, so a tree read before a file changed cannot select a path it never
+/// showed. A directory row has no press: it is not a file to preview, and pressing it would only
+/// make the panel say so.
 pub fn files_view<L: Live>(panel: &FilePanel) -> El {
     let kit = Kit::neutral(true);
     let mut tree = col()
@@ -27,6 +29,9 @@ pub fn files_view<L: Live>(panel: &FilePanel) -> El {
         .pt(10.0)
         .pb(10.0)
         .gap(2.0)
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
         .child(section_label(&kit, "Files", "files-label"));
     if panel.rows.is_empty() {
         tree = tree.child(note(&kit, "No files"));

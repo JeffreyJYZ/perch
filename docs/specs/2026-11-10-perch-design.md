@@ -115,7 +115,7 @@ A walk of the session's worktree with the `ignore` crate's rules, directories fi
 
 A file git reports as deleted gets a synthetic greyed-out row under its parent, so the panel never omits a change git knows about.
 
-The left column draws those rows with their depth, icon, git state in words and colour as reinforcement. A press on a row selects that file, which fills the read-only preview under the tree — numbered lines, capped at 256 KiB and 4 000 lines — and arms the "Open in Zed" button, whose press hands the selected path to the app's editor and says a refusal in words. A file git reports deleted is named as deleted instead of previewed. Directories are always drawn expanded. Branch, ahead/behind and a diff view are not implemented.
+The left column draws those rows with their depth, icon, git state in words and colour as reinforcement, and nothing else: the tree scrolls in its own box and never draws a file's contents. A press on a row selects that file, which puts the read-only preview in the centre column, in the transcript's place and at full width — monospace, one numbered line per row in a fixed gutter, no soft wrap — while the transcript keeps streaming out of sight. The preview's header names the selected path and its language, offers "Open in Zed" (whose press hands the selected path to the app's editor and says a refusal in words), and says that Escape returns to the transcript with the file still selected. Lines are capped at 256 KiB and 4 000 lines, and the header states the cap when it bites. A file git reports deleted is named as deleted instead of previewed. Directories are always drawn expanded. Branch, ahead/behind and a diff view are not implemented.
 
 ### Settings and secrets
 

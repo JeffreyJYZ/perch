@@ -15,7 +15,8 @@ use super::paste::root_paste;
 use super::settings_view;
 use super::sidebar::{files, sessions};
 use super::state::Shell;
-use super::{COLUMN, TABS};
+use super::{COLUMN, SETTINGS, TABS};
+use crate::preview::preview_view;
 use crate::transcript::transcript_view;
 
 /// The whole window.
@@ -27,7 +28,7 @@ use crate::transcript::transcript_view;
 /// The plugin column is the last child and only exists when the app has a panel or a word about
 /// one, so a window with no plugin is laid out exactly as it was before plugins existed.
 pub fn view<L: Live + Panels>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
-    let kit = Kit::neutral(cx.system_dark());
+    let kit = Kit::neutral(shell.dark());
     let mut root = row()
         .key("perch")
         .w_full()
@@ -66,12 +67,20 @@ fn column<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .child(files(shell, kit))
 }
 
-/// The centre: the tab strip, the transcript with the prompt under it, and the dock under the
-/// transcript alone.
+/// The centre: the tab strip, then whatever takes the transcript's place, and the dock under
+/// both.
 ///
-/// While the settings panel is open it takes the transcript's place, so the dock keeps its tab
-/// and the column it belongs to stays visible beside the form.
+/// The settings panel and a selected file's preview each take the transcript's place at full
+/// width, so the dock keeps its tab and the column it belongs to stays visible beside them. The
+/// transcript itself is state, not a drawing: it keeps streaming while either one is shown.
 fn workspace<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &mut Cx<Shell<L>>) -> El {
+    let pane = if shell.settings_open() {
+        settings_view::panel(shell, kit)
+    } else if let Some(panel) = shell.files().filter(|panel| panel.is_open()) {
+        preview_view::<L>(panel)
+    } else {
+        centre(shell, kit)
+    };
     col()
         .key("workspace")
         .grow(1.0)
@@ -79,22 +88,18 @@ fn workspace<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &mut Cx<Shell<L>>) -> El 
         .h_full()
         .fill(kit.c.bg_deep)
         .child(tabs(shell, kit))
-        .child(if shell.settings_open() {
-            settings_view::panel(shell, kit)
-        } else {
-            centre(shell, kit)
-        })
+        .child(pane)
         .child(rule(kit, "dock-rule").w_full().h(1.0))
         .child(dock(shell, kit, cx))
 }
 
-/// The session tabs, and the gear that opens the settings. Selecting a tab is the same state swap
-/// the rows make.
+/// The session tabs, the settings tab, and the gear that opens the settings. Selecting a tab is
+/// the same state swap the rows make.
 ///
 /// The strip grows along its parent's main axis, which is right in a titlebar and wrong in a
 /// column, so it gets a row of its own: one tab row's height, the transcript takes the rest.
 fn tabs<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
-    let items: Vec<TabItem<'_, Shell<L>>> = shell
+    let mut items: Vec<TabItem<'_, Shell<L>>> = shell
         .sessions
         .iter()
         .map(|session| {
@@ -103,12 +108,30 @@ fn tabs<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
                 .closable(false)
         })
         .collect();
-    let active = shell.active_session().map(|session| session.id.as_str());
+    items.push(
+        TabItem::new(SETTINGS, "Settings")
+            .icon(&GEAR)
+            .closable(false),
+    );
+    let active = if shell.settings_open() {
+        Some(SETTINGS)
+    } else {
+        shell.active_session().map(|session| session.id.as_str())
+    };
     let strip = TabStrip::new("session-tabs", TabOrientation::Horizontal)
-        .label("Session tabs")
+        .label("Tabs")
         .tabs(items)
         .active(active)
         .on_select(|shell: &mut Shell<L>, id: &str, _: &mut rune::Tx| {
+            if id == SETTINGS {
+                // The settings tab selects the panel, so a press on it while it is open leaves
+                // it open rather than flipping it shut.
+                if !shell.settings_open() {
+                    shell.toggle_settings();
+                }
+                return;
+            }
+            shell.close_settings();
             if let Some(index) = shell.sessions.iter().position(|session| session.id == id) {
                 shell.select(index);
             }
@@ -122,7 +145,7 @@ fn tabs<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .child(gear::<L>(kit))
 }
 
-/// The gear on the tab row: the window's one way into the settings, with ⌘, beside it.
+/// The gear on the tab row: one way into the settings, beside the settings tab and ⌘,.
 ///
 /// Feather's settings glyph (MIT), drawn at 24 so its teeth stay legible at 16 points.
 static GEAR: Icon = Icon {

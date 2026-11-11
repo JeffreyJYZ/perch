@@ -10,7 +10,7 @@ use crate::harness::{draft, layout};
 fn a_saved_key_is_worded_and_never_held_by_the_panel() {
     let mut shell = Shell::new(Vec::new(), 0).with_live(Fake {
         key: KeyStatus::Missing,
-        saved: None,
+        ..Fake::default()
     });
     shell.toggle_settings();
     let mut draft = draft("https://example.com/v1", "test/model", "dark", "sk-secret");

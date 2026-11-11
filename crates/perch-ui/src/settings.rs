@@ -106,7 +106,7 @@ impl SettingsDraft {
         if self.model.trim().is_empty() {
             return Err(Invalid::new(
                 Field::Model,
-                "choose a model, for example deepseek/deepseek-v4.1-flash",
+                "pick one from the provider's list",
             ));
         }
         if !THEMES.contains(&self.theme.as_str()) {

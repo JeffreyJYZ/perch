@@ -1,15 +1,13 @@
 //! The settings panel's state, and the presses that open, close and save it.
 //!
-//! The panel is a draft, never the live settings: nothing is written until Save validates every
-//! field, and a field that fails keeps the panel open with the reason beside it. The key is the
-//! one value that is never read back — the app stores it and the panel shows the word "stored" or
-//! "missing" instead, so a saved secret has no path onto the screen.
+//! The panel is a draft, never the live settings: nothing is written until Save validates it.
 
 use rune::TextEdit;
 
 use crate::settings::{Invalid, SettingsDraft};
 
 use super::live::{KeyStatus, Live, SettingsSnapshot};
+use super::model_picker::ModelPicker;
 use super::state::Shell;
 
 /// The settings form as the window holds it.
@@ -18,6 +16,8 @@ pub struct Panel {
     pub(super) base_url: TextEdit,
     /// The model every new session asks for.
     pub(super) model: TextEdit,
+    /// The provider's list, its filter and why it could not be listed when it could not.
+    pub(super) picker: ModelPicker,
     /// A key to store. Emptied after a save: the store holds it, the panel never does.
     pub(super) api_key: TextEdit,
     /// One of [`THEMES`].
@@ -26,6 +26,9 @@ pub struct Panel {
     pub(super) update_check: TextEdit,
     /// The field that refused the last save, when one did.
     pub(super) error: Option<Invalid>,
+    /// Whether this panel changes the session's model only, or writes the whole settings file.
+    /// The composer opens the same list in this mode, so there is one picker and one set of rows.
+    pub(super) session_only: bool,
     /// Whether a key is stored, as the panel says it after the last save.
     pub(super) key: KeyStatus,
     /// "saved", or why the app could not save: a word the person reads, never an empty panel.
@@ -34,14 +37,16 @@ pub struct Panel {
 
 impl Panel {
     /// The panel for `snapshot`, every field filled with what is saved.
-    fn new(snapshot: &SettingsSnapshot) -> Panel {
+    pub(super) fn new(snapshot: &SettingsSnapshot) -> Panel {
         Panel {
             base_url: edit(&snapshot.base_url),
             model: edit(&snapshot.model),
+            picker: ModelPicker::default(),
             api_key: TextEdit::default(),
             theme: snapshot.theme.clone(),
             update_check: edit(&snapshot.update_check),
             error: None,
+            session_only: false,
             key: snapshot.key,
             notice: None,
         }
@@ -90,10 +95,10 @@ impl<L: Live> Shell<L> {
         self.settings.as_ref()
     }
 
-    /// Shows the settings panel, filled with what is saved.
+    /// Shows the settings panel, filled with what is saved, or hides it when it is showing.
     ///
-    /// This is the one action the gear and ⌘, both take: neither knows how the panel is built,
-    /// so the two can never drift into opening different forms.
+    /// The gear, ⌘, and the settings tab all take this one action: none of them knows how the
+    /// panel is built, so none can drift into opening a different form.
     pub fn toggle_settings(&mut self) {
         if self.settings_open() {
             self.settings = None;
@@ -104,7 +109,11 @@ impl<L: Live> Shell<L> {
             .as_ref()
             .and_then(Live::settings)
             .unwrap_or_default();
+        self.set_theme(&snapshot.theme);
         self.settings = Some(Panel::new(&snapshot));
+        // The list is loaded as the panel opens: it is the picker's only content, and a panel
+        // that draws an empty list until someone presses Refresh is a panel that looks broken.
+        self.refresh_models();
     }
 
     /// Hides the panel, discarding the draft: nothing unsaved is written.
@@ -135,6 +144,7 @@ impl<L: Live> Shell<L> {
             return false;
         };
         let draft = panel.draft();
+        let theme = draft.theme.clone();
         if let Err(invalid) = draft.validate() {
             let panel = self.settings.as_mut().expect("the panel is open");
             panel.error = Some(invalid);
@@ -150,10 +160,10 @@ impl<L: Live> Shell<L> {
             Ok(key) => {
                 panel.error = None;
                 panel.key = key;
-                // The key is written, so the field is emptied: the store holds it and the panel
-                // says "stored" from here on.
+                // The key is written, so the field is emptied: only the word "stored" remains.
                 panel.api_key = TextEdit::default();
                 panel.notice = Some("saved".to_string());
+                self.set_theme(&theme);
                 true
             }
             Err(words) => {

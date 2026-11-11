@@ -103,6 +103,18 @@ impl Live for AppState {
         let _ = AppState::switch(self, index);
     }
 
+    fn model(&self) -> Option<String> {
+        AppState::model(self)
+    }
+
+    fn models(&mut self) -> std::result::Result<Vec<String>, String> {
+        AppState::list_models(self)
+    }
+
+    fn choose_model(&mut self, id: String) -> std::result::Result<(), String> {
+        AppState::choose_model(self, &id).map_err(|error| error.to_string())
+    }
+
     fn settings(&self) -> Option<perch_ui::shell::SettingsSnapshot> {
         Some(AppState::settings(self))
     }

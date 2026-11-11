@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use perch_store::Settings;
-use perch_store::secret::{Keychain, SecretStore};
+use perch_store::secret::SecretStore;
 use perch_ui::SettingsDraft;
 use perch_ui::shell::{KeyStatus, SettingsSnapshot};
 use perch_update::Transport;
@@ -62,7 +62,13 @@ pub(crate) fn open_at_with(
     let settings = Settings::load(dir)?;
     let given = stated.is_some();
     let defaults = stated.unwrap_or_else(|| ProviderDefaults {
-        base_url: settings.provider_base_url.clone(),
+        // An address exported in the shell is used when none was saved, which is how every other
+        // harness is pointed at a provider.
+        base_url: if settings.provider_base_url.trim().is_empty() {
+            first_env(&URL_VARS).unwrap_or_default()
+        } else {
+            settings.provider_base_url.clone()
+        },
         model: settings.model.clone(),
         api_key: stored_key(&*secrets).unwrap_or_default(),
     });
@@ -81,7 +87,12 @@ pub(crate) fn open_at_with(
 
 /// Opens the app for the binary: settings, keychain and a plugin directory the flags chose.
 pub fn open_with_plugins(dir: &Path, plugins: &Path) -> Result<AppState> {
-    open_at(dir, None, Box::new(Keychain), plugins)
+    open_at(
+        dir,
+        None,
+        Box::new(crate::secrets::Secrets::at(dir)),
+        plugins,
+    )
 }
 
 /// What the settings panel opens with: the saved values and whether a key is stored.
@@ -140,8 +151,42 @@ fn status(secrets: &dyn SecretStore) -> KeyStatus {
     }
 }
 
-/// The key, when the store has one. A store that refuses is read as nothing stored, because the
-/// window has no way to show an error it cannot name and the next save is the repair.
+/// The key, when there is one: the saved file first, then the environment, exactly as every other
+/// harness takes one (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and friends).
+///
+/// The environment matters because a key exported in a shell is the way a developer already has
+/// one; asking them to paste it into a settings panel, and then failing at it, is the behaviour
+/// that made this app unusable.
 pub(crate) fn stored_key(secrets: &dyn SecretStore) -> Option<String> {
-    secrets.load(KEY_ACCOUNT).ok().flatten()
+    if let Ok(Some(key)) = secrets.load(KEY_ACCOUNT) {
+        let key = key.trim().to_string();
+        if !key.is_empty() {
+            return Some(key);
+        }
+    }
+    environment_key()
+}
+
+/// The environment variables a provider key is read from, most specific first.
+pub const KEY_VARS: [&str; 4] = [
+    "PERCH_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+];
+
+/// The environment variables a provider address is read from, most specific first.
+pub const URL_VARS: [&str; 3] = ["PERCH_BASE_URL", "OPENROUTER_BASE_URL", "OPENAI_BASE_URL"];
+
+/// The first of `names` that is set to something, trimmed.
+pub fn first_env(names: &[&str]) -> Option<String> {
+    names
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .map(|value| value.trim().to_string())
+        .find(|value| !value.is_empty())
+}
+
+fn environment_key() -> Option<String> {
+    first_env(&KEY_VARS)
 }

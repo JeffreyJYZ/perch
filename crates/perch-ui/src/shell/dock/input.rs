@@ -10,6 +10,18 @@ use super::super::terminal::cell_at;
 /// Sends one press to the shown terminal tab, or does what the dock itself owns. True when the
 /// shell was handed it or the grid moved.
 pub fn terminal_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let taken = dispatch(shell, ev, tx);
+    if taken {
+        // A key is direct manipulation, not a transition. The grid lands its own changes
+        // (`instant_changes`), but a press also moves what sits outside it — the header's words
+        // gain a width when the view pages into the history — so the commit itself is landed.
+        tx.instant();
+    }
+    taken
+}
+
+/// What `ev` asks of the dock: the clipboard pair, the page keys, or the shell.
+fn dispatch<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -> bool {
     // ⌘ chords are the window's own: a terminal never wants ⌘Q as text. The two it does own are
     // the clipboard pair, which is why they are answered here and not by the window's map.
     if ev.mods.cmd {

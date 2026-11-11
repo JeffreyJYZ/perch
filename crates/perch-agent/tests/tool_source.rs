@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use perch_agent::{
-    Agent, AgentConfig, AgentEvent, AgentHandle, EndReason, SecretString, ToolSpec, Tools,
+    Agent, AgentConfig, AgentEvent, AgentHandle, EndReason, Endpoint, Model, ToolSpec, Tools,
 };
 use serde_json::json;
 
@@ -52,9 +52,8 @@ fn agent_with(
 ) -> (AgentHandle, Receiver<AgentEvent>) {
     let source = Arc::clone(shared);
     Agent::spawn(AgentConfig {
-        base_url: base_url.to_string(),
-        api_key: SecretString::from("test-key"),
-        model: "test/model".to_string(),
+        endpoint: Endpoint::new(base_url.to_string(), "test-key"),
+        model: Model::new("test/model"),
         system: "you are a test".to_string(),
         tools: Tools::live(move || source.lock().unwrap().clone()),
     })

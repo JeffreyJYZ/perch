@@ -9,6 +9,7 @@ use rune::{Key, KeyEvent, Tx};
 use super::composer::composer_key;
 use super::live::Live;
 use super::state::Shell;
+use crate::preview::preview_key;
 use crate::transcript::Item;
 
 /// Whether `ev` is the press that opens or closes a card: Enter or Space, with nothing held.
@@ -62,12 +63,14 @@ pub fn card_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -> bo
     toggles_card(ev) && shell.toggle_card(card)
 }
 
-/// Every key the window itself answers: a focused card first, then the composer's map.
+/// Every key the window itself answers: a focused card first, then the preview's Escape, then the
+/// composer's map.
 ///
 /// The composer's own return would break the line, so a card that holds the focus takes Return
-/// before the field sees it; with nothing focused this is exactly [`composer_key`].
+/// before the field sees it; with nothing focused this is exactly [`composer_key`] after
+/// [`preview_key`], which only claims a bare Escape.
 pub fn window_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    card_key(shell, ev, tx) || composer_key(shell, ev, tx)
+    card_key(shell, ev, tx) || preview_key(shell, ev) || composer_key(shell, ev, tx)
 }
 
 #[cfg(test)]

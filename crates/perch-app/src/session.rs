@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use perch_agent::{AgentEvent, AgentHandle, Dispatcher, EndReason};
+use perch_agent::{AgentEvent, AgentHandle, Dispatcher, EndReason, Endpoint, Model};
 use perch_store::{SessionEvent, SessionLog, SessionMeta};
 use perch_ui::Transcript;
 
@@ -27,11 +27,15 @@ pub struct SessionRuntime {
     pub transcript: Transcript,
     pub log: SessionLog,
     pub agent: AgentHandle,
+    /// The model this session asks for on its next request. Shared with the agent, so changing it
+    /// here changes the next turn and never the one streaming.
+    pub model: Model,
+    /// The address and key this session's next request uses, shared with the agent for the same
+    /// reason: a settings save must reach the session already on screen.
+    pub endpoint: Endpoint,
     /// What remembers an "allow for session". One per session, because allowing `bash` here
-    /// must not silently allow it in another session.
-    ///
-    /// Held by the session, not only by the dispatch thread, so the same allowances are reachable
-    /// for a later reset without a second dispatcher appearing.
+    /// must not silently allow it in another. Held so the same allowances are reachable without a
+    /// second dispatcher appearing.
     #[allow(
         dead_code,
         reason = "held for the session's lifetime, read through the dispatch thread"
@@ -39,8 +43,8 @@ pub struct SessionRuntime {
     dispatcher: Arc<Mutex<Dispatcher>>,
     pub(crate) bridge: Bridge,
     pending: Option<Pending>,
-    /// Whether a turn is in flight. A turn that is waiting on the user is still in flight, but
-    /// nothing can arrive until it is answered, so the window stops polling for it.
+    /// Whether a turn is in flight, which includes waiting on the user: nothing can arrive until
+    /// it is answered, so the window stops polling for it.
     running: bool,
     turns: u32,
     /// The text this turn has streamed, so the log keeps the reply the transcript showed.
@@ -56,12 +60,16 @@ impl SessionRuntime {
         agent: AgentHandle,
         dispatcher: Arc<Mutex<Dispatcher>>,
         bridge: Bridge,
+        model: Model,
+        endpoint: Endpoint,
     ) -> SessionRuntime {
         SessionRuntime {
             meta,
             transcript,
             log,
             agent,
+            model,
+            endpoint,
             dispatcher,
             bridge,
             pending: None,

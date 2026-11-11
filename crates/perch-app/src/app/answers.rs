@@ -15,6 +15,13 @@ impl AppState {
         let Some(runtime) = self.sessions.get_mut(self.active) else {
             return Err(Error::NoSession);
         };
+        if runtime.model.is_empty() {
+            // A fresh profile has no model, and a request with an empty one is not a request the
+            // provider can answer: the turn is refused in the column, naming what is missing.
+            let error = Error::NoModel;
+            say(&mut runtime.transcript, &format!("not sent: {error}"));
+            return Err(error);
+        }
         if !runtime.meta.worktree.exists() {
             let error = Error::MissingWorktree(runtime.meta.worktree.clone());
             say(&mut runtime.transcript, &format!("not sent: {error}"));

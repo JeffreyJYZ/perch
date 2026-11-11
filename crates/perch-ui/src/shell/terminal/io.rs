@@ -18,6 +18,10 @@ pub(crate) trait TermIo {
     fn write(&self, bytes: &[u8]);
     /// Encode a press against the live terminal's modes.
     fn key(&self, event: TermEvent) -> Vec<u8>;
+    /// Send a press without waiting for its encoding — what typing uses.
+    fn send_key(&self, event: TermEvent) {
+        self.write(&self.key(event));
+    }
     /// Whether the program turned `mode` on.
     fn mode(&self, mode: Mode) -> bool;
     /// Show the grid `offset` rows above the live bottom.
@@ -34,6 +38,9 @@ impl TermIo for TermHandle {
     }
     fn key(&self, event: TermEvent) -> Vec<u8> {
         TermHandle::key(self, event)
+    }
+    fn send_key(&self, event: TermEvent) {
+        TermHandle::send_key(self, event);
     }
     fn mode(&self, mode: Mode) -> bool {
         TermHandle::mode(self, mode)
@@ -129,7 +136,7 @@ impl TerminalTab {
             }
             key => match term_event(key, ev.mods) {
                 Some(event) => {
-                    session.io.write(&session.io.key(event));
+                    session.io.send_key(event);
                     true
                 }
                 None => false,

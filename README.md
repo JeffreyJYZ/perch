@@ -107,7 +107,7 @@ name = "remote"
 url = "https://example.com/mcp"
 ```
 
-The first-run defaults are written when the file is absent, and every field has a default so an older file still loads. The settings panel (⌘, or the gear) edits the provider address, model, theme, update check URL and key; the four file-backed values are validated before anything is written, and a rejected field keeps the panel open and names itself. `mcp_servers` is hand-edited in the file, not in the panel.
+The first-run defaults are written when the file is absent, and every field has a default so an older file still loads. The settings panel (the `Settings` tab, the gear, or ⌘,) edits the provider address, model, theme, update check URL and key; the four file-backed values are validated before anything is written, and a rejected field keeps the panel open and names itself. Picking a theme in that panel repaints the window before Save, and the saved word is what the window draws at the next launch. `mcp_servers` is hand-edited in the file, not in the panel.
 
 The provider key is written to the macOS keychain under service `dev.jyz.perch`, account `provider`. It is never a field of `Settings`, never appears in `settings.toml`, a session file or a log line, and the panel only ever says `stored` or `missing` — it never reads the value back. An empty key on save keeps the one already stored, so changing a theme does not sign you out.
 

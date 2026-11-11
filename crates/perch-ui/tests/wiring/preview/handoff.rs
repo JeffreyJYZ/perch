@@ -1,12 +1,13 @@
-//! The file panel's wiring: a row's press, the preview it fills, and the handoff it offers.
+//! What a press on a row does: fills the preview, and hands the path to the app's editor.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use perch_files::Workspace;
-use perch_ui::Shell;
+use perch_ui::{COLUMN, Shell};
 
 use crate::harness::{Fake, click, commit_all, find, meta, temp_repo_with, window, words};
+
+use super::probe::{bounds, selection};
 
 #[test]
 fn a_row_press_fills_the_preview_and_its_button_hands_the_path_to_the_editor() {
@@ -18,22 +19,26 @@ fn a_row_press_fills_the_preview_and_its_button_hands_the_path_to_the_editor() {
 
     // The row names the file, and a press on it is what selects it.
     click(&mut runtime, "file-row-0");
-    let selected = runtime
-        .state
-        .files()
-        .and_then(perch_ui::FilePanel::selected_path)
-        .map(Path::to_path_buf);
     assert_eq!(
-        selected.as_deref(),
-        Some(repo.path().canonicalize().unwrap().join("a.rs").as_path()),
+        selection(&runtime),
+        Some(repo.path().canonicalize().unwrap().join("a.rs")),
         "the row's press selected the file it names: {}",
         words(&runtime)
     );
 
-    // The preview is beside the tree, with the file's lines and the one action.
+    // The preview is in the centre column, with the file's lines and the one action.
     let shown = words(&runtime);
     assert!(shown.contains("fn a() {}"), "the preview draws the file");
     assert!(shown.contains("Open in Zed"), "the action is offered");
+    let [x, _, width, _] = bounds(&runtime, "preview");
+    assert!(
+        x >= COLUMN,
+        "the preview starts right of the sidebar: {x} vs {COLUMN}"
+    );
+    assert!(
+        width > 700.0,
+        "the preview takes the centre column's width, not the sidebar's: {width}"
+    );
 
     click(&mut runtime, "open-in-zed");
     assert_eq!(
@@ -53,7 +58,7 @@ fn the_button_does_nothing_until_a_file_is_selected() {
     let tree = runtime.accessibility_json();
     assert!(
         find(&tree, "preview").is_none(),
-        "with nothing selected the column is the tree alone: {tree}"
+        "with nothing selected the centre column is the transcript: {tree}"
     );
     assert!(
         find(&tree, "open-in-zed").is_none(),

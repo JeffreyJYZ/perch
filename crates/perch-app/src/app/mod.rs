@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use perch_agent::ModelTransport;
 use perch_store::secret::SecretStore;
 use perch_update::Transport;
 
@@ -58,6 +59,12 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("no session is open")]
     NoSession,
+    #[error("{0}")]
+    Model(String),
+    #[error(
+        "no model is chosen for this session, so nothing was sent: pick one in the composer or Settings"
+    )]
+    NoModel,
     #[error("session {0} is not open")]
     MissingSession(usize),
     #[error("the worktree {0} no longer exists, so this session cannot run a turn")]
@@ -102,6 +109,8 @@ pub struct AppState {
     pub(crate) update_url: String,
     /// The transport every update worker is built with: the real client, or a test's table.
     pub(crate) update_transport: Option<Arc<dyn Transport>>,
+    /// The transport the provider's model list is fetched through: the real client, or a test's.
+    pub(crate) listings: Arc<dyn ModelTransport>,
     /// The status the frame last read, and therefore the line the column shows.
     pub(crate) update_status: Option<Arc<Status>>,
     defaults: ProviderDefaults,

@@ -9,6 +9,10 @@ mod row;
 mod words;
 
 #[cfg(test)]
+mod budget;
+#[cfg(test)]
+mod motion;
+#[cfg(test)]
 mod tests;
 
 use rune::{Cx, El, ScrollSpec, Tx, WheelEvent, col, row, text};
@@ -125,6 +129,12 @@ fn dock_body<L: Live>(tab: Option<&TerminalTab>, kit: &Kit) -> El {
         .key("terminal-rows")
         .role("grid")
         .label("Terminal output")
+        // A terminal is a grid of text, not a layout: the caret moves one cell when a character
+        // echoes, and every change inside this subtree is a new picture of the same screen. Rune
+        // animates a commit by default, so without this the cursor slides to meet the typing;
+        // landing it here covers every commit that can move it — the poll that installs a frame
+        // as much as a key press, which is the one a handler's `tx.instant()` cannot reach.
+        .instant_changes()
         // A reader cannot see the block or the wash, so both are said here, once, on the grid
         // that holds them.
         .description(words::grid(frame, selection))

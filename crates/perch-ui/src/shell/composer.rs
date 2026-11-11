@@ -8,6 +8,7 @@ use rune_kit::TextArea;
 use super::answer_view::{answer_key, card};
 use super::keymap::{Intent, intent};
 use super::live::Live;
+use super::model_picker_view::composer_model;
 use super::state::Shell;
 use crate::files::section_label;
 
@@ -21,6 +22,7 @@ pub(super) fn composer<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .pt(4.0)
         .pb(12.0)
         .gap(4.0)
+        .child(composer_model(shell, kit))
         .child(section_label(kit, "Prompt", "prompt-label"));
     if let Some(card) = card(shell, kit) {
         area = area.child(card);

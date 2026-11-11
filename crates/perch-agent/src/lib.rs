@@ -9,7 +9,10 @@ pub mod chunk;
 pub mod dispatch;
 pub mod event;
 pub mod provider;
+mod open;
 mod replies;
+mod report;
+mod retry;
 mod rounds;
 mod tools;
 pub mod turn;
@@ -20,7 +23,8 @@ pub use chunk::Chunk;
 pub use dispatch::{Answer, Decision, Dispatcher, Interactor, ToolReply};
 pub use event::{AgentEvent, EndReason, ToolCall, Usage};
 pub use provider::{
-    ChatRequest, ChunkStream, Message, Role, SecretString, ToolCallRecord, ToolSpec, stream,
+    ChatRequest, ChunkStream, Endpoint, HttpTransport, Message, Model, ModelTransport, Role,
+    SecretString, ToolCallRecord, ToolSpec, list_models, list_models_with, stream,
 };
 pub use tools::Tools;
 pub use turn::{Agent, AgentConfig, AgentHandle, MAX_ROUNDS};

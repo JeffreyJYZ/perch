@@ -1,0 +1,10 @@
+: One short answer, repeated for every request so a test can send two turns.
+: repeat
+
+data: {"id":"chatcmpl-plain","object":"chat.completion.chunk","created":1762730000,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"}}]}
+
+data: {"id":"chatcmpl-plain","object":"chat.completion.chunk","created":1762730000,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-plain","object":"chat.completion.chunk","created":1762730000,"model":"test/model","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}
+
+data: [DONE]

@@ -132,6 +132,29 @@ fn selecting_a_live_file_fills_the_preview_and_arms_the_zed_handoff() {
 }
 
 #[test]
+fn selecting_opens_the_preview_and_closing_it_keeps_the_selection() {
+    let repo = temp_repo_with(&[("a.rs", "fn a() {}\n")]);
+    let mut panel = FilePanel::new(&Workspace::open(repo.path()).unwrap());
+    assert!(!panel.is_open(), "a fresh panel shows the transcript");
+
+    panel
+        .select(Path::new("a.rs"))
+        .expect("a live file previews");
+    assert!(panel.is_open(), "selecting a file opens the preview");
+
+    panel.close();
+    assert!(!panel.is_open(), "closing returns the transcript");
+    assert!(
+        panel.selected_path().is_some(),
+        "the tree's selection survives the preview closing"
+    );
+    assert!(
+        panel.selected().is_some(),
+        "the file is still read, so reopening it costs no read"
+    );
+}
+
+#[test]
 fn preview_lines_are_one_based_and_numbered() {
     let text = PreviewText {
         lines: vec!["a".into(), "b".into()],

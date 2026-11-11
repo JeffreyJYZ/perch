@@ -1,17 +1,66 @@
 //! Following the settings file: the provider a new session reads and the tools a save rebuilds.
 
+use perch_agent::ModelTransport;
 use perch_store::Settings;
 use perch_store::settings::McpServerConfig;
 use perch_ui::settings::SettingsDraft;
 use perch_ui::shell::{KeyStatus, SettingsSnapshot};
 
-use super::{AppState, ProviderDefaults};
+use super::{AppState, Error, ProviderDefaults};
 use crate::update::{Plan, Worker as UpdateWorker};
 
 impl AppState {
     /// The provider a new session would be given: what a settings save changes.
     pub fn provider_defaults(&self) -> &ProviderDefaults {
         &self.defaults
+    }
+
+    /// The model the active session asks for, exactly as the composer shows it.
+    pub fn model(&self) -> Option<String> {
+        self.active_session()
+            .map(|session| session.meta.model.clone())
+    }
+
+    /// The ids the provider lists, sorted, through whatever transport this app was opened with.
+    ///
+    /// The error is why nothing was listed, in words — a provider without the endpoint answers
+    /// 404 here, and the panel says so and falls back to typing an id.
+    pub fn list_models(&self) -> std::result::Result<Vec<String>, String> {
+        perch_agent::list_models_with(
+            &*self.listings,
+            &self.defaults.base_url,
+            &self.defaults.api_key,
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    /// Picks `id` for the active session only: its next turn asks for it, its log header says so,
+    /// and a session that is already streaming keeps the model it was sent with.
+    ///
+    /// The choice also becomes what a new session inherits. It is not written to `settings.toml`:
+    /// that is the settings panel's save, and a composer pick is a session's business.
+    pub fn choose_model(&mut self, id: &str) -> crate::Result<()> {
+        let id = id.trim();
+        if id.is_empty() {
+            return Err(Error::Model(
+                "a model id is needed, and none was picked".to_string(),
+            ));
+        }
+        let Some(runtime) = self.sessions.get_mut(self.active) else {
+            return Err(Error::NoSession);
+        };
+        runtime.model.set(id);
+        runtime.meta.model = id.to_string();
+        runtime.log.set_model(id)?;
+        self.defaults.model = id.to_string();
+        Ok(())
+    }
+
+    /// Replaces the model list's transport, as a test does so no socket is opened.
+    #[must_use]
+    pub fn with_listings(mut self, transport: std::sync::Arc<dyn ModelTransport>) -> Self {
+        self.listings = transport;
+        self
     }
 
     /// What the settings panel opens with: the saved values and whether a key is stored.
@@ -32,8 +81,42 @@ impl AppState {
     ) -> std::result::Result<KeyStatus, String> {
         let status = crate::settings::apply(&self.dir, &mut self.defaults, &*self.secrets, draft)
             .map_err(|error| error.to_string())?;
+        // A saved model is the session's too. Saving is an explicit act, and a window that keeps
+        // sending "model is empty" after one is a window that ignored what it was just told.
+        self.follow_saved_model();
+        // So are the address and the key: a key added after the window opened used to reach only
+        // the sessions created after it, so the one on screen kept answering `401` with a key the
+        // app already held.
+        self.follow_saved_endpoint();
         self.follow_update().map_err(|error| error.to_string())?;
         Ok(status)
+    }
+
+    /// Gives every session the address and key just saved, so the next turn of the open one asks
+    /// the provider the person just configured.
+    fn follow_saved_endpoint(&mut self) {
+        let base_url = self.defaults.base_url.clone();
+        let api_key = self.defaults.api_key.clone();
+        for session in &mut self.sessions {
+            session.endpoint.set(&base_url, &api_key);
+        }
+    }
+
+    /// Gives the active session the model that was just saved, when it is not already asking for
+    /// one. Nothing is chosen when the saved model is empty, so a provider without a model yet
+    /// still refuses a turn in words rather than guessing.
+    fn follow_saved_model(&mut self) {
+        let saved = self.defaults.model.trim().to_string();
+        if saved.is_empty() {
+            return;
+        }
+        let differs = self
+            .sessions
+            .get(self.active)
+            .is_some_and(|session| session.meta.model != saved);
+        if differs {
+            let _ = self.choose_model(&saved);
+        }
     }
 
     /// Restarts the update thread when `settings.toml` now names a different manifest.

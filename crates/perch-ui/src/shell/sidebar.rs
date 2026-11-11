@@ -1,4 +1,8 @@
-//! The left column: the session list over the file tree, and the selected file's preview.
+//! The left column: the session list over the file tree.
+//!
+//! The column holds words and the tree, nothing else. A file's contents belong to the centre
+//! column, which shows them at full width while a file is selected; drawing them here as well
+//! put them in a strip built for folder names.
 
 use perch_store::SessionMeta;
 use rune::{El, col};
@@ -10,7 +14,6 @@ use super::ROW;
 use super::live::Live;
 use super::state::Shell;
 use crate::files::{files_view, note, section_label};
-use crate::preview::preview_view;
 
 /// The session list, and the tab strip it is the long form of.
 ///
@@ -83,7 +86,7 @@ fn new_session<L: Live>(kit: &Kit) -> El {
     )
 }
 
-/// The file tree, with the selected file's preview under it so the Zed handoff is reachable.
+/// The file tree, and nothing under it: the selected file is previewed in the centre column.
 pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
     let Some(panel) = shell.files.as_ref() else {
         // A window with no folder has no tree to show, and "not loaded" would read as a failure.
@@ -106,18 +109,7 @@ pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
             .child(section_label(kit, "Files", "files-label"))
             .child(note(kit, words));
     };
-    let tree = files_view::<L>(panel);
-    // Nothing to preview and nothing to say: the column is the tree, as before.
-    if panel.selected_path().is_none() && panel.message().is_none() {
-        return tree;
-    }
-    col()
-        .key("files-column")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .child(tree)
-        .child(preview_view::<L>(panel))
+    files_view::<L>(panel)
 }
 
 /// A session row's second line: its branch and its worktree, both as words — or the reason the

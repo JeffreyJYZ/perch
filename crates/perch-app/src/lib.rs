@@ -18,6 +18,7 @@ mod live;
 mod live_registry;
 mod panels;
 mod pump;
+pub mod secrets;
 mod session;
 pub mod settings;
 mod sources;

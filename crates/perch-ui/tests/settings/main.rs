@@ -8,5 +8,8 @@ mod draw;
 mod entry;
 mod fake;
 mod harness;
+mod picker;
 mod save;
+mod tab;
+mod theme;
 mod validate;

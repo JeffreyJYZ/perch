@@ -31,6 +31,9 @@ pub struct FilePanel {
     selected_path: Option<PathBuf>,
     preview: Option<PreviewText>,
     message: Option<String>,
+    /// Whether the centre column is showing the preview instead of the transcript. Selecting a
+    /// file opens it; Escape closes it and leaves the selection in the tree.
+    open: bool,
     /// The app's editor, once it has handed one over. `None` leaves the Zed button disabled
     /// rather than pressing it into nothing.
     editor: Option<Arc<dyn Editor>>,
@@ -47,6 +50,7 @@ impl FilePanel {
             selected_path: None,
             preview: None,
             message: None,
+            open: false,
             editor: None,
         }
     }
@@ -65,6 +69,9 @@ impl FilePanel {
         self.preview = None;
         self.selected_path = None;
         self.message = None;
+        // The centre column shows the preview from this press, even when the read below fails:
+        // the words saying why are the preview's, and the transcript is one Escape away.
+        self.open = true;
         let workspace = Workspace::open(&self.root)?;
         match workspace.preview(path) {
             Ok(preview) => {
@@ -92,6 +99,17 @@ impl FilePanel {
     /// Why the last selection or handoff shows nothing, in words.
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()
+    }
+
+    /// Whether the centre column is showing this panel's preview.
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Leaves the preview for the transcript. The tree's selection stays, so the file is one
+    /// press from coming back.
+    pub fn close(&mut self) {
+        self.open = false;
     }
 
     /// The path the toolbar hands to the editor: only a file that previewed.

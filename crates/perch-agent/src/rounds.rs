@@ -18,9 +18,10 @@ use crate::Chunk;
 use crate::cancel::Cancel;
 use crate::dispatch::ToolReply;
 use crate::event::{AgentEvent, EndReason, ToolCall, Usage};
+use crate::open::{Opened, open as open_stream};
 use crate::provider::{ChatRequest, Message, ToolCallRecord};
 use crate::replies::{self, Lost};
-use crate::stream;
+use crate::report::{Outcome, report as closing_report};
 use crate::turn::MAX_ROUNDS;
 
 /// Run one turn and report how it ended and what it cost.
@@ -48,17 +49,18 @@ pub(crate) fn one(
             return (EndReason::Cancelled, usage);
         }
         let request = ChatRequest {
-            base_url: config.base_url.clone(),
-            api_key: config.api_key.clone(),
-            model: config.model.clone(),
+            base_url: config.endpoint.base_url(),
+            api_key: config.endpoint.api_key(),
+            model: config.model.current(),
             messages: history.clone(),
             // The snapshot for this request, taken as it starts. A reload that lands while the
             // reply streams changes the next request, never this one.
             tools: config.tools.specs(),
         };
-        let chunks = match stream(&request) {
-            Ok(chunks) => chunks,
-            Err(error) => return (EndReason::Errored(error.to_string()), usage),
+        let chunks = match open_stream(&request, &stopped) {
+            Opened::Stream(chunks) => chunks,
+            Opened::Cancelled => return (EndReason::Cancelled, usage),
+            Opened::Failed(why) => return (EndReason::Errored(why), usage),
         };
         let mut text = String::new();
         let mut fragments: BTreeMap<usize, Fragment> = BTreeMap::new();
@@ -137,15 +139,15 @@ pub(crate) fn one(
             }
         }
     }
-    (
-        EndReason::Errored(format!(
-            "the turn asked for tools in {MAX_ROUNDS} rounds without answering"
-        )),
-        usage,
-    )
+    // Steps are spent. Ask once more, with the tools taken away, so the turn ends with a report of
+    // what it reached instead of an error — the same last resort every harness uses, and the
+    // difference between a turn that stalls and one that says where it got to.
+    match closing_report(config, history, events, &stopped, &mut usage) {
+        Ok(()) => (EndReason::Done, usage),
+        Err(Outcome::Cancelled) => (EndReason::Cancelled, usage),
+        Err(Outcome::Failed(why)) => (EndReason::Errored(why), usage),
+    }
 }
-
-/// The fragments of one tool call, keyed by the provider's call index.
 #[derive(Default)]
 struct Fragment {
     id: Option<String>,

@@ -108,9 +108,38 @@ impl SessionLog {
         &self.meta
     }
 
+    /// Rewrites the header so a session whose model changed remembers the new one.
+    ///
+    /// Only the first line is rewritten; every event after it is kept byte for byte, so a log a
+    /// crash left mid-line is not repaired or reordered by this.
+    pub fn set_model(&mut self, model: &str) -> Result<()> {
+        if self.meta.model == model {
+            return Ok(());
+        }
+        self.meta.model = model.to_string();
+        self.rewrite_header()
+    }
+
     /// The file this log appends to.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn rewrite_header(&mut self) -> Result<()> {
+        let text = std::fs::read_to_string(&self.path)?;
+        let rest = text.split_once('\n').map_or("", |(_, rest)| rest);
+        let header = serde_json::to_string(&self.meta)?;
+        let scratch = self.path.with_extension("jsonl.tmp");
+        {
+            let mut file = File::create(&scratch)?;
+            file.write_all(header.as_bytes())?;
+            file.write_all(b"\n")?;
+            file.write_all(rest.as_bytes())?;
+            file.sync_all()?;
+        }
+        std::fs::rename(&scratch, &self.path)?;
+        self.file = OpenOptions::new().append(true).open(&self.path)?;
+        Ok(())
     }
 
     fn write_line(&mut self, line: &str) -> Result<()> {

@@ -7,10 +7,14 @@
 //!
 //! The pieces are separated by what they do: [`message`] is the conversation and the request,
 //! [`wire`] is what goes on the wire and what comes back, [`decode`] turns SSE bytes into
-//! [`Chunk`]s, and [`send`] is the one blocking request.
+//! [`Chunk`]s, and [`send`] is the one blocking request. [`model`] is the live model handle a
+//! session changes, and [`models`] is the provider's own listing of what it offers.
 
 mod decode;
+mod endpoint;
 mod message;
+mod model;
+mod models;
 mod secret;
 mod send;
 mod stream;
@@ -20,7 +24,12 @@ use std::time::Duration;
 
 use crate::{Error, Result};
 
+pub use endpoint::Endpoint;
 pub use message::{ChatRequest, Message, Role, ToolCallRecord, ToolSpec};
+pub use model::Model;
+pub use models::{
+    Http as HttpTransport, Transport as ModelTransport, list_models, list_models_with,
+};
 pub use secret::SecretString;
 pub use stream::ChunkStream;
 

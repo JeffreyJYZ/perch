@@ -17,6 +17,7 @@ use perch_ui::Shell;
 use rune::{AppSpec, Chrome, Env, KeyEvent, Runtime, Tx};
 
 mod window;
+mod window_panels;
 use window::{Window, Zed};
 
 /// The window's size, in points.
@@ -117,6 +118,11 @@ fn init() -> Shell<Window> {
 
 /// One frame of the world: what the turn and the shells posted since the last one.
 fn poll(shell: &mut Shell<Window>, _seconds: f64, tx: &mut Tx) -> bool {
+    // Rune resolves `Family::Mono` through the families the app names. Until it is told, the mono
+    // slot falls back to the sans face — which is why the terminal drew in a proportional font.
+    // Named once: doing it every frame would re-resolve the system faces each time.
+    static FONTS: std::sync::Once = std::sync::Once::new();
+    FONTS.call_once(|| tx.set_font_families("SF Pro Text", "SF Mono"));
     let mut changed = shell.pump(perch_ui::shell::BUDGET);
     // A folder picked in the window is a session with no shell yet: the dock starts one there
     // once, exactly as a launch that already had a project does. A spawn that fails leaves its

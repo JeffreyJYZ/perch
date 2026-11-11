@@ -8,5 +8,6 @@ mod support;
 
 mod cancel;
 mod harness;
+mod model;
 mod rounds;
 mod stream;

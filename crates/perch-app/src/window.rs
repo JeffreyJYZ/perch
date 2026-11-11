@@ -10,12 +10,11 @@ use std::path::Path;
 use std::time::Duration;
 
 use perch_app::AppState;
-use perch_plugins::PanelEntry;
 use perch_store::SessionMeta;
 use perch_ui::SettingsDraft;
 use perch_ui::Transcript;
 use perch_ui::files::Editor;
-use perch_ui::shell::{KeyStatus, Live, Panels, SettingsSnapshot, Waiting};
+use perch_ui::shell::{KeyStatus, Live, SettingsSnapshot, Waiting};
 
 mod boot;
 pub(crate) use boot::open;
@@ -161,6 +160,24 @@ impl Live for Window {
         }
     }
 
+    fn model(&self) -> Option<String> {
+        self.app().and_then(Live::model)
+    }
+
+    fn models(&mut self) -> std::result::Result<Vec<String>, String> {
+        match self {
+            Window::Open(app) => Live::models(app.as_mut()),
+            Window::Offline(why) => Err(format!("no app is running: {why}")),
+        }
+    }
+
+    fn choose_model(&mut self, id: String) -> std::result::Result<(), String> {
+        match self {
+            Window::Open(app) => Live::choose_model(app.as_mut(), id),
+            Window::Offline(why) => Err(format!("no app is running: {why}")),
+        }
+    }
+
     fn settings(&self) -> Option<SettingsSnapshot> {
         self.app().and_then(Live::settings)
     }
@@ -169,31 +186,6 @@ impl Live for Window {
         match self {
             Window::Open(app) => Live::save_settings(app.as_mut(), draft),
             Window::Offline(why) => Err(format!("no app is running: {why}")),
-        }
-    }
-}
-
-/// The right-hand column: one panel per live plugin, then the words for what is not there.
-impl Panels for Window {
-    fn panels(&self) -> Vec<PanelEntry> {
-        self.app().map(Panels::panels).unwrap_or_default()
-    }
-
-    fn plugin_words(&self) -> Vec<String> {
-        self.app().map(Panels::plugin_words).unwrap_or_default()
-    }
-
-    fn panel_action(
-        &mut self,
-        plugin: &str,
-        control: &str,
-        value: Option<String>,
-    ) -> std::result::Result<(), String> {
-        match self {
-            Window::Open(app) => Panels::panel_action(app.as_mut(), plugin, control, value),
-            Window::Offline(why) => Err(format!(
-                "no app is running, so `{control}` reached no plugin: {why}"
-            )),
         }
     }
 }

@@ -4,7 +4,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use perch_agent::{
-    Agent, AgentConfig, AgentEvent, AgentHandle, EndReason, Message, SecretString, ToolCall,
+    Agent, AgentConfig, AgentEvent, AgentHandle, EndReason, Endpoint, Message, Model, ToolCall,
     ToolReply, ToolSpec, Tools, Usage,
 };
 use serde_json::json;
@@ -22,10 +22,14 @@ pub fn agent_against(fixture: &str) -> (AgentHandle, Receiver<AgentEvent>) {
 
 /// The same agent, against a server the test is already holding.
 pub fn agent_at(base_url: &str) -> (AgentHandle, Receiver<AgentEvent>) {
+    agent_with_model(base_url, Model::new("test/model"))
+}
+
+/// The same agent, with the model handle kept by the test so it can pick another mid-session.
+pub fn agent_with_model(base_url: &str, model: Model) -> (AgentHandle, Receiver<AgentEvent>) {
     Agent::spawn(AgentConfig {
-        base_url: base_url.to_string(),
-        api_key: SecretString::from("test-key"),
-        model: "test/model".to_string(),
+        endpoint: Endpoint::new(base_url.to_string(), "test-key"),
+        model,
         system: "you are a test".to_string(),
         tools: Tools::fixed(vec![ToolSpec {
             name: "read".to_string(),

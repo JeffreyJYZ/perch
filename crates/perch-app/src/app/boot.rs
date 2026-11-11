@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use perch_agent::{Agent, AgentConfig, Dispatcher, SecretString, Tools};
+use perch_agent::{Agent, AgentConfig, Dispatcher, Endpoint, Model, Tools};
 use perch_store::secret::SecretStore;
 use perch_store::settings::{self as settings_file, McpServerConfig};
 use perch_store::{SessionLog, SessionMeta};
@@ -72,6 +72,7 @@ impl AppState {
             update_url,
             update_transport,
             update_status,
+            listings: Arc::new(perch_agent::HttpTransport),
             defaults,
             stated,
             secrets,
@@ -93,10 +94,15 @@ pub(super) fn runtime(
     } else {
         meta.model.clone()
     };
+    // The handle is kept by the session: a model picked in the composer is the next request's,
+    // because the agent reads this handle when it starts one.
+    let model = Model::new(model);
+    // The address and key are a handle too: a settings save reaches the session already on
+    // screen, so a key added after the window opened is not answered `401` forever.
+    let endpoint = Endpoint::new(defaults.base_url.clone(), defaults.api_key.clone());
     let (agent, events) = Agent::spawn(AgentConfig {
-        base_url: defaults.base_url.clone(),
-        api_key: SecretString::from(defaults.api_key.clone()),
-        model,
+        endpoint: endpoint.clone(),
+        model: model.clone(),
         system: SYSTEM.to_string(),
         // The list is read from the live registry at the start of every request, so a plugin that
         // arrives mid-session is offered on the next one — and a reload that lands mid-stream
@@ -114,7 +120,7 @@ pub(super) fn runtime(
         say(&mut transcript, note);
     }
     Ok(SessionRuntime::new(
-        meta, transcript, log, agent, dispatcher, bridge,
+        meta, transcript, log, agent, dispatcher, bridge, model, endpoint,
     ))
 }
 

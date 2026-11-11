@@ -75,7 +75,17 @@ pub(super) fn run(
                     }
                     let _ = writer.flush();
                 }
-                Inbound::Cmd(Cmd::Key { event, reply }) => {
+                Inbound::Cmd(Cmd::Key { event }) => {
+                    // The press is written here, where the modes are: a keystroke that had to
+                    // wait for its bytes to come back to the UI would arrive late by a round
+                    // trip, and one the UI then forgot to write would never arrive at all.
+                    let bytes = crate::keys::encode_key_for_terminal(event, scrollback.terminal());
+                    if writer.write_all(&bytes).is_err() {
+                        return;
+                    }
+                    let _ = writer.flush();
+                }
+                Inbound::Cmd(Cmd::EncodeKey { event, reply }) => {
                     let bytes = crate::keys::encode_key_for_terminal(event, scrollback.terminal());
                     let _ = reply.send(bytes);
                 }
