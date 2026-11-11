@@ -39,6 +39,7 @@ pub fn serve(path: &str) -> Fixture {
     let Recording {
         pause,
         responses,
+        refusals,
         repeat,
     } = read_fixture(path);
     let total = responses.first().map_or(0, Vec::len);
@@ -84,6 +85,30 @@ pub fn serve(path: &str) -> Fixture {
                     &mut socket,
                     format!("unexpected request: {line}\n{request}"),
                 );
+                continue;
+            }
+            // A fixture may answer a request it will not accept with a status and a body instead
+            // of a stream, which is how a provider refuses a request rather than replying to it.
+            let refusal = refusals
+                .get(index)
+                .cloned()
+                .or_else(|| repeat.then(|| refusals.last().cloned()).flatten())
+                .flatten();
+            if let Some(refusal) = refusal {
+                let head = format!(
+                    "HTTP/1.1 {} {}\r\ncontent-type: application/json\r\n\
+                     connection: close\r\ncontent-length: {}\r\n\r\n",
+                    refusal.status,
+                    if refusal.status == 400 {
+                        "Bad Request"
+                    } else {
+                        "Error"
+                    },
+                    refusal.body.len()
+                );
+                let _ = socket.write_all(head.as_bytes());
+                let _ = socket.write_all(refusal.body.as_bytes());
+                let _ = socket.shutdown(Shutdown::Write);
                 continue;
             }
             let head = "HTTP/1.1 200 OK\r\n\

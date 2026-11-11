@@ -2,6 +2,7 @@
 //! worktree, one transcript, the terminal tabs and the prompt.
 
 use std::cell::Cell;
+use std::path::PathBuf;
 
 use perch_files::Workspace;
 use perch_store::SessionMeta;
@@ -9,6 +10,7 @@ use rune::TextEdit;
 
 use super::answer::Answering;
 use super::live::{Idle, Live, Waiting};
+use super::pane::Pane;
 use super::panel_form::PanelForm;
 use super::settings::Panel;
 use super::terminal::TerminalTab;
@@ -39,7 +41,11 @@ pub struct Shell<L: Live = Idle> {
     /// The grid the dock measured last, as the pty is told it.
     pub(super) grid: Cell<(u16, u16)>,
     pub(super) prompt: TextEdit,
-    /// The settings panel, when it is open: a draft, never the live settings.
+    /// The pane the workspace draws: the one value the strip's active tab is derived from.
+    pub(super) pane: Pane,
+    /// The files the strip carries, in the order they were opened. Their paths are absolute.
+    pub(super) files_open: Vec<PathBuf>,
+    /// The settings panel, when the pane is the settings: a draft, never the live settings.
     pub(super) settings: Option<Panel>,
     /// The theme the window draws when no panel is open: the saved word, read once when the shell
     /// was built and again when the panel opens or saves. The panel's draft answers while it is

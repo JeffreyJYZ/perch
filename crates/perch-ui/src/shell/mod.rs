@@ -15,9 +15,9 @@
 //! [`dock`]; [`state`] holds what every region reads and [`actions`] the presses that change it;
 //! [`pump`] folds a frame of the world in; [`keymap`] is the one place a press becomes an
 //! [`Intent`] and [`term_keys`] the one place a press becomes bytes for a shell; [`live`] is the
-//! seam to the app, and [`paint`] is what a terminal run looks like. [`settings`] is the
-//! provider form the window shows in place of the transcript, carried by the strip as its last
-//! tab and reachable by the gear beside it and ⌘,.
+//! seam to the app, and [`paint`] is what a terminal run looks like. [`pane`] is the one value
+//! that decides which pane the workspace draws, and [`tabs`] draws the strip that names them all:
+//! a session, an opened file, and the settings last, reachable by its tab and by ⌘,.
 //!
 //! Five presses reach past a region: [`card`] is the key a focused tool card answers, [`paste`]
 //! is the clipboard arriving at the app root, [`session`] starts one on the worktree already
@@ -39,17 +39,20 @@ mod live;
 mod model_picker;
 mod model_picker_view;
 mod paint;
+mod pane;
 mod panel_form;
 mod panels;
 mod paste;
 mod pump;
 mod session;
 mod settings;
+mod settings_draft;
 mod settings_fields;
 mod settings_view;
 mod sidebar;
 mod state;
 mod state_build;
+mod tabs;
 mod term_keys;
 mod terminal;
 mod waiting;
@@ -61,6 +64,7 @@ pub use idle::Idle;
 pub use keymap::{Intent, Typing, intent, typing_intent};
 pub use layout::view;
 pub use live::{BUDGET, KeyStatus, Live, SHELL_TICK, SettingsSnapshot, TURN_TICK, Waiting};
+pub use pane::Pane;
 pub use panels::Panels;
 pub use paste::root_paste;
 pub use settings::Panel;
@@ -75,7 +79,7 @@ const DOCK: f32 = 220.0;
 /// The tab strip's row height, in points.
 const TABS: f32 = 38.0;
 /// The settings tab's id in the strip, which no session may take: the settings are not a session,
-/// and the strip draws them after the sessions with the gear's own glyph.
+/// and the strip draws them after the sessions and the files with the gear's own glyph.
 const SETTINGS: &str = "settings";
 /// How tall one session row is, in points.
 const ROW: f32 = 40.0;

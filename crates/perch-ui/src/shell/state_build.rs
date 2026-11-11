@@ -12,6 +12,7 @@ use rune::TextEdit;
 use super::answer::Answering;
 use super::folder::Folder;
 use super::live::{Idle, Live, Waiting};
+use super::pane::Pane;
 use super::panel_form::PanelForm;
 use super::state::Shell;
 use super::terminal::{GRID, TerminalTab};
@@ -50,6 +51,8 @@ impl<L: Live> Shell<L> {
             terminal: 0,
             grid: Cell::new(GRID),
             prompt: TextEdit::default(),
+            pane: Pane::Session,
+            files_open: Vec::new(),
             settings: None,
             dark: true,
             panel: PanelForm::default(),

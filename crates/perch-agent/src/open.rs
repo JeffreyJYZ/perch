@@ -10,7 +10,9 @@ pub(crate) enum Opened {
     /// The reply is arriving: the first event, then the rest of it.
     Stream(Box<dyn Iterator<Item = crate::Result<Chunk>>>),
     Cancelled,
-    Failed(String),
+    /// The provider would not start a reply. The error is kept whole, because a caller has to
+    /// tell a rate limit from a refusal it can answer by sending a smaller request.
+    Failed(crate::Error),
 }
 
 /// Opens a stream, asking again when the provider says "later".
@@ -29,7 +31,7 @@ pub(crate) fn open(request: &ChatRequest, stopped: &dyn Fn() -> bool) -> Opened 
                     }
                     continue;
                 }
-                None => return Opened::Failed(error.to_string()),
+                None => return Opened::Failed(error),
             },
         };
         match chunks.next() {
@@ -43,7 +45,7 @@ pub(crate) fn open(request: &ChatRequest, stopped: &dyn Fn() -> bool) -> Opened 
                     }
                     continue;
                 }
-                None => return Opened::Failed(error.to_string()),
+                None => return Opened::Failed(error),
             },
             None => {
                 let error = crate::Error::Truncated;
@@ -54,7 +56,7 @@ pub(crate) fn open(request: &ChatRequest, stopped: &dyn Fn() -> bool) -> Opened 
                         }
                         continue;
                     }
-                    None => Opened::Failed(error.to_string()),
+                    None => Opened::Failed(error),
                 };
             }
         }

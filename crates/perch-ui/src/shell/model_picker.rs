@@ -11,7 +11,6 @@
 use rune::TextEdit;
 
 use super::live::Live;
-use super::settings::Panel;
 use super::state::Shell;
 
 /// How many rows the list shows before it asks for a narrower search.
@@ -86,15 +85,19 @@ impl<L: Live> Shell<L> {
     /// It is the composer's Change press: the prompt column has no room for a list, so the list
     /// takes the region the transcript uses and returns there when a model is picked or the panel
     /// is closed. Nothing is written to `settings.toml` from here.
+    ///
+    /// The panel is opened through [`Shell::toggle_settings`] rather than by assigning the draft,
+    /// so whatever else selecting the settings region comes to mean — a pane, a tab — happens on
+    /// this path too.
     pub fn open_model_panel(&mut self) {
-        let snapshot = self
-            .live
-            .as_ref()
-            .and_then(Live::settings)
-            .unwrap_or_default();
-        let mut panel = Panel::new(&snapshot);
-        panel.session_only = true;
-        self.settings = Some(panel);
+        if !self.settings_open() {
+            self.toggle_settings();
+        }
+        if let Some(panel) = self.settings.as_mut() {
+            panel.session_only = true;
+            panel.error = None;
+            panel.notice = None;
+        }
         self.refresh_models();
     }
 
@@ -129,7 +132,8 @@ impl<L: Live> Shell<L> {
             }
             return false;
         }
-        self.settings = None;
+        // The one close path: a pane or a tab the window grows later is cleared here too.
+        self.close_settings();
         true
     }
 

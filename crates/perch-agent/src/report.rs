@@ -34,7 +34,7 @@ pub(crate) fn report(
     let chunks = match open_stream(&request, stopped) {
         Opened::Stream(chunks) => chunks,
         Opened::Cancelled => return Err(Outcome::Cancelled),
-        Opened::Failed(why) => return Err(Outcome::Failed(why)),
+        Opened::Failed(error) => return Err(Outcome::Failed(error.to_string())),
     };
     let mut text = String::new();
     for chunk in chunks {

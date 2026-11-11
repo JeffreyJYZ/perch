@@ -13,7 +13,7 @@ mod tree;
 
 use std::path::PathBuf;
 
-pub use icons::{DIR_ICON, DIR_OPEN_ICON, FILE_ICON, icon_for};
+pub use icons::{Kind, icon_for};
 pub use language::language_for;
 pub use open::open_in_zed;
 pub use preview::{PREVIEW_MAX_BYTES, PREVIEW_MAX_LINES, PreviewText};

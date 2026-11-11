@@ -17,15 +17,9 @@ pub fn preview_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent) -> bool {
 }
 
 impl<L: Live> Shell<L> {
-    /// Leaves the preview for the transcript, and reports whether one was showing. The tree keeps
-    /// its selection, so the same file is one press from coming back.
+    /// Leaves the preview for the session, and reports whether a pane was showing. The tree keeps
+    /// its selection and the file tabs stay, so the same file is one press from coming back.
     pub fn close_preview(&mut self) -> bool {
-        match self.files_mut() {
-            Some(panel) if panel.is_open() => {
-                panel.close();
-                true
-            }
-            _ => false,
-        }
+        self.leave_pane()
     }
 }

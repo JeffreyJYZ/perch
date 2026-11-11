@@ -6,10 +6,11 @@
 pub mod ask;
 pub mod cancel;
 pub mod chunk;
+pub mod compact;
 pub mod dispatch;
 pub mod event;
-pub mod provider;
 mod open;
+pub mod provider;
 mod replies;
 mod report;
 mod retry;
@@ -42,6 +43,8 @@ pub enum Error {
     Status { status: u16, body: String },
     #[error("stream ended without [DONE], so the reply is incomplete")]
     Truncated,
+    #[error("{0}")]
+    Length(String),
     #[error("config: {0}")]
     Config(String),
     #[error("stream consumer dropped")]

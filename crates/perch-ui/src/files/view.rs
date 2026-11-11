@@ -1,6 +1,6 @@
 //! The tree as it is drawn: one row per file, each row's press selecting what it names.
 
-use perch_files::DIR_ICON;
+use perch_files::Kind;
 use rune::{El, ScrollSpec, col, text};
 use rune_kit::Kit;
 
@@ -11,13 +11,12 @@ use crate::shell::{Live, Shell};
 /// The worktree tree: a label, then one row per node, indented by depth.
 ///
 /// The column is the whole of the sidebar's lower region: it scrolls on its own, clipped to its
-/// box, so a long tree never paints over the sessions above it. A file row's press selects the
-/// file it names, which is what puts the preview in the centre column. The press carries the path
-/// the row was built from, so a tree read before a file changed cannot select a path it never
-/// showed. A directory row has no press: it is not a file to preview, and pressing it would only
-/// make the panel say so.
-pub fn files_view<L: Live>(panel: &FilePanel) -> El {
-    let kit = Kit::neutral(true);
+/// box, so a long tree never paints over the sessions above it. A file row's press opens that
+/// file's tab and makes it the pane, which is what puts the preview in the centre column. The
+/// press carries the path the row was built from, so a tree read before a file changed cannot
+/// open a path it never showed. A directory row has no press: it is not a file to preview, and
+/// pressing it would only make the panel say so.
+pub fn files_view<L: Live>(panel: &FilePanel, kit: &Kit) -> El {
     let mut tree = col()
         .key("files")
         .role("region")
@@ -32,22 +31,20 @@ pub fn files_view<L: Live>(panel: &FilePanel) -> El {
         .scroll(ScrollSpec {
             stick_bottom: false,
         })
-        .child(section_label(&kit, "Files", "files-label"));
+        .child(section_label(kit, "Files", "files-label"));
     if panel.rows.is_empty() {
-        tree = tree.child(note(&kit, "No files"));
+        tree = tree.child(note(kit, "No files"));
     }
     for (index, tree_row) in panel.rows.iter().enumerate() {
         let selected = panel.selected_path.as_deref() == Some(tree_row.path.as_path());
         let path = tree_row.path.clone();
-        let row = row_view(&kit, tree_row, index, selected);
-        if tree_row.icon == DIR_ICON {
+        let row = row_view(kit, tree_row, index, selected);
+        if tree_row.kind == Kind::Folder {
             tree = tree.child(row);
             continue;
         }
         tree = tree.child(row.on_press(move |shell: &mut Shell<L>| {
-            if let Some(panel) = shell.files_mut() {
-                let _ = panel.select(&path);
-            }
+            shell.open_file(&path);
         }));
     }
     tree

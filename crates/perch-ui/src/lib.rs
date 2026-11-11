@@ -4,6 +4,7 @@
 //! the centre, and the terminal dock under the transcript only.
 
 pub mod files;
+pub mod kit;
 pub mod plugin_panel;
 pub mod preview;
 pub mod settings;

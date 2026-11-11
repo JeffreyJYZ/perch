@@ -8,12 +8,14 @@
 
 use std::sync::{Arc, Mutex};
 
-use perch_agent::{AgentEvent, AgentHandle, Dispatcher, EndReason, Endpoint, Model};
+use perch_agent::{AgentHandle, Dispatcher, Endpoint, Model};
 use perch_store::{SessionEvent, SessionLog, SessionMeta};
 use perch_ui::Transcript;
 
-use crate::bridge::{Bridge, BridgeEvent};
-use crate::turn::{Pending, question_text, reason_word};
+use crate::bridge::Bridge;
+use crate::turn::Pending;
+
+mod apply;
 
 /// What the transcript says when a turn is cancelled.
 ///
@@ -27,15 +29,14 @@ pub struct SessionRuntime {
     pub transcript: Transcript,
     pub log: SessionLog,
     pub agent: AgentHandle,
-    /// The model this session asks for on its next request. Shared with the agent, so changing it
+    /// The model this session asks for on its next request, shared with the agent: changing it
     /// here changes the next turn and never the one streaming.
     pub model: Model,
-    /// The address and key this session's next request uses, shared with the agent for the same
-    /// reason: a settings save must reach the session already on screen.
+    /// The address and key that request uses, shared for the same reason: a settings save reaches
+    /// the session already on screen.
     pub endpoint: Endpoint,
-    /// What remembers an "allow for session". One per session, because allowing `bash` here
-    /// must not silently allow it in another. Held so the same allowances are reachable without a
-    /// second dispatcher appearing.
+    /// What remembers an "allow for session". One per session, because allowing `bash` here must
+    /// not silently allow it in another; held so the allowances outlive the dispatch thread.
     #[allow(
         dead_code,
         reason = "held for the session's lifetime, read through the dispatch thread"
@@ -53,6 +54,10 @@ pub struct SessionRuntime {
 
 impl SessionRuntime {
     /// A session that has not run a turn yet: its log, its agent and the bridge it answers with.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the session's whole state, built once"
+    )]
     pub(crate) fn new(
         meta: SessionMeta,
         transcript: Transcript,
@@ -102,85 +107,6 @@ impl SessionRuntime {
     /// This session's transcript, which the shell draws.
     pub fn transcript(&self) -> &Transcript {
         &self.transcript
-    }
-
-    /// Folds one posted event into the transcript and the log, and reports whether the session
-    /// is now waiting on the user.
-    pub(crate) fn apply(&mut self, event: BridgeEvent) -> bool {
-        match event {
-            BridgeEvent::Text(text) => {
-                self.transcript.apply(&AgentEvent::TextDelta(text.clone()));
-                self.open_text.push_str(&text);
-            }
-            BridgeEvent::ToolCall(call) => {
-                self.transcript.apply(&AgentEvent::ToolCall(call.clone()));
-                // The log is the conversation's only durable copy; a write failing is worth
-                // dropping rather than stopping the turn the user is watching.
-                let _ = self.log.append(&SessionEvent::ToolCall {
-                    id: call.id,
-                    name: call.name,
-                    args: call.args,
-                });
-            }
-            BridgeEvent::ToolResult { id, ok, text } => {
-                self.transcript.apply(&AgentEvent::ToolResult {
-                    id: id.clone(),
-                    ok,
-                    text: text.clone(),
-                });
-                let _ = self.log.append(&SessionEvent::ToolResult { id, ok, text });
-            }
-            BridgeEvent::Approval { id, name, preview } => {
-                // A tool that asks and shows nothing keeps its card saying "running": the column
-                // has one approval state and it is the preview's. The wait below is what holds
-                // the turn either way.
-                if let Some(preview) = preview {
-                    self.transcript.request_approval(&id, preview);
-                }
-                self.pending = Some(Pending::Approval { id, name });
-                return true;
-            }
-            BridgeEvent::Question {
-                prompt,
-                options,
-                multiple,
-            } => {
-                self.transcript
-                    .apply(&AgentEvent::TextDelta(question_text(&prompt, &options)));
-                self.pending = Some(Pending::Question {
-                    prompt,
-                    options,
-                    multiple,
-                });
-                return true;
-            }
-            BridgeEvent::TurnEnd { reason, usage } => {
-                self.transcript.apply(&AgentEvent::TurnEnd {
-                    reason: reason.clone(),
-                    usage,
-                });
-                if reason == EndReason::Cancelled {
-                    // The column has no note item and this lane does not own its enum, so the
-                    // word takes the same path a reply's text does — one item, saying the turn
-                    // stopped. When the transcript gains a note item this is one line to change.
-                    self.transcript
-                        .apply(&AgentEvent::TextDelta(CANCELLED.into()));
-                }
-                let reply = std::mem::take(&mut self.open_text);
-                if !reply.is_empty() {
-                    let _ = self.log.append(&SessionEvent::Assistant { text: reply });
-                }
-                let _ = self.log.append(&SessionEvent::TurnEnd {
-                    reason: reason_word(&reason),
-                    tokens_in: usage.input,
-                    tokens_out: usage.output,
-                });
-                self.pending = None;
-                self.running = false;
-                self.turns += 1;
-            }
-        }
-        false
     }
 
     /// Marks a turn as started and records the question the person asked.

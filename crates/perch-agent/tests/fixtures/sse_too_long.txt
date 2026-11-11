@@ -1,0 +1,25 @@
+: a conversation that is refused for its length, then asked again smaller
+
+: the first turn answers, so the second has an exchange to drop
+
+data: {"id":"chatcmpl-a","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"hello there"}}]}
+
+data: {"id":"chatcmpl-a","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-a","object":"chat.completion.chunk","created":1762730010,"model":"test/model","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}
+
+data: [DONE]
+
+: next request
+
+: status 400 {"error":{"message":"This model's maximum context length is 128000 tokens, however you requested 130000 tokens"}}
+
+: next request
+
+data: {"id":"chatcmpl-b","object":"chat.completion.chunk","created":1762730011,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"It fits now."}}]}
+
+data: {"id":"chatcmpl-b","object":"chat.completion.chunk","created":1762730011,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-b","object":"chat.completion.chunk","created":1762730011,"model":"test/model","choices":[],"usage":{"prompt_tokens":6,"completion_tokens":2,"total_tokens":8}}
+
+data: [DONE]

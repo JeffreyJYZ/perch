@@ -16,10 +16,11 @@ use serde_json::Value;
 
 use crate::Chunk;
 use crate::cancel::Cancel;
+use crate::compact;
 use crate::dispatch::ToolReply;
 use crate::event::{AgentEvent, EndReason, ToolCall, Usage};
-use crate::open::{Opened, open as open_stream};
-use crate::provider::{ChatRequest, Message, ToolCallRecord};
+use crate::open::Opened;
+use crate::provider::{Message, ToolCallRecord};
 use crate::replies::{self, Lost};
 use crate::report::{Outcome, report as closing_report};
 use crate::turn::MAX_ROUNDS;
@@ -48,19 +49,10 @@ pub(crate) fn one(
         if stopped() {
             return (EndReason::Cancelled, usage);
         }
-        let request = ChatRequest {
-            base_url: config.endpoint.base_url(),
-            api_key: config.endpoint.api_key(),
-            model: config.model.current(),
-            messages: history.clone(),
-            // The snapshot for this request, taken as it starts. A reload that lands while the
-            // reply streams changes the next request, never this one.
-            tools: config.tools.specs(),
-        };
-        let chunks = match open_stream(&request, &stopped) {
+        let chunks = match compact::open_within(config, history, events, &stopped) {
             Opened::Stream(chunks) => chunks,
             Opened::Cancelled => return (EndReason::Cancelled, usage),
-            Opened::Failed(why) => return (EndReason::Errored(why), usage),
+            Opened::Failed(error) => return (EndReason::Errored(error.to_string()), usage),
         };
         let mut text = String::new();
         let mut fragments: BTreeMap<usize, Fragment> = BTreeMap::new();

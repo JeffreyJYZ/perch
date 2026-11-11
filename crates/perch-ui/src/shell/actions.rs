@@ -14,8 +14,9 @@ impl<L: Live> Shell<L> {
     /// Selects the session at `index`. An index past the end is ignored rather than clamped: it
     /// names a session that is gone, and switching to a neighbour would switch to the wrong one.
     ///
-    /// A switch is the whole window's: the app shows the session, and the file panel is re-read
-    /// from that session's worktree, because a tab owns the tree of the directory it runs in.
+    /// A switch is the whole window's: the app shows the session, the file panel is re-read from
+    /// that session's worktree, and the file tabs start over — they name files in the tree that
+    /// was just replaced.
     pub fn select(&mut self, index: usize) {
         if index < self.sessions.len() {
             self.active = index;
@@ -23,6 +24,7 @@ impl<L: Live> Shell<L> {
                 live.switch(index);
             }
             self.reopen_files();
+            self.reset_panes();
             self.refresh();
         }
     }

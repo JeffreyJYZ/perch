@@ -31,10 +31,15 @@ const SLICE: Duration = Duration::from_millis(50);
 /// key or an empty model is the provider saying "not like that", and asking again only wastes time.
 pub fn worth_retrying(error: &Error) -> bool {
     match error {
-        Error::Status { status, .. } => matches!(status, 408 | 409 | 425 | 429 | 500 | 502 | 503 | 504 | 529),
+        Error::Status { status, .. } => {
+            matches!(status, 408 | 409 | 425 | 429 | 500 | 502 | 503 | 504 | 529)
+        }
         Error::Http(inner) => inner.is_timeout() || inner.is_connect() || inner.is_request(),
         // A stream that ended without `[DONE]` is a cut connection, which is worth one more ask.
         Error::Truncated => true,
+        // Too long is a fact about the request, not about the moment: it is answered by sending
+        // less, never by sending the same thing again.
+        Error::Length(_) => false,
         Error::Io(_) | Error::Json(_) | Error::Config(_) | Error::Closed => false,
     }
 }
@@ -70,11 +75,6 @@ impl Retries {
             return None;
         }
         Some(delay(self.attempt))
-    }
-
-    /// How many attempts have failed so far.
-    pub fn attempts(&self) -> u32 {
-        self.attempt
     }
 }
 

@@ -123,6 +123,9 @@ pub(super) fn composer_model<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         )
 }
 
+/// What a row press is: the id it carries, turned into the press that picks it.
+type RowPress<L> = fn(String) -> Box<dyn Fn(&mut Shell<L>, &mut Tx)>;
+
 /// One searchable list of model rows, the chosen one marked, capped at `limit` rows.
 fn picker_list<L: Live>(
     picker: &ModelPicker,
@@ -130,7 +133,7 @@ fn picker_list<L: Live>(
     limit: usize,
     key: &str,
     filter: fn(&mut Shell<L>) -> &mut rune::TextEdit,
-    press: fn(String) -> Box<dyn Fn(&mut Shell<L>, &mut Tx)>,
+    press: RowPress<L>,
     kit: &Kit,
 ) -> El {
     let (rows, total) = picker.rows(limit);

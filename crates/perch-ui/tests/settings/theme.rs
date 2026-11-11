@@ -8,7 +8,7 @@ use perch_ui::Shell;
 use perch_ui::shell::{Live, Panels};
 use rune::Color;
 use rune::Runtime;
-use rune_kit::Kit;
+use perch_ui::kit;
 
 use crate::fake::Fake;
 use crate::harness::{click, fill, layout, settle};
@@ -27,12 +27,12 @@ fn the_saved_theme_draws_the_window_and_the_system_does_not() {
     }));
     assert_eq!(
         root(&dark),
-        Kit::neutral(true).c.bg_deep,
+        kit::perch(true).c.bg_deep,
         "a shell with no saved light word draws the dark kit"
     );
     assert_eq!(
         root(&light),
-        Kit::neutral(false).c.bg_deep,
+        kit::perch(false).c.bg_deep,
         "the saved theme wins over the dark system it was laid out under"
     );
     assert_ne!(
@@ -43,7 +43,7 @@ fn the_saved_theme_draws_the_window_and_the_system_does_not() {
 
     // A window with no app behind it has no settings to read, so it draws the default.
     let idle = layout(Shell::idle(Vec::new(), 0));
-    assert_eq!(root(&idle), Kit::neutral(true).c.bg_deep);
+    assert_eq!(root(&idle), kit::perch(true).c.bg_deep);
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn a_pick_repaints_before_save_and_the_save_keeps_it() {
     let mut shell = Shell::new(Vec::new(), 0).with_live(Fake::default());
     shell.toggle_settings();
     let mut runtime = layout(shell);
-    assert_eq!(root(&runtime), Kit::neutral(true).c.bg_deep);
+    assert_eq!(root(&runtime), kit::perch(true).c.bg_deep);
 
     // Light is the second word the panel offers, and pressing it is the whole act.
     click(&mut runtime, "segment1");
@@ -67,7 +67,7 @@ fn a_pick_repaints_before_save_and_the_save_keeps_it() {
     assert!(!runtime.state.dark(), "the window follows the pick");
     assert_eq!(
         root(&runtime),
-        Kit::neutral(false).c.bg_deep,
+        kit::perch(false).c.bg_deep,
         "the pick is drawn before Save"
     );
     assert!(
@@ -88,7 +88,7 @@ fn a_pick_repaints_before_save_and_the_save_keeps_it() {
         .expect("the save reached the app");
     assert_eq!(saved.theme, "light", "the save wrote the picked theme");
     assert!(!runtime.state.dark(), "the save keeps the theme it wrote");
-    assert_eq!(root(&runtime), Kit::neutral(false).c.bg_deep);
+    assert_eq!(root(&runtime), kit::perch(false).c.bg_deep);
 
     // A restart: the app reads the same word back from settings.toml, and the window draws it.
     let restarted = layout(Shell::new(Vec::new(), 0).with_live(Fake {
@@ -97,7 +97,7 @@ fn a_pick_repaints_before_save_and_the_save_keeps_it() {
     }));
     assert_eq!(
         root(&restarted),
-        Kit::neutral(false).c.bg_deep,
+        kit::perch(false).c.bg_deep,
         "a restart draws the saved theme"
     );
 }

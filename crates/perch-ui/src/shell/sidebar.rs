@@ -109,7 +109,7 @@ pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
             .child(section_label(kit, "Files", "files-label"))
             .child(note(kit, words));
     };
-    files_view::<L>(panel)
+    files_view::<L>(panel, kit)
 }
 
 /// A session row's second line: its branch and its worktree, both as words — or the reason the

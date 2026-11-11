@@ -27,8 +27,7 @@ pub const RENDER_LINES: usize = 400;
 ///
 /// The header is a strip of its own above the body, so the path and the two actions stay put
 /// while the lines scroll under them.
-pub fn preview_view<L: Live>(panel: &FilePanel) -> El {
-    let kit = Kit::neutral(true);
+pub fn preview_view<L: Live>(panel: &FilePanel, kit: &Kit) -> El {
     let mut view = col()
         .key("preview")
         .role("region")
@@ -37,21 +36,21 @@ pub fn preview_view<L: Live>(panel: &FilePanel) -> El {
         .grow(1.0)
         .min_h(0.0)
         .fill(kit.c.bg_deep)
-        .child(header::<L>(&kit, panel));
+        .child(header::<L>(kit, panel));
     // Words about the handoff belong beside the file they are about, not in place of it: a
     // refusal keeps the preview on screen so the reader can try again.
     if panel.selected().is_some()
         && let Some(words) = panel.message()
     {
-        view = view.child(note(&kit, words).px(20.0).py(4.0));
+        view = view.child(note(kit, words).px(20.0).py(4.0));
     }
     match (panel.selected_path(), panel.selected()) {
-        (Some(_), Some(preview)) => view = view.child(body::lines(&kit, preview)),
+        (Some(_), Some(preview)) => view = view.child(body::lines(kit, preview)),
         _ => {
             let message = panel
                 .message()
                 .map_or_else(|| "Select a file to preview it.".to_string(), str::to_owned);
-            view = view.child(note(&kit, &message).px(20.0).py(4.0));
+            view = view.child(note(kit, &message).px(20.0).py(4.0));
         }
     }
     view
@@ -69,19 +68,21 @@ fn header<L: Live>(kit: &Kit, panel: &FilePanel) -> El {
     let mut strip = row()
         .key("preview-header")
         .w_full()
-        .gap(12.0)
-        .px(20.0)
-        .pt(12.0)
-        .pb(8.0)
+        .gap(10.0)
+        .px(16.0)
+        .pt(7.0)
+        .pb(7.0)
         .fill(kit.c.bg_base)
         .child(section_label(kit, "Preview", "preview-label"))
         .child(
+            // The path is context, not the title of the window: the code under it is what the eye
+            // should land on first, so the path is muted and the body keeps the bright ink.
             text(path)
                 .key("preview-path")
                 .grow(1.0)
                 .min_w(0.0)
                 .font(kit.ty.mono)
-                .color(kit.c.text_base)
+                .color(kit.c.text_muted)
                 .truncate_middle(),
         );
     // The cap is stated where the file is named, not only under the last drawn line: a reader

@@ -1,5 +1,5 @@
-//! Settings as a tab: one strip carries the sessions and the settings, and its one active tab is
-//! the pane the window is showing.
+//! Settings as a tab: one strip carries the sessions, the opened files and the settings, and its
+//! one active tab is the pane the window is showing.
 
 use std::path::PathBuf;
 
@@ -34,28 +34,17 @@ fn find<'a>(node: &'a Value, key: &str) -> Option<&'a Value> {
         .find_map(|child| find(child, key))
 }
 
-/// Whether `key`'s node carries `state`: the one active tab says "selected".
-fn state(runtime: &Runtime<Shell<Fake>>, key: &str, state: &str) -> bool {
-    let tree = runtime.accessibility_json();
-    let node = find(&tree, key).unwrap_or_else(|| panic!("no {key} in {tree}"));
-    node["states"]
-        .as_array()
-        .is_some_and(|states| states.iter().any(|word| word.as_str() == Some(state)))
-}
-
 /// Every tab drawn with `state`, so "the active state must be one" can be counted.
 fn tabs_in(runtime: &Runtime<Shell<Fake>>, state: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut stack = vec![runtime.accessibility_json()];
     while let Some(node) = stack.pop() {
-        if node["role"] == "tab"
+        let is_tab = node["role"] == "tab"
             && node["states"]
                 .as_array()
-                .is_some_and(|states| states.iter().any(|word| word.as_str() == Some(state)))
-        {
-            if let Some(key) = node["key"].as_str() {
-                found.push(key.to_string());
-            }
+                .is_some_and(|states| states.iter().any(|word| word.as_str() == Some(state)));
+        if is_tab && let Some(key) = node["key"].as_str() {
+            found.push(key.to_string());
         }
         if let Some(children) = node["children"].as_array() {
             stack.extend(children.iter().cloned());
@@ -66,11 +55,11 @@ fn tabs_in(runtime: &Runtime<Shell<Fake>>, state: &str) -> Vec<String> {
 }
 
 #[test]
-fn the_settings_tab_opens_the_panel_and_a_session_tab_closes_it() {
+fn the_settings_tab_opens_the_pane_and_a_session_tab_returns_to_the_session() {
     let shell = Shell::new(vec![session("one"), session("two")], 0).with_live(Fake::default());
     let mut runtime = layout(shell);
 
-    // The strip carries the settings after the sessions, with the gear's own glyph.
+    // The strip carries the settings after the sessions, with its own glyph.
     let tree = runtime.accessibility_json();
     let settings = find(&tree, "t-settings").expect("the strip draws a settings tab");
     assert_eq!(settings["role"], "tab");
@@ -94,11 +83,11 @@ fn the_settings_tab_opens_the_panel_and_a_session_tab_closes_it() {
         vec!["t-settings".to_string()]
     );
 
-    // Selecting a session closes the pane and shows that session.
+    // Selecting a session leaves the pane and shows that session.
     click(&mut runtime, "t-two");
     assert!(
         !runtime.state.settings_open(),
-        "a session tab closes the panel"
+        "a session tab leaves the settings"
     );
     assert_eq!(runtime.state.active(), 1, "the pressed session is shown");
     assert_eq!(tabs_in(&runtime, "selected"), vec!["t-two".to_string()]);
@@ -116,14 +105,13 @@ fn the_settings_pane_is_drawn_once_and_its_active_state_is_one() {
         .into_iter()
         .filter(|element| element.key.as_deref() == Some("settings"))
         .count();
-    assert_eq!(panes, 1, "the pane the tab selects is drawn once");
-    assert_eq!(
-        tabs_in(&runtime, "selected").len(),
-        1,
-        "one tab is the active one, and it is the settings tab"
-    );
     assert!(
-        !state(&runtime, "settings-gear", "selected"),
-        "the gear is a second way in, not a second active state"
+        panes == 1,
+        "the pane the tab selects is drawn once: {panes}"
+    );
+    assert_eq!(
+        tabs_in(&runtime, "selected"),
+        vec!["t-settings".to_string()],
+        "one tab is the active one, and it is the settings tab"
     );
 }
