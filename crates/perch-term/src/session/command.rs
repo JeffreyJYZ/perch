@@ -34,8 +34,19 @@ impl KeyEvent {
 pub(super) enum Cmd {
     /// Write bytes to the shell.
     Write(Vec<u8>),
-    /// Encode a key press against the live terminal and answer with the bytes.
+    /// Encode a key press against the live terminal and write it to the shell.
+    ///
+    /// The encoding is the terminal thread's because the bytes depend on its modes, and the
+    /// write rides along with it: one message for a keystroke, and the order the person typed
+    /// survives because text and keys take the same channel.
     Key {
+        /// The press to encode.
+        event: KeyEvent,
+    },
+    /// Encode a key press against the live terminal and answer with the bytes, writing nothing.
+    ///
+    /// This is the read half, for a caller that wants the bytes themselves.
+    EncodeKey {
         /// The press to encode.
         event: KeyEvent,
         /// Where the encoded bytes go.

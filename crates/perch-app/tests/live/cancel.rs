@@ -33,14 +33,27 @@ fn cancelling_ends_the_turn_once_and_the_transcript_says_cancelled() {
         1,
         "a cancelled turn ends exactly once"
     );
+    let items = session.transcript().items();
+    let notes: Vec<&str> = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Note(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
     assert!(
-        session
-            .transcript()
-            .items()
+        notes
             .iter()
-            .any(|item| matches!(item, Item::Assistant { text } if text.to_lowercase().contains("cancelled"))),
-        "the transcript says the turn was cancelled: {:?}",
-        session.transcript().items()
+            .any(|text| text.to_lowercase().contains("cancelled")),
+        "the transcript says the turn was cancelled: {items:?}"
+    );
+    assert_eq!(
+        notes
+            .iter()
+            .filter(|text| text.to_lowercase().contains("cancelled"))
+            .count(),
+        1,
+        "and says it once, not once as a note and again as text: {items:?}"
     );
     let events = session.log.events().unwrap();
     assert_eq!(

@@ -7,17 +7,12 @@
 //! column.
 
 use std::path::Path;
-use std::time::Duration;
 
 use perch_app::AppState;
-use perch_plugins::PanelEntry;
-use perch_store::SessionMeta;
-use perch_ui::SettingsDraft;
-use perch_ui::Transcript;
 use perch_ui::files::Editor;
-use perch_ui::shell::{KeyStatus, Live, Panels, SettingsSnapshot, Waiting};
 
 mod boot;
+mod live;
 pub(crate) use boot::open;
 
 /// The app's editor: Zed, through `perch_files`'s one `open -a` call.
@@ -60,140 +55,13 @@ impl Window {
             Window::Offline(_) => None,
         }
     }
-}
 
-impl Live for Window {
-    fn pump(&mut self, budget: Duration) -> bool {
+    /// The sentence a window with no app answers with. Empty when one is open, where a caller
+    /// reads it before the borrow and only the missing case hands it back.
+    fn why_not(&self) -> String {
         match self {
-            Window::Open(app) => Live::pump(app.as_mut(), budget),
-            Window::Offline(_) => false,
-        }
-    }
-
-    fn transcript(&self) -> Option<&Transcript> {
-        self.app().and_then(Live::transcript)
-    }
-
-    fn transcript_mut(&mut self) -> Option<&mut Transcript> {
-        self.app_mut().and_then(Live::transcript_mut)
-    }
-
-    fn new_session(
-        &mut self,
-        worktree: &std::path::Path,
-    ) -> std::result::Result<(usize, SessionMeta), String> {
-        match self {
-            Window::Open(app) => Live::new_session(app.as_mut(), worktree),
-            Window::Offline(why) => Err(format!("no app is running: {why}")),
-        }
-    }
-
-    fn open_folder(
-        &mut self,
-        path: &std::path::Path,
-    ) -> std::result::Result<(usize, SessionMeta), String> {
-        match self {
-            Window::Open(app) => Live::open_folder(app.as_mut(), path),
-            Window::Offline(why) => Err(format!("no app is running: {why}")),
-        }
-    }
-
-    fn waiting(&self) -> Waiting {
-        self.app().map_or(Waiting::Nothing, Live::waiting)
-    }
-
-    fn busy(&self) -> bool {
-        self.app().is_some_and(Live::busy)
-    }
-
-    fn prompt(&mut self, text: String) -> std::result::Result<(), String> {
-        match self {
-            Window::Open(app) => Live::prompt(app.as_mut(), text),
-            Window::Offline(why) => Err(format!("no session is open: {why}")),
-        }
-    }
-
-    fn cancel(&mut self) {
-        if let Some(app) = self.app_mut() {
-            Live::cancel(app);
-        }
-    }
-
-    fn approve(&mut self) {
-        if let Some(app) = self.app_mut() {
-            Live::approve(app);
-        }
-    }
-
-    fn allow_for_session(&mut self) {
-        if let Some(app) = self.app_mut() {
-            Live::allow_for_session(app);
-        }
-    }
-
-    fn deny(&mut self) {
-        if let Some(app) = self.app_mut() {
-            Live::deny(app);
-        }
-    }
-
-    fn pick(&mut self, index: usize) {
-        if let Some(app) = self.app_mut() {
-            Live::pick(app, index);
-        }
-    }
-
-    fn pick_many(&mut self, picks: &[usize]) {
-        if let Some(app) = self.app_mut() {
-            Live::pick_many(app, picks);
-        }
-    }
-
-    fn answer_text(&mut self, text: String) {
-        if let Some(app) = self.app_mut() {
-            Live::answer_text(app, text);
-        }
-    }
-
-    fn switch(&mut self, index: usize) {
-        if let Some(app) = self.app_mut() {
-            Live::switch(app, index);
-        }
-    }
-
-    fn settings(&self) -> Option<SettingsSnapshot> {
-        self.app().and_then(Live::settings)
-    }
-
-    fn save_settings(&mut self, draft: SettingsDraft) -> std::result::Result<KeyStatus, String> {
-        match self {
-            Window::Open(app) => Live::save_settings(app.as_mut(), draft),
-            Window::Offline(why) => Err(format!("no app is running: {why}")),
-        }
-    }
-}
-
-/// The right-hand column: one panel per live plugin, then the words for what is not there.
-impl Panels for Window {
-    fn panels(&self) -> Vec<PanelEntry> {
-        self.app().map(Panels::panels).unwrap_or_default()
-    }
-
-    fn plugin_words(&self) -> Vec<String> {
-        self.app().map(Panels::plugin_words).unwrap_or_default()
-    }
-
-    fn panel_action(
-        &mut self,
-        plugin: &str,
-        control: &str,
-        value: Option<String>,
-    ) -> std::result::Result<(), String> {
-        match self {
-            Window::Open(app) => Panels::panel_action(app.as_mut(), plugin, control, value),
-            Window::Offline(why) => Err(format!(
-                "no app is running, so `{control}` reached no plugin: {why}"
-            )),
+            Window::Open(_) => String::new(),
+            Window::Offline(why) => format!("no app is running: {why}"),
         }
     }
 }

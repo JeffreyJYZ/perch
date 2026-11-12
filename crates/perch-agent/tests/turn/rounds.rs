@@ -91,21 +91,33 @@ fn a_turn_that_keeps_asking_for_tools_stops_at_the_cap() {
             break;
         }
     }
-    let EndReason::Errored(why) = seen.end() else {
-        panic!("a turn that never answers must say so: {:?}", seen.end());
-    };
-    assert!(
-        why.contains(&MAX_ROUNDS.to_string()),
-        "the ending names the cap it hit: {why}"
+    // Steps spent is not an error: the turn asks once more with the tools taken away, so the model
+    // can say what it reached. A turn that stalls silently is worse than one that reports.
+    assert_eq!(
+        seen.end(),
+        &EndReason::Done,
+        "a spent turn ends with the model's report, not an error"
     );
     assert_eq!(
         fixture.requests.load(Ordering::SeqCst),
-        MAX_ROUNDS,
-        "the cap is a request count, and no request was made past it"
+        MAX_ROUNDS + 1,
+        "the cap is one request per round plus the closing report"
     );
     assert_eq!(
         seen.tool_calls().len(),
         MAX_ROUNDS,
-        "every round asked for one tool"
+        "every round asked for one tool, and the closing request asked for none"
+    );
+    // The closing request is what makes the ending a report: no tools, and the instruction that
+    // says why the tools are gone.
+    let bodies = fixture.bodies.lock().unwrap().clone();
+    let closing = bodies.last().expect("the closing request arrived");
+    assert!(
+        !closing.contains("\"tools\""),
+        "the closing request still offers the tools it was meant to take away: {closing}"
+    );
+    assert!(
+        closing.contains("MAXIMUM STEPS REACHED"),
+        "the model was not told why the tools went: {closing}"
     );
 }

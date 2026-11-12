@@ -19,14 +19,27 @@
 
 mod answers;
 mod boot;
+mod commands;
 mod config;
+mod credentials;
+mod fork;
+mod models;
 mod open;
 mod sessions;
+pub(crate) mod subagent;
+mod title;
+mod title_ask;
+mod title_words;
+mod todo;
+mod tools;
+mod undo;
+mod words;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use perch_agent::ModelTransport;
 use perch_store::secret::SecretStore;
 use perch_update::Transport;
 
@@ -37,6 +50,7 @@ use crate::watch::Watch;
 use crate::worker::{Snapshot, Worker};
 
 pub use crate::session::CANCELLED;
+pub use boot::MAX_EXCHANGES;
 
 /// How long one pump waits for the next event before calling the session quiet.
 ///
@@ -58,6 +72,12 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("no session is open")]
     NoSession,
+    #[error("{0}")]
+    Model(String),
+    #[error(
+        "no model is chosen for this session, so nothing was sent: pick one in the composer or Settings"
+    )]
+    NoModel,
     #[error("session {0} is not open")]
     MissingSession(usize),
     #[error("the worktree {0} no longer exists, so this session cannot run a turn")]
@@ -94,6 +114,12 @@ pub struct AppState {
     pub(crate) worker: Worker,
     /// The snapshot the frame last absorbed: what it draws and what every call dispatches through.
     pub(crate) snapshot: Arc<Snapshot>,
+    /// The words already said in the sessions that were open when they arrived.
+    ///
+    /// The sources open on the worker, so a server that failed is known a frame or two after the
+    /// window draws rather than before it. Each word is said once, and a session opened later gets
+    /// the words its snapshot carries at creation.
+    pub(crate) spoken: Vec<String>,
     /// The debounced filesystem watcher, when the platform gave one.
     pub(crate) watch: Option<Watch>,
     /// The update check on its own thread, when `settings.toml` names a manifest.
@@ -102,6 +128,22 @@ pub struct AppState {
     pub(crate) update_url: String,
     /// The transport every update worker is built with: the real client, or a test's table.
     pub(crate) update_transport: Option<Arc<dyn Transport>>,
+    /// The transport the provider's model list is fetched through: the real client, or a test's.
+    pub(crate) listings: Arc<dyn ModelTransport>,
+    /// What the provider stated about each listed model, by id: the window the meter divides by
+    /// and the dollars-per-token price it turns into money.
+    ///
+    /// A provider need not state either, and the map then has no entry, or an entry holding
+    /// nothing; the meter shows the token count alone rather than inventing a denominator or a
+    /// bill.
+    pub(crate) limits: std::collections::HashMap<String, models::ModelFacts>,
+    /// The listing on its way, when one is: the thread that fetched it posts one answer and ends.
+    ///
+    /// The panel opens on the click and takes the answer on a later frame, so the tab appears at
+    /// once instead of after a network round trip.
+    pub(crate) models_job: Option<
+        std::sync::mpsc::Receiver<std::result::Result<Vec<perch_agent::ListedModel>, String>>,
+    >,
     /// The status the frame last read, and therefore the line the column shows.
     pub(crate) update_status: Option<Arc<Status>>,
     defaults: ProviderDefaults,
@@ -110,4 +152,6 @@ pub struct AppState {
     stated: bool,
     /// Where the provider key is kept: the login keychain, or a test's in-memory store.
     secrets: Box<dyn SecretStore>,
+    /// The session titles on their way, and the sessions already asked about.
+    pub(crate) titles: title::Titles,
 }

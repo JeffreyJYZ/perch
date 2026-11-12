@@ -7,6 +7,13 @@
 /// How many lines of a tool's output a collapsed card shows before it says how many are left.
 pub const COLLAPSED_LINES: usize = 5;
 
+/// How many lines of a tool's output an opened card draws.
+///
+/// The recorded text is already bounded by the tool that wrote it, so this is the drawing limit
+/// rather than the reading one: a frame of more mono lines than this is slow for no benefit, and
+/// the line under the block says exactly what stayed out of it.
+pub const OPENED_LINES: usize = 2000;
+
 /// The line a collapsed card ends with: how many lines it hid, and how many it showed.
 ///
 /// One source for these words, so the cap cannot read two ways in two places.
@@ -39,6 +46,36 @@ pub fn collapsed_output(output: &str) -> String {
 #[must_use]
 pub fn expanded_output(output: &str) -> String {
     output.trim_end().to_string()
+}
+
+/// A tool's output as an opened card draws it: every line inside [`OPENED_LINES`], then one line
+/// naming the cut when the recorded text is longer than the pane draws.
+///
+/// The pane is the card, so the cut is the drawing's, never the tool's: the line names how many
+/// lines stayed out and how much the tool recorded, and the recording line above the block says
+/// whether the tool had cut it first.
+#[must_use]
+pub fn opened_output(output: &str, bytes: usize) -> String {
+    let text = expanded_output(output);
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= OPENED_LINES {
+        return text;
+    }
+    let hidden = lines.len() - OPENED_LINES;
+    format!(
+        "{}\n{}",
+        lines[..OPENED_LINES].join("\n"),
+        cut_line(hidden, lines.len(), bytes)
+    )
+}
+
+/// The line an opened card ends with when the pane draws fewer lines than the tool recorded.
+#[must_use]
+pub fn cut_line(hidden: usize, total: usize, bytes: usize) -> String {
+    format!(
+        "… {hidden} more lines not drawn (the tool recorded {total} lines, {})",
+        super::recording::size(bytes)
+    )
 }
 
 /// The one line a turn's summary reads: what ran, what failed, and the tokens when the provider

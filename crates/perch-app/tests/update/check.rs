@@ -9,8 +9,12 @@ use crate::harness::{
     Fake, HELLO, MANIFEST, TIMEOUT, app, data, entry, line, lines, manifest, pump_until,
 };
 
-/// How long the fake manifest takes to answer: longer than any frame may be held.
-const SLOW: Duration = Duration::from_millis(2000);
+/// How long the fake manifest takes to answer. Opening the window is no longer a fixed cost of
+/// seconds — the tool sources and the file watcher are both built beside the frame, and
+/// `docs/perf/startup.md` has the numbers — but the manifest must still be slower than a cautious
+/// opening for the comparison to mean anything: a window that waited for the fetch would take at
+/// least this long *plus* its own cost.
+const SLOW: Duration = Duration::from_millis(5000);
 
 #[test]
 fn frames_keep_coming_while_the_manifest_is_still_being_fetched() {
@@ -108,7 +112,10 @@ fn an_empty_url_never_reaches_the_network() {
     let dir = data(None);
     let mut app = app(&dir, Arc::clone(&fake));
 
-    for _ in 0..20 {
+    // Opening the plugin engine happens on the worker, so "nothing pending" is a state the frame
+    // arrives at, not one it starts in: a fixed number of pumps is a bet on how fast the machine is.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while app.busy() && std::time::Instant::now() < deadline {
         app.pump(Duration::from_millis(5));
     }
 

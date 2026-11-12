@@ -4,14 +4,55 @@ use perch_store::Settings;
 use perch_store::settings::McpServerConfig;
 use perch_ui::settings::SettingsDraft;
 use perch_ui::shell::{KeyStatus, SettingsSnapshot};
+use perch_ui::theme::{self, Appearance};
 
-use super::{AppState, ProviderDefaults};
+use super::{AppState, Error, ProviderDefaults};
 use crate::update::{Plan, Worker as UpdateWorker};
 
 impl AppState {
     /// The provider a new session would be given: what a settings save changes.
     pub fn provider_defaults(&self) -> &ProviderDefaults {
         &self.defaults
+    }
+
+    /// What the frame draws with: the theme `settings.toml` names, in the colours on disk, and the
+    /// type size a person picked.
+    ///
+    /// Read from the file on every call rather than kept, which is what makes a save reach a
+    /// window that is already open: there is no copy of the appearance to go stale, the way
+    /// [`AppState::follow_saved_endpoint`] leaves no session on an old address. The note is the one
+    /// line a pane says when the saved name or size could not be used as written.
+    pub fn appearance(&self) -> Appearance {
+        let settings = Settings::load(&self.dir).unwrap_or_default();
+        Appearance::resolve(&theme::discover(), &settings.theme, settings.font_size)
+    }
+
+    /// The model the active session asks for, exactly as the composer shows it.
+    pub fn model(&self) -> Option<String> {
+        self.active_session()
+            .map(|session| session.meta.model.clone())
+    }
+
+    /// Picks `id` for the active session only: its next turn asks for it, its log header says so,
+    /// and a session that is already streaming keeps the model it was sent with.
+    ///
+    /// The choice also becomes what a new session inherits. It is not written to `settings.toml`:
+    /// that is the settings panel's save, and a composer pick is a session's business.
+    pub fn choose_model(&mut self, id: &str) -> crate::Result<()> {
+        let id = id.trim();
+        if id.is_empty() {
+            return Err(Error::Model(
+                "a model id is needed, and none was picked".to_string(),
+            ));
+        }
+        let Some(runtime) = self.sessions.get_mut(self.active) else {
+            return Err(Error::NoSession);
+        };
+        runtime.model.set(id);
+        runtime.meta.model = id.to_string();
+        runtime.log.set_model(id)?;
+        self.defaults.model = id.to_string();
+        Ok(())
     }
 
     /// What the settings panel opens with: the saved values and whether a key is stored.
@@ -32,8 +73,42 @@ impl AppState {
     ) -> std::result::Result<KeyStatus, String> {
         let status = crate::settings::apply(&self.dir, &mut self.defaults, &*self.secrets, draft)
             .map_err(|error| error.to_string())?;
+        // A saved model is the session's too. Saving is an explicit act, and a window that keeps
+        // sending "model is empty" after one is a window that ignored what it was just told.
+        self.follow_saved_model();
+        // So are the address and the key: a key added after the window opened used to reach only
+        // the sessions created after it, so the one on screen kept answering `401` with a key the
+        // app already held.
+        self.follow_saved_endpoint();
         self.follow_update().map_err(|error| error.to_string())?;
         Ok(status)
+    }
+
+    /// Gives every session the address and key just saved, so the next turn of the open one asks
+    /// the provider the person just configured.
+    pub(super) fn follow_saved_endpoint(&mut self) {
+        let base_url = self.defaults.base_url.clone();
+        let api_key = self.defaults.api_key.clone();
+        for session in &mut self.sessions {
+            session.endpoint.set(&base_url, &api_key);
+        }
+    }
+
+    /// Gives the active session the model that was just saved, when it is not already asking for
+    /// one. Nothing is chosen when the saved model is empty, so a provider without a model yet
+    /// still refuses a turn in words rather than guessing.
+    pub(super) fn follow_saved_model(&mut self) {
+        let saved = self.defaults.model.trim().to_string();
+        if saved.is_empty() {
+            return;
+        }
+        let differs = self
+            .sessions
+            .get(self.active)
+            .is_some_and(|session| session.meta.model != saved);
+        if differs {
+            let _ = self.choose_model(&saved);
+        }
     }
 
     /// Restarts the update thread when `settings.toml` now names a different manifest.
@@ -96,8 +171,18 @@ impl AppState {
 
     /// Folds the settings file's provider into the defaults a new session would read.
     fn follow(&mut self, settings: &Settings) {
-        self.defaults.base_url = settings.provider_base_url.clone();
-        self.defaults.model = settings.model.clone();
-        self.defaults.api_key = crate::settings::stored_key(&*self.secrets).unwrap_or_default();
+        let active = settings.active_profile().cloned();
+        self.defaults.base_url = active
+            .as_ref()
+            .map(|profile| profile.base_url.clone())
+            .unwrap_or_default();
+        self.defaults.model = active
+            .as_ref()
+            .map(|profile| profile.model.clone())
+            .unwrap_or_default();
+        self.defaults.api_key = active
+            .as_ref()
+            .and_then(|profile| crate::settings::runtime_key(&*self.secrets, &profile.name))
+            .unwrap_or_default();
     }
 }

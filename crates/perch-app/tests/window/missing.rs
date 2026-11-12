@@ -1,5 +1,7 @@
 //! The two failures the window survives: a vanished worktree and an MCP server that will not load.
 
+use std::time::{Duration, Instant};
+
 use perch_app::AppState;
 use perch_store::Settings;
 use perch_store::settings::McpServerConfig;
@@ -7,6 +9,24 @@ use perch_ui::Item;
 use perch_ui::Shell;
 
 use crate::harness::{asked, defaults, press, said, turns};
+
+/// How long the sources are given to report themselves. Bounded, not timed.
+const TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Whether the session on screen says `words`.
+fn naming(app: &AppState, words: &str) -> bool {
+    app.active_session().is_some_and(|session| {
+        session
+            .transcript()
+            .items()
+            .iter()
+            // A refusal is a note, not a reply: both are things the column says.
+            .any(|item| match item {
+                Item::Assistant { text } | Item::Note(text) => text.contains(words),
+                _ => false,
+            })
+    })
+}
 
 #[test]
 fn a_session_whose_worktree_vanished_refuses_the_prompt_with_a_reason() {
@@ -68,6 +88,13 @@ fn a_failed_mcp_server_is_a_note_not_a_closed_window() {
     let index = app.new_session(worktree.path()).unwrap();
     app.switch(index).unwrap();
 
+    // The sources open on the worker so the window draws first: a server that will not spawn is
+    // known a frame or two later, and the words arrive in the frames that follow.
+    let deadline = Instant::now() + TIMEOUT;
+    while Instant::now() < deadline && !naming(&app, "mcp broken failed") {
+        app.pump(Duration::from_millis(20));
+    }
+
     assert_eq!(app.metas().len(), 1, "the session opened anyway");
     let said: Vec<String> = app
         .active_session()
@@ -76,7 +103,7 @@ fn a_failed_mcp_server_is_a_note_not_a_closed_window() {
         .items()
         .iter()
         .filter_map(|item| match item {
-            Item::Assistant { text } => Some(text.clone()),
+            Item::Assistant { text } | Item::Note(text) => Some(text.clone()),
             _ => None,
         })
         .collect();

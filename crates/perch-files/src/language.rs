@@ -20,6 +20,7 @@ const BY_EXTENSION: &[(&str, &str)] = &[
     ("cmake", "cmake"),
     ("cpp", "cpp"),
     ("css", "css"),
+    ("cxx", "cpp"),
     ("go", "go"),
     ("h", "c"),
     ("hh", "cpp"),

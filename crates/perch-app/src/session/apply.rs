@@ -1,0 +1,164 @@
+//! Folding one posted event into a session's transcript and its log.
+//!
+//! The dispatch thread posts events and this is the only code that applies them: the thread that
+//! draws is the thread that mutates, so a turn's arrival can never race a frame. A card is added
+//! from the call, before the call runs, so the column shows what is being decided rather than
+//! only what came back.
+
+use perch_agent::AgentEvent;
+use perch_agent::Usage;
+use perch_store::SessionEvent;
+
+use super::SessionRuntime;
+
+/// What one finished turn reported, kept as the fact it is: its tokens and the model it asked for.
+///
+/// The model is captured when the turn starts and stored with the usage, so money is computed at
+/// the price that turn was charged — a pick made afterwards prices the next turn and leaves this
+/// one's bill alone.
+pub(crate) struct Turn {
+    usage: Usage,
+    model: String,
+}
+
+impl Turn {
+    /// The tokens the turn reported, input and output together.
+    pub(crate) fn tokens(&self) -> u32 {
+        self.usage.input.saturating_add(self.usage.output)
+    }
+
+    /// The split the turn reported: what money is computed from.
+    pub(crate) fn usage(&self) -> Usage {
+        self.usage
+    }
+
+    /// The model the turn's request named.
+    pub(crate) fn model(&self) -> &str {
+        &self.model
+    }
+}
+use crate::bridge::BridgeEvent;
+use crate::turn::{Pending, compaction_words, question_text, reason_word};
+
+impl SessionRuntime {
+    /// Folds one posted event into the transcript and the log, and reports whether the session
+    /// is now waiting on the user.
+    pub(crate) fn apply(&mut self, event: BridgeEvent) -> bool {
+        match event {
+            BridgeEvent::Text(text) => {
+                self.transcript.apply(&AgentEvent::TextDelta(text.clone()));
+                self.open_text.push_str(&text);
+            }
+            BridgeEvent::Reasoning(words) => {
+                self.transcript.apply(&AgentEvent::ReasoningDelta(words));
+            }
+            BridgeEvent::ToolCall(call) => {
+                self.transcript.apply(&AgentEvent::ToolCall(call.clone()));
+                // The log is the conversation's only durable copy; a write failing is worth
+                // dropping rather than stopping the turn the user is watching.
+                let _ = self.log.append(&SessionEvent::ToolCall {
+                    id: call.id,
+                    name: call.name,
+                    args: call.args,
+                });
+            }
+            BridgeEvent::ToolResult { id, ok, text } => {
+                self.transcript.apply(&AgentEvent::ToolResult {
+                    id: id.clone(),
+                    ok,
+                    text: text.clone(),
+                });
+                let _ = self.log.append(&SessionEvent::ToolResult { id, ok, text });
+            }
+            BridgeEvent::Approval { id, name, preview } => {
+                // A tool that asks and shows nothing keeps its card saying "running": the column
+                // has one approval state and it is the preview's. The wait below is what holds
+                // the turn either way.
+                if let Some(preview) = preview {
+                    self.transcript.request_approval(&id, preview);
+                }
+                self.pending = Some(Pending::Approval { id, name });
+                return true;
+            }
+            BridgeEvent::Question {
+                prompt,
+                options,
+                multiple,
+            } => {
+                self.transcript
+                    .apply(&AgentEvent::TextDelta(question_text(&prompt, &options)));
+                self.pending = Some(Pending::Question {
+                    prompt,
+                    options,
+                    multiple,
+                });
+                return true;
+            }
+            BridgeEvent::TurnEnd { reason, usage } => {
+                // The transcript's own ending is the one place the column says a turn was
+                // cancelled: it notes the word and marks the open reply, so nothing here repeats
+                // it as text. The log keeps `reason_word` for the same reason.
+                self.transcript.apply(&AgentEvent::TurnEnd {
+                    reason: reason.clone(),
+                    usage,
+                });
+                let reply = std::mem::take(&mut self.open_text);
+                if !reply.is_empty() {
+                    let _ = self.log.append(&SessionEvent::Assistant { text: reply });
+                }
+                let _ = self.log.append(&SessionEvent::TurnEnd {
+                    reason: reason_word(&reason),
+                    tokens_in: usage.input,
+                    tokens_out: usage.output,
+                });
+                // The meter counts what the provider reported for the last turn; a provider that
+                // reported nothing leaves the previous number rather than claiming zero. The model
+                // the turn named is stored beside it, so its cost cannot change when the model is
+                // picked again.
+                let model = self.running_model.take().unwrap_or_default();
+                let spent = usage.input.saturating_add(usage.output);
+                if spent > 0 {
+                    self.turn = Some(Turn { usage, model });
+                }
+                self.pending = None;
+                self.running = false;
+                self.turns += 1;
+                self.last_reason = Some(reason);
+                // A prompt sent while this turn ran goes out now, in the order it was written —
+                // unless a compaction is queued ahead of it, which is the request that must run
+                // at this step boundary first.
+                if !self.compacting {
+                    self.start_queued();
+                }
+            }
+            BridgeEvent::Compacted { dropped, exchanges } => {
+                if self.compacting {
+                    self.compacted();
+                    self.transcript.note(compaction_words(dropped, exchanges));
+                    self.start_queued();
+                } else {
+                    // A compaction the harness did itself, because the provider refused the
+                    // request's size: said in the column's own voice, never as a reply.
+                    self.transcript
+                        .apply(&AgentEvent::Compacted { dropped, exchanges });
+                }
+            }
+        }
+        false
+    }
+
+    /// The tokens the last turn reported, when a turn has ended.
+    pub fn tokens_used(&self) -> Option<u32> {
+        self.turn.as_ref().map(Turn::tokens)
+    }
+
+    /// The split the last turn reported, which is what its dollars are computed from.
+    pub fn usage(&self) -> Option<Usage> {
+        self.turn.as_ref().map(Turn::usage)
+    }
+
+    /// The model the last turn's request named, which is the price that turn was charged at.
+    pub fn turn_model(&self) -> Option<&str> {
+        self.turn.as_ref().map(Turn::model)
+    }
+}

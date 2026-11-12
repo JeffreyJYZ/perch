@@ -121,6 +121,12 @@ pub(super) struct WireChoice {
 pub(super) struct WireDelta {
     #[serde(default)]
     pub(super) content: Option<String>,
+    /// The model thinking, on providers that stream it: OpenRouter names it `reasoning`, and
+    /// others send `reasoning_content`. Both are kept so one endpoint serves either.
+    #[serde(default)]
+    pub(super) reasoning: Option<String>,
+    #[serde(default)]
+    pub(super) reasoning_content: Option<String>,
     #[serde(default)]
     pub(super) tool_calls: Option<Vec<WireToolCallDelta>>,
 }

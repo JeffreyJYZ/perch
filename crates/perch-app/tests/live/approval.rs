@@ -6,7 +6,7 @@ use perch_agent::Decision;
 use perch_store::SessionEvent;
 use perch_ui::{Item, ToolStatus};
 
-use crate::harness::{SETTLE, TIMEOUT, app_against, request, said, tool_card};
+use crate::harness::{SETTLE, TIMEOUT, app_against, request, said, tool_card, turn_requests};
 
 #[test]
 fn an_approval_is_raised_and_answering_allow_runs_the_tool() {
@@ -25,6 +25,7 @@ fn an_approval_is_raised_and_answering_allow_runs_the_tool() {
             status,
             output,
             preview,
+            ..
         } => {
             assert_eq!(id, "call_w1");
             assert_eq!(name, "write");
@@ -160,10 +161,12 @@ fn cancelling_while_a_call_waits_for_approval_runs_nothing_and_ends_once() {
         !worktree.path().join("made.txt").exists(),
         "no call runs after the cancel"
     );
+    let asked = turn_requests(&fixture);
     assert_eq!(
-        fixture.requests.load(Ordering::SeqCst),
+        asked,
         1,
-        "a cancelled turn asks the model nothing further"
+        "a cancelled turn asks the model nothing further; the bodies were {:?}",
+        fixture.bodies.lock().unwrap()
     );
     assert_eq!(
         session

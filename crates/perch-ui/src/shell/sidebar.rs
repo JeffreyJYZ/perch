@@ -1,22 +1,27 @@
-//! The left column: the session list over the file tree, and the selected file's preview.
+//! The left column: the session list over the file tree.
+//!
+//! The column holds words and the tree, nothing else. A file's contents belong to the centre
+//! column, which shows them at full width while a file is selected; drawing them here as well
+//! put them in a strip built for folder names.
 
 use perch_store::SessionMeta;
 use rune::{El, col};
 use rune_kit::Kit;
-use rune_kit::shell::SidebarRow;
 use rune_kit::{Button, ButtonVariant};
 
-use super::ROW;
 use super::live::Live;
+use super::search_session_view;
 use super::state::Shell;
 use crate::files::{files_view, note, section_label};
-use crate::preview::preview_view;
 
 /// The session list, and the tab strip it is the long form of.
 ///
 /// A session whose worktree is gone still has a row: the work is on disk, and hiding it would
 /// hide the only place its reason is said. Starting a new one needs no picker — it is the
 /// directory this window already has open.
+///
+/// The filter field above the rows is the list's own view: it narrows what is drawn and leaves
+/// every session open, its selection where it was.
 ///
 /// A window that opened with no folder is not an empty window: the column says there is none,
 /// repeats why when the launch directory was refused, and offers the picker.
@@ -31,24 +36,26 @@ pub(super) fn sessions<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .pt(12.0)
         .pb(8.0)
         .gap(2.0)
+        .focusable(true)
+        .on_key(super::keymap::session_list_key::<L>)
         .child(section_label(kit, "Sessions", "sessions-label"));
-    if shell.sessions.is_empty() {
+    if shell.session_count() == 0 {
         list = list.child(note(kit, "No folder open"));
         if let Some(words) = shell.notice() {
             list = list.child(note(kit, words));
         }
         return list.child(open_folder::<L>(kit));
     }
-    for (index, session) in shell.sessions.iter().enumerate() {
-        list = list.child(
-            SidebarRow::new(session.title.clone())
-                .height(ROW)
-                .subtitle(describe(session))
-                .selected(index == shell.active)
-                .on_select(move |s: &mut Shell<L>, _: &mut rune::Tx| s.select(index))
-                .build(kit)
-                .key(format!("session-{index}")),
-        );
+    list = list
+        .child(search_session_view::filter_field(shell, kit))
+        .child(search_session_view::count(shell, kit));
+    match search_session_view::empty(shell) {
+        Some(words) => list = list.child(note(kit, &words)),
+        None => {
+            for (index, session) in shell.session_rows() {
+                list = list.child(search_session_view::row(shell, index, &session, kit));
+            }
+        }
     }
     // A notice is still news when a session is open: a `--worktree` that opened nothing says so
     // here rather than nowhere.
@@ -83,7 +90,7 @@ fn new_session<L: Live>(kit: &Kit) -> El {
     )
 }
 
-/// The file tree, with the selected file's preview under it so the Zed handoff is reachable.
+/// The file tree, and nothing under it: the selected file is previewed in the centre column.
 pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
     let Some(panel) = shell.files.as_ref() else {
         // A window with no folder has no tree to show, and "not loaded" would read as a failure.
@@ -106,23 +113,19 @@ pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
             .child(section_label(kit, "Files", "files-label"))
             .child(note(kit, words));
     };
-    let tree = files_view::<L>(panel);
-    // Nothing to preview and nothing to say: the column is the tree, as before.
-    if panel.selected_path().is_none() && panel.message().is_none() {
-        return tree;
+    files_view::<L>(panel, kit)
+}
+
+impl<L: Live> Shell<L> {
+    /// The row's delete control: the first press arms it, the second removes the session.
+    pub fn remove_session(&mut self, index: usize) -> bool {
+        self.confirm_delete(index)
     }
-    col()
-        .key("files-column")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .child(tree)
-        .child(preview_view::<L>(panel))
 }
 
 /// A session row's second line: its branch and its worktree, both as words — or the reason the
 /// session cannot run, before a prompt is typed rather than after one is refused.
-fn describe(session: &SessionMeta) -> String {
+pub(super) fn describe(session: &SessionMeta) -> String {
     let worktree = session.worktree.file_name().map_or_else(
         || session.worktree.display().to_string(),
         |name| name.to_string_lossy().into_owned(),

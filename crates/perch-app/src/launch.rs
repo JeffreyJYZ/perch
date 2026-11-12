@@ -59,7 +59,7 @@ pub fn fallback_sessions(flag: Option<PathBuf>) -> Vec<perch_store::SessionMeta>
         title,
         worktree,
         branch: String::new(),
-        model: "no model".to_string(),
+        model: String::new(),
         created: 0,
     }]
 }

@@ -25,7 +25,7 @@ impl AppState {
             id: format!("{created}-{}", self.sessions.len()),
             title,
             worktree: worktree.to_path_buf(),
-            branch: String::new(),
+            branch: branch_words(worktree),
             model: self.defaults.model.clone(),
             created,
         };
@@ -46,13 +46,31 @@ impl AppState {
     }
 
     /// Shows the session at `index`. Switching is a state swap: nothing reloads from disk and no
-    /// process restarts.
+    /// process restarts. The branch is re-read on the way, so a checkout made in the terminal is
+    /// on the row the moment the session is shown.
     pub fn switch(&mut self, index: usize) -> Result<()> {
         if index >= self.sessions.len() {
             return Err(Error::MissingSession(index));
         }
         self.active = index;
+        self.refresh_branch();
         Ok(())
+    }
+
+    /// Re-reads the active session's branch and rewrites its header when it moved.
+    ///
+    /// A detached head is `HEAD`, a directory that is not a repository is empty, and neither is
+    /// an error: the row says what the worktree says, and a git call that fails changes nothing.
+    pub fn refresh_branch(&mut self) {
+        let Some(runtime) = self.sessions.get_mut(self.active) else {
+            return;
+        };
+        let words = branch_words(&runtime.meta.worktree);
+        if runtime.meta.branch == words {
+            return;
+        }
+        runtime.meta.branch = words.clone();
+        let _ = runtime.log.set_branch(&words);
     }
 
     /// The session the window shows.
@@ -107,4 +125,24 @@ impl AppState {
             .map(|session| session.meta.clone())
             .collect()
     }
+}
+
+/// The branch word a row carries: its name, `HEAD` when detached, and `↑n`/`↓n` when the branch
+/// has drifted from its upstream. A directory that is not a repository is an empty word.
+pub(crate) fn branch_words(root: &Path) -> String {
+    let Some(branch) = perch_files::branch_of(root) else {
+        return String::new();
+    };
+    let mut words = if branch.detached || branch.name.is_empty() {
+        "HEAD".to_string()
+    } else {
+        branch.name
+    };
+    if branch.ahead > 0 {
+        words.push_str(&format!(" ↑{}", branch.ahead));
+    }
+    if branch.behind > 0 {
+        words.push_str(&format!(" ↓{}", branch.behind));
+    }
+    words
 }

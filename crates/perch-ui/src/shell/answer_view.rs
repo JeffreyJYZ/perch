@@ -11,8 +11,9 @@ use rune_kit::Kit;
 use rune_kit::TextArea;
 
 use super::keymap::{Typing, interrupts, typing_intent};
-use super::live::{Live, Waiting};
+use super::live::Live;
 use super::state::Shell;
+use super::waiting::Waiting;
 
 /// The card a turn's wait puts above the prompt. Nothing is waiting, nothing is drawn.
 pub(super) fn card<L: Live>(shell: &Shell<L>, kit: &Kit) -> Option<El> {

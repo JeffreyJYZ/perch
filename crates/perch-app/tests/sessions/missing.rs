@@ -51,7 +51,10 @@ fn a_session_whose_worktree_vanished_is_named_missing_and_refuses_the_prompt() {
         .items()
         .iter()
         .filter_map(|item| match item {
+            // A refusal is a note now, not a reply: both are things the column says, and this
+            // test asks whether the column explained itself.
             Item::Assistant { text } => Some(text.clone()),
+            Item::Note(text) => Some(text.clone()),
             _ => None,
         })
         .collect();

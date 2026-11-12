@@ -7,6 +7,9 @@
 mod support;
 
 mod cancel;
+mod compact;
 mod harness;
+mod manual;
+mod model;
 mod rounds;
 mod stream;

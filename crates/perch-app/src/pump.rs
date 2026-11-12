@@ -27,10 +27,18 @@ impl AppState {
     pub fn pump(&mut self, budget: Duration) -> Pumped {
         if self.watch.as_ref().is_some_and(Watch::changed) {
             self.reload_soon();
+            // A checkout made in the terminal is a worktree change like any other: the branch
+            // the row carries is re-read now rather than staying as it was when the session opened.
+            self.refresh_branch();
         }
         let mut pumped = self.pump_events(budget);
         if pumped.changed || self.turn_running() {
             self.feed_plugins();
+        }
+        // A first turn that just ended may owe a title; one answer that arrived is applied here.
+        // Neither waits: the request is one thread away and the answer is read when it is there.
+        if self.start_titles() || self.absorb_titles() {
+            pumped.changed = true;
         }
         if self.absorb() {
             pumped.changed = true;
@@ -76,6 +84,8 @@ impl AppState {
                 .sessions
                 .iter()
                 .any(|session| session.is_running() && !session.is_waiting())
+            // A title request in flight is news the frame is waiting for, not a turn.
+            || self.titles_pending() > 0
     }
 
     /// Whether the active session has a turn in flight.
@@ -101,6 +111,8 @@ impl AppState {
         }
         self.live.store(snapshot.registry.clone());
         self.snapshot = snapshot;
+        // The sources open on the worker, so a word about them can arrive after the window is up.
+        self.say_new_words();
         true
     }
 

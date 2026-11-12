@@ -12,7 +12,22 @@ use crate::echo::Echo;
 fn every_builtin_tool_is_registered_with_a_schema() {
     let specs = ToolRegistry::builtin().specs();
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["read", "write", "edit", "bash", "list", "grep"]);
+    assert_eq!(
+        names,
+        [
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "jobs",
+            "list",
+            "grep",
+            "glob",
+            "patch",
+            "todowrite",
+            "todoread"
+        ]
+    );
 
     for spec in &specs {
         assert!(
@@ -60,13 +75,13 @@ fn a_registered_tool_appears_in_the_specs_and_is_callable() {
 #[test]
 fn approvals_are_required_only_for_mutating_tools() {
     let registry = ToolRegistry::builtin();
-    for name in ["read", "list", "grep"] {
+    for name in ["read", "list", "grep", "glob", "jobs"] {
         assert!(
             !registry.needs_approval(name).unwrap(),
             "{name} needs approval"
         );
     }
-    for name in ["write", "edit", "bash"] {
+    for name in ["write", "edit", "bash", "patch"] {
         assert!(
             registry.needs_approval(name).unwrap(),
             "{name} needs no approval"

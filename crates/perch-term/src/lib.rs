@@ -13,6 +13,7 @@ mod paste;
 mod scrollback;
 mod selection;
 mod session;
+pub mod shell;
 
 pub use libghostty_vt::key::{Key, Mods};
 pub use libghostty_vt::screen::Screen;
@@ -30,6 +31,7 @@ pub use paste::{PASTE_END, PASTE_START, encode_paste};
 pub use scrollback::Scrollback;
 pub use selection::{CellRange, selection_text};
 pub use session::{KeyEvent, TermError, TermHandle, TermSession};
+pub use shell::ShellCommand;
 
 /// How a replay's time was spent.
 ///

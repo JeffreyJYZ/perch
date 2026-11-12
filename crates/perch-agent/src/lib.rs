@@ -6,11 +6,21 @@
 pub mod ask;
 pub mod cancel;
 pub mod chunk;
+pub mod compact;
 pub mod dispatch;
 pub mod event;
+pub mod instructions;
+mod instructions_home;
+mod open;
 pub mod provider;
 mod replies;
+mod report;
+mod retry;
 mod rounds;
+pub mod rules;
+pub mod skills;
+pub mod skills_tool;
+pub mod subagent;
 mod tools;
 pub mod turn;
 
@@ -19,9 +29,15 @@ pub use cancel::CancelWatch;
 pub use chunk::Chunk;
 pub use dispatch::{Answer, Decision, Dispatcher, Interactor, ToolReply};
 pub use event::{AgentEvent, EndReason, ToolCall, Usage};
+pub use instructions::{for_session, for_session_with, for_worktree};
 pub use provider::{
-    ChatRequest, ChunkStream, Message, Role, SecretString, ToolCallRecord, ToolSpec, stream,
+    ChatRequest, ChunkStream, Endpoint, HttpTransport, ListedModel, Message, Model, ModelTransport,
+    Price, Role, SecretString, ToolCallRecord, ToolSpec, list_models, list_models_with, stream,
 };
+pub use rules::{Permission, Rule, Rules};
+pub use skills::{Found, Skill};
+pub use skills_tool::SkillTool;
+pub use subagent::{Delegate, TASK, Task};
 pub use tools::Tools;
 pub use turn::{Agent, AgentConfig, AgentHandle, MAX_ROUNDS};
 
@@ -38,6 +54,8 @@ pub enum Error {
     Status { status: u16, body: String },
     #[error("stream ended without [DONE], so the reply is incomplete")]
     Truncated,
+    #[error("{0}")]
+    Length(String),
     #[error("config: {0}")]
     Config(String),
     #[error("stream consumer dropped")]

@@ -26,11 +26,28 @@ fn names(app: &AppState) -> Vec<String> {
 
 /// The body of request number `index`, counted from zero.
 fn request(server: &fixture::Fixture, index: usize) -> String {
-    let bodies = server.bodies.lock().unwrap();
+    let bodies = turn_requests(server);
     bodies
         .get(index)
         .unwrap_or_else(|| panic!("the fixture never received request {index}: {bodies:?}"))
         .clone()
+}
+
+/// The conversation's own requests, in order.
+///
+/// The titler names the session on the same provider as soon as a turn answers, so its request
+/// lands on the fixture's socket too. It offers the model no tools, and a test about what the turn
+/// was offered counts the turn's own requests.
+fn turn_requests(server: &fixture::Fixture) -> Vec<String> {
+    const TITLER: &str = "You name conversations.";
+    server
+        .bodies
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|body| !body.contains(TITLER))
+        .cloned()
+        .collect()
 }
 
 #[test]

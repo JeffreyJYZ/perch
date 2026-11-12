@@ -1,16 +1,21 @@
-//! The flattened tree: one row per node, its icon, its git state and its depth.
+//! The flattened tree: one row per node, its kind, its git state and its depth.
 
 use std::path::{Path, PathBuf};
 
-use perch_files::{DIR_ICON, FileStatus, Node, NodeKind, icon_for};
-use rune::{El, icon, row, spacer, text};
+use perch_files::{FileStatus, Kind, Node, NodeKind, icon_for};
+use rune::{Color, El, el, icon, row, spacer, text};
 use rune_kit::Kit;
 use rune_kit::glyphs;
 
+use super::icons::{ICON, drawn};
 use super::status_word;
 
 /// How far one level of depth indents a row, in points.
 const INDENT: f32 = 12.0;
+
+/// The width a directory's caret takes, and the gap a file row leaves where it would be, so every
+/// name in the tree starts at the same column.
+const CARET: f32 = 12.0;
 
 /// One line of the flattened tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,8 +24,8 @@ pub struct TreeRow {
     pub depth: usize,
     /// The row's own name, never its whole path.
     pub name: String,
-    /// The Material Symbols name this row's type maps to (`perch_files::icon_for`).
-    pub icon: String,
+    /// What this row is drawn as (`perch_files::icon_for`, or the node for a directory).
+    pub kind: Kind,
     /// What git reports for the file, `None` for a directory or an unchanged file.
     pub status: Option<FileStatus>,
     /// Whether git reports the file deleted; the row stays visible and cannot be previewed.
@@ -35,9 +40,9 @@ pub(super) fn flatten(nodes: &[Node], depth: usize, out: &mut Vec<TreeRow>) {
         out.push(TreeRow {
             depth,
             name: node.name.clone(),
-            icon: match node.kind {
-                NodeKind::Dir => DIR_ICON.to_string(),
-                NodeKind::File => icon_for(Path::new(&node.name)).to_string(),
+            kind: match node.kind {
+                NodeKind::Dir => Kind::Folder,
+                NodeKind::File => icon_for(Path::new(&node.name)),
             },
             status: node.status,
             deleted: node.status == Some(FileStatus::Deleted),
@@ -49,7 +54,7 @@ pub(super) fn flatten(nodes: &[Node], depth: usize, out: &mut Vec<TreeRow>) {
     }
 }
 
-/// One row: its type's icon slot, its name, and its git state as a word.
+/// One row: the caret or the gap beside it, the kind's drawing, its name, and its git state as a word.
 pub(super) fn row_view(kit: &Kit, tree_row: &TreeRow, index: usize, selected: bool) -> El {
     let ink = if selected {
         kit.c.text_strong
@@ -74,13 +79,20 @@ pub(super) fn row_view(kit: &Kit, tree_row: &TreeRow, index: usize, selected: bo
     if selected {
         line = line.fill(kit.c.pressed);
     }
-    // A directory is always shown expanded, so its caret points down. Every other type's
-    // Material Symbols glyph is carried in `TreeRow::icon`; no symbols font is registered yet,
-    // so the row draws no second glyph rather than a word that would read as file content.
-    if tree_row.icon == DIR_ICON {
-        line = line.child(icon(&glyphs::CHEVRON_DOWN, 12.0).color(kit.c.text_faint));
+    // A directory is always shown expanded, so its caret points down; a file keeps the caret's
+    // column empty so both names start where the other one's does.
+    if tree_row.kind == Kind::Folder {
+        line = line.child(icon(&glyphs::CHEVRON_DOWN, CARET).color(kit.c.text_faint));
+    } else {
+        line = line.child(el().w(CARET));
     }
-    line = line.child(text(tree_row.name.clone()).font(kit.ty.small).color(ink));
+    line = line
+        .child(
+            icon(drawn(tree_row.kind), ICON)
+                .key(format!("file-kind-{index}"))
+                .color(icon_ink(kit, tree_row.kind, ink)),
+        )
+        .child(text(tree_row.name.clone()).font(kit.ty.small).color(ink));
     let word = status_word(tree_row.status);
     if !word.is_empty() {
         line = line.child(spacer()).child(
@@ -90,6 +102,16 @@ pub(super) fn row_view(kit: &Kit, tree_row: &TreeRow, index: usize, selected: bo
         );
     }
     line
+}
+
+/// One colour per icon: a plain file is drawn quieter than a typed one, and a typed one follows
+/// the row's own ink, so selection is what lifts it.
+fn icon_ink(kit: &Kit, kind: Kind, ink: Color) -> Color {
+    if kind == Kind::File {
+        kit.c.text_faint
+    } else {
+        ink
+    }
 }
 
 /// What the row says out loud: its name, its git state and whether it is selected.

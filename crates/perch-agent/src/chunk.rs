@@ -8,6 +8,8 @@
 pub enum Chunk {
     /// Assistant text, appended to the open message.
     Text(String),
+    /// The model thinking, before or beside its answer, as the provider streamed it.
+    Reasoning(String),
     /// A tool-call fragment; `index` groups fragments that belong to one call.
     ToolCall {
         index: usize,

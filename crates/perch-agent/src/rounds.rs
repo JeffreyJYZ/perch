@@ -16,11 +16,13 @@ use serde_json::Value;
 
 use crate::Chunk;
 use crate::cancel::Cancel;
+use crate::compact;
 use crate::dispatch::ToolReply;
 use crate::event::{AgentEvent, EndReason, ToolCall, Usage};
-use crate::provider::{ChatRequest, Message, ToolCallRecord};
+use crate::open::Opened;
+use crate::provider::{Message, ToolCallRecord};
 use crate::replies::{self, Lost};
-use crate::stream;
+use crate::report::{Outcome, report as closing_report};
 use crate::turn::MAX_ROUNDS;
 
 /// Run one turn and report how it ended and what it cost.
@@ -47,18 +49,10 @@ pub(crate) fn one(
         if stopped() {
             return (EndReason::Cancelled, usage);
         }
-        let request = ChatRequest {
-            base_url: config.base_url.clone(),
-            api_key: config.api_key.clone(),
-            model: config.model.clone(),
-            messages: history.clone(),
-            // The snapshot for this request, taken as it starts. A reload that lands while the
-            // reply streams changes the next request, never this one.
-            tools: config.tools.specs(),
-        };
-        let chunks = match stream(&request) {
-            Ok(chunks) => chunks,
-            Err(error) => return (EndReason::Errored(error.to_string()), usage),
+        let chunks = match compact::open_within(config, history, events, &stopped) {
+            Opened::Stream(chunks) => chunks,
+            Opened::Cancelled => return (EndReason::Cancelled, usage),
+            Opened::Failed(error) => return (EndReason::Errored(error.to_string()), usage),
         };
         let mut text = String::new();
         let mut fragments: BTreeMap<usize, Fragment> = BTreeMap::new();
@@ -90,6 +84,13 @@ pub(crate) fn one(
                         call.name = name;
                     }
                     call.args.push_str(&args_fragment);
+                }
+                // Thinking is shown, never folded into the answer: a reply quoting its own
+                // reasoning back at the reader is a reply nobody can trust.
+                Ok(Chunk::Reasoning(words)) => {
+                    if events.send(AgentEvent::ReasoningDelta(words)).is_err() {
+                        return (EndReason::Cancelled, usage);
+                    }
                 }
                 // A turn costs what all of its rounds cost; the caller asked for one turn.
                 Ok(Chunk::Usage { input, output }) => {
@@ -137,15 +138,15 @@ pub(crate) fn one(
             }
         }
     }
-    (
-        EndReason::Errored(format!(
-            "the turn asked for tools in {MAX_ROUNDS} rounds without answering"
-        )),
-        usage,
-    )
+    // Steps are spent. Ask once more, with the tools taken away, so the turn ends with a report of
+    // what it reached instead of an error — the same last resort every harness uses, and the
+    // difference between a turn that stalls and one that says where it got to.
+    match closing_report(config, history, events, &stopped, &mut usage) {
+        Ok(()) => (EndReason::Done, usage),
+        Err(Outcome::Cancelled) => (EndReason::Cancelled, usage),
+        Err(Outcome::Failed(why)) => (EndReason::Errored(why), usage),
+    }
 }
-
-/// The fragments of one tool call, keyed by the provider's call index.
 #[derive(Default)]
 struct Fragment {
     id: Option<String>,

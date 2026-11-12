@@ -1,0 +1,45 @@
+: pace_ms 150
+: the parent asks for a child turn; the child's reply is paced so it is still arriving when the
+: test cancels, which is the case a cancel exists for
+
+data: {"id":"chatcmpl-x","object":"chat.completion.chunk","created":1762730200,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Asking a child."}}]}
+
+data: {"id":"chatcmpl-x","object":"chat.completion.chunk","created":1762730200,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_x1","type":"function","function":{"name":"task","arguments":"{\"description\":\"find the retry policy\","}}]}}]}
+
+data: {"id":"chatcmpl-x","object":"chat.completion.chunk","created":1762730200,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"prompt\":\"Find where the retry policy lives and answer with its path.\"}"}}]}}]}
+
+data: {"id":"chatcmpl-x","object":"chat.completion.chunk","created":1762730200,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+: next request
+
+: the child, which keeps talking for far longer than the test waits
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"reading"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" the"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" tree"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" and"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" every"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" file"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" it"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" holds"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" before"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" answering"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" at"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{"content":" all"}}]}
+
+data: {"id":"chatcmpl-y","object":"chat.completion.chunk","created":1762730201,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]

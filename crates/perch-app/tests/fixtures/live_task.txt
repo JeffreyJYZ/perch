@@ -1,0 +1,31 @@
+: the parent asks for a child turn, the child answers, the parent reads it
+
+data: {"id":"chatcmpl-t","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Asking a child."}}]}
+
+data: {"id":"chatcmpl-t","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_t1","type":"function","function":{"name":"task","arguments":"{\"description\":\"find the retry policy\","}}]}}]}
+
+data: {"id":"chatcmpl-t","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"prompt\":\"Find where the retry policy lives and answer with its path.\"}"}}]}}]}
+
+data: {"id":"chatcmpl-t","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+: next request
+
+: the child's own turn: no tool calls, one answer
+
+data: {"id":"chatcmpl-c","object":"chat.completion.chunk","created":1762730101,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"the retry policy lives in src/retry.rs"}}]}
+
+data: {"id":"chatcmpl-c","object":"chat.completion.chunk","created":1762730101,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+: next request
+
+: the parent answers with what the child said
+
+data: {"id":"chatcmpl-t2","object":"chat.completion.chunk","created":1762730102,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"It lives in src/retry.rs."}}]}
+
+data: {"id":"chatcmpl-t2","object":"chat.completion.chunk","created":1762730102,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]

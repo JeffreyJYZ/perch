@@ -91,6 +91,29 @@ fn a_page_key_moves_the_grid_a_screen_and_back_to_the_live_bottom() {
 }
 
 #[test]
+fn a_page_key_lands_the_header_instead_of_sliding_it() {
+    let mut runtime = window(b"one\ntwo\nthree", 8);
+    let [x, y, w, h] = bounds(&runtime, "terminal-rows");
+    runtime.pointer_down(x + w / 2.0, y + h / 2.0);
+    runtime.pointer_up(x + w / 2.0, y + h / 2.0);
+    // A second of frames lands the click's own motion, so what follows is the key's.
+    runtime.frame(1.0);
+    assert!(
+        !runtime.frame(1.0 / 60.0),
+        "the window is at rest before the key"
+    );
+
+    // The page key changes the header's words, which changes their width: the header is the one
+    // thing a key moves outside the grid, and a key is direct manipulation, not a transition.
+    runtime.key(shift(Key::PageUp));
+    let animating = runtime.frame(1.0 / 60.0);
+    assert!(
+        !animating,
+        "a page key lands the header at once: a spring here is the same glide as the caret's"
+    );
+}
+
+#[test]
 fn the_wheel_moves_the_grid_into_the_history() {
     let mut runtime = window(b"one\ntwo", 8);
     let [x, y, w, h] = bounds(&runtime, "terminal-rows");

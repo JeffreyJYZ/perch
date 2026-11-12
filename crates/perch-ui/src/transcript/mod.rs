@@ -17,14 +17,23 @@ use perch_tools::Preview;
 mod card;
 mod events;
 mod item;
+mod open;
+mod parts;
+mod recording;
 mod scroll;
+mod turn;
 mod view;
 mod words;
 
+pub use card::CardPress;
 pub use item::{Item, ToolStatus};
-pub use view::transcript_view;
+pub use recording::{Recorded, recorded};
+pub use view::{transcript_view, transcript_view_marked};
 pub(crate) use words::scroll_words;
-pub use words::{COLLAPSED_LINES, cap_line, collapsed_output, expanded_output, summary_line};
+pub use words::{
+    COLLAPSED_LINES, OPENED_LINES, cap_line, collapsed_output, cut_line, expanded_output,
+    opened_output, summary_line,
+};
 
 use scroll::ScrollWords;
 
@@ -93,11 +102,26 @@ impl Transcript {
         self.cancelled.contains(&index)
     }
 
-    /// Adds a user turn and closes whatever was streaming: a new question starts a new answer.
+    /// Adds a user turn and closes whatever was streaming: a new question starts a new answer, and
+    /// an opened card closes with the turn it belonged to.
     pub fn push_user(&mut self, text: impl Into<String>) {
         self.items.push(Item::User { text: text.into() });
         self.open = None;
+        self.close_cards();
         self.since = self.items.len();
+    }
+
+    /// Empties the column, as `/clean` asks: no item, no open reply, no card left expanded.
+    ///
+    /// The items are the session's whole conversation as the window shows it, so nothing is kept
+    /// behind: a cleared column and a fresh one are the same column.
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.open = None;
+        self.expanded.clear();
+        self.cancelled.clear();
+        self.since = 0;
+        self.scroll = ScrollWords::new();
     }
 
     /// Appends a system line — a cancellation, a provider error, a tool the user refused — in the
@@ -108,32 +132,9 @@ impl Transcript {
         self.items.push(Item::Note(text.into()));
     }
 
-    /// Flips the tool card `id` between its collapsed lines and its whole output.
-    ///
-    /// An id that is not a card is ignored, so a click that outlived its card invents nothing.
-    pub fn toggle(&mut self, id: &str) {
-        if !self
-            .items
-            .iter()
-            .any(|item| matches!(item, Item::Tool { id: card, .. } if card == id))
-        {
-            return;
-        }
-        if let Some(index) = self.expanded.iter().position(|card| card == id) {
-            self.expanded.remove(index);
-        } else {
-            self.expanded.push(id.to_string());
-        }
-    }
-
-    /// Whether the tool card `id` is showing its whole output.
-    #[must_use]
-    pub fn is_expanded(&self, id: &str) -> bool {
-        self.expanded.iter().any(|card| card == id)
-    }
-
     /// Marks the call `id` as waiting for the user, with the diff or command the approval shows.
     pub fn request_approval(&mut self, id: &str, preview: Preview) {
+        self.collapse(id);
         if let Some(Item::Tool {
             status,
             preview: slot,

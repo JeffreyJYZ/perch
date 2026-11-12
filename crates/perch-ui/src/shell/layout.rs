@@ -1,22 +1,23 @@
 //! The window's regions, composed: the left column, the centre, and the dock under it.
 
-use rune::{Cx, El, Icon, col, el, row};
+use rune::{Cx, El, col, el, row};
 use rune_kit::Kit;
-use rune_kit::glyphs;
-use rune_kit::shell::{TabItem, TabOrientation, TabStrip};
-use rune_kit::{IconButton, IconButtonVariant};
 
+use super::COLUMN;
 use super::card::card_key;
 use super::composer::composer;
 use super::dock::dock;
 use super::live::Live;
+use super::pane::Pane;
 use super::panels::{self, Panels};
 use super::paste::root_paste;
 use super::settings_view;
 use super::sidebar::{files, sessions};
 use super::state::Shell;
-use super::{COLUMN, TABS};
-use crate::transcript::transcript_view;
+use super::tabs;
+use super::todo;
+use crate::preview::preview_view;
+use crate::transcript::transcript_view_marked;
 
 /// The whole window.
 ///
@@ -27,7 +28,7 @@ use crate::transcript::transcript_view;
 /// The plugin column is the last child and only exists when the app has a panel or a word about
 /// one, so a window with no plugin is laid out exactly as it was before plugins existed.
 pub fn view<L: Live + Panels>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
-    let kit = Kit::neutral(cx.system_dark());
+    let kit = shell.appearance().kit();
     let mut root = row()
         .key("perch")
         .w_full()
@@ -43,6 +44,11 @@ pub fn view<L: Live + Panels>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
             .child(rule(&kit, "panel-rule").w(1.0).h_full())
             .child(panels);
     }
+    // The finder is a layer over everything rather than a pane, so the pane it was opened over
+    // is still there when the overlay closes.
+    if let Some(finder) = super::finder_view::layer(shell, &kit) {
+        root = root.child(finder);
+    }
     root
 }
 
@@ -52,9 +58,10 @@ fn rule(kit: &Kit, key: &str) -> El {
     el().key(key).fill(kit.c.border_base).a11y_hidden()
 }
 
-/// The left column, full window height: the session list above the file tree.
+/// The left column, full window height: the session list above the file tree, and the model's plan
+/// under both when it has one.
 fn column<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
-    col()
+    let mut column = col()
         .key("left-column")
         .role("region")
         .label("Sidebar")
@@ -63,98 +70,60 @@ fn column<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .min_h(0.0)
         .fill(kit.c.bg_base)
         .child(sessions(shell, kit))
-        .child(files(shell, kit))
+        .child(files(shell, kit));
+    if let Some(plan) = todo::plan(shell, kit) {
+        column = column.child(plan);
+    }
+    column
 }
 
-/// The centre: the tab strip, the transcript with the prompt under it, and the dock under the
-/// transcript alone.
+/// The centre: the tab strip, then whatever pane it names, and the dock under both.
 ///
-/// While the settings panel is open it takes the transcript's place, so the dock keeps its tab
-/// and the column it belongs to stays visible beside the form.
+/// The settings form and a file's preview each take the transcript's place at full width, so the
+/// dock keeps its tab and the column it belongs to stays visible beside them. The transcript
+/// itself is state, not a drawing: it keeps streaming while another pane is shown.
 fn workspace<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &mut Cx<Shell<L>>) -> El {
-    col()
+    let pane = match shell.pane() {
+        Pane::Settings => settings_view::panel(shell, kit),
+        Pane::Palette => super::palette_view::panel(shell, kit),
+        Pane::File(_) => shell
+            .files()
+            .map_or_else(|| centre(shell, kit), |panel| preview_view::<L>(panel, kit)),
+        Pane::Session => centre(shell, kit),
+    };
+    let mut workspace = col()
         .key("workspace")
         .grow(1.0)
         .min_w(0.0)
         .h_full()
         .fill(kit.c.bg_deep)
-        .child(tabs(shell, kit))
-        .child(if shell.settings_open() {
-            settings_view::panel(shell, kit)
-        } else {
-            centre(shell, kit)
-        })
+        .child(tabs::strip(shell, kit, cx))
+        .child(pane);
+    // A hidden dock is not drawn at all: the transcript gets its height back, and the terminal
+    // tabs are still there when it returns.
+    if shell.dock_hidden() {
+        return workspace;
+    }
+    workspace = workspace
         .child(rule(kit, "dock-rule").w_full().h(1.0))
-        .child(dock(shell, kit, cx))
+        .child(dock(shell, kit, cx));
+    workspace
 }
 
-/// The session tabs, and the gear that opens the settings. Selecting a tab is the same state swap
-/// the rows make.
-///
-/// The strip grows along its parent's main axis, which is right in a titlebar and wrong in a
-/// column, so it gets a row of its own: one tab row's height, the transcript takes the rest.
-fn tabs<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
-    let items: Vec<TabItem<'_, Shell<L>>> = shell
-        .sessions
-        .iter()
-        .map(|session| {
-            TabItem::new(session.id.clone(), session.title.clone())
-                .icon(&glyphs::CURSOR_TEXT)
-                .closable(false)
-        })
-        .collect();
-    let active = shell.active_session().map(|session| session.id.as_str());
-    let strip = TabStrip::new("session-tabs", TabOrientation::Horizontal)
-        .label("Session tabs")
-        .tabs(items)
-        .active(active)
-        .on_select(|shell: &mut Shell<L>, id: &str, _: &mut rune::Tx| {
-            if let Some(index) = shell.sessions.iter().position(|session| session.id == id) {
-                shell.select(index);
-            }
-        })
-        .build(kit);
-    row()
-        .key("tab-row")
-        .w_full()
-        .h(TABS)
-        .child(strip)
-        .child(gear::<L>(kit))
-}
-
-/// The gear on the tab row: the window's one way into the settings, with ⌘, beside it.
-///
-/// Feather's settings glyph (MIT), drawn at 24 so its teeth stay legible at 16 points.
-static GEAR: Icon = Icon {
-    name: "perch-settings",
-    view: 24.0,
-    body: r#"<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>"#,
-};
-
-/// The gear's press is [`Shell::toggle_settings`], the same action ⌘, takes.
-fn gear<L: Live>(kit: &Kit) -> El {
-    row().key("settings-slot").pr(8.0).center_y().child(
-        IconButton::new(&GEAR)
-            .variant(IconButtonVariant::GhostMuted)
-            .label("Settings")
-            .help("Settings")
-            .shortcut("cmd+,")
-            .on_press(|shell: &mut Shell<L>| shell.toggle_settings())
-            .build(kit)
-            .key("settings-gear"),
-    )
-}
-
-/// The transcript column: the turns, and the prompt at the bottom of it.
+/// The transcript column: the search bar when it is open, the turns, and the prompt at the bottom
+/// of it.
 ///
 /// The prompt sits in this column rather than under the dock, so the dock's bottom edge is the
 /// window's and the composer belongs to what it asks.
 fn centre<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
-    col()
-        .key("transcript-column")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .child(transcript_view(&shell.transcript))
+    let mut column = col().key("transcript-column").w_full().grow(1.0).min_h(0.0);
+    if let Some(bar) = super::search_transcript_view::bar(shell, kit) {
+        column = column.child(bar);
+    }
+    column
+        .child(transcript_view_marked::<Shell<L>>(
+            &shell.transcript,
+            shell.find_mark(),
+        ))
         .child(composer(shell, kit))
 }

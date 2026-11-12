@@ -34,6 +34,7 @@ pub(super) fn run(
     frames: Sender<Frame>,
     dirty: Arc<AtomicBool>,
     ready: Sender<Result<(), TermError>>,
+    wake: impl Fn(),
 ) {
     // The emulator is created here, not by the caller: `Terminal` is `!Send`
     // and cannot cross the thread boundary. It is wrapped with the frame
@@ -49,7 +50,7 @@ pub(super) fn run(
     if ready.send(Ok(())).is_err() {
         return;
     }
-    let _ = publish(&mut scrollback, &frames, &dirty);
+    let _ = publish(&mut scrollback, &frames, &dirty, &wake);
 
     loop {
         let Ok(first) = inbound.recv() else { return };
@@ -75,7 +76,17 @@ pub(super) fn run(
                     }
                     let _ = writer.flush();
                 }
-                Inbound::Cmd(Cmd::Key { event, reply }) => {
+                Inbound::Cmd(Cmd::Key { event }) => {
+                    // The press is written here, where the modes are: a keystroke that had to
+                    // wait for its bytes to come back to the UI would arrive late by a round
+                    // trip, and one the UI then forgot to write would never arrive at all.
+                    let bytes = crate::keys::encode_key_for_terminal(event, scrollback.terminal());
+                    if writer.write_all(&bytes).is_err() {
+                        return;
+                    }
+                    let _ = writer.flush();
+                }
+                Inbound::Cmd(Cmd::EncodeKey { event, reply }) => {
                     let bytes = crate::keys::encode_key_for_terminal(event, scrollback.terminal());
                     let _ = reply.send(bytes);
                 }
@@ -105,7 +116,7 @@ pub(super) fn run(
             }
         }
 
-        if touched && publish(&mut scrollback, &frames, &dirty).is_err() {
+        if touched && publish(&mut scrollback, &frames, &dirty, &wake).is_err() {
             return;
         }
     }
@@ -124,16 +135,23 @@ fn resize(master: &dyn MasterPty, terminal: &mut Terminal<'_, '_>, cols: u16, ro
     terminal.resize(cols, rows, 0, 0).is_ok()
 }
 
-/// Build a frame and hand it to the UI. `Err` means the UI is gone.
+/// Build a frame and hand it to the UI, then tell the window one is ready. `Err` means the UI is
+/// gone.
+///
+/// The wake is the second half of the handoff: the channel says nothing on its own, so a window
+/// that reads it on a timer draws a shell's output one tick late. It runs after the send, so a
+/// woken window always finds the frame it was woken for.
 fn publish<'alloc: 'cb, 'cb>(
     scrollback: &mut Scrollback<'alloc, 'cb>,
     frames: &Sender<Frame>,
     dirty: &AtomicBool,
+    wake: &impl Fn(),
 ) -> Result<(), ()> {
     let Ok(frame) = scrollback.frame() else {
         return Ok(());
     };
     frames.send(frame).map_err(drop)?;
     dirty.store(true, Ordering::Release);
+    wake();
     Ok(())
 }

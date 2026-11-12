@@ -70,6 +70,14 @@ fn dispatch(data: &str, tx: &Sender<Result<Chunk>>) -> Result<()> {
     }
     let wire: WireChunk = serde_json::from_str(data)?;
     for choice in wire.choices {
+        let thinking = choice
+            .delta
+            .reasoning
+            .or(choice.delta.reasoning_content)
+            .filter(|words| !words.is_empty());
+        if let Some(words) = thinking {
+            send(tx, Chunk::Reasoning(words))?;
+        }
         if let Some(content) = choice.delta.content
             && !content.is_empty()
         {

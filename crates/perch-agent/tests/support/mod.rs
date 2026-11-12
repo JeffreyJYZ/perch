@@ -18,3 +18,18 @@ mod server;
 // error — the crate is compiled once per `tests/` file.
 #[allow(unused_imports)]
 pub use server::{Fixture, fixture_server, serve};
+
+/// Tests must not read the machine they run on.
+///
+/// A real `~/.config/opencode/AGENTS.md` joins every session's system prompt, so the machine's own
+/// notes would decide what the column says and a test would pass on one computer and fail on the
+/// next. `PERCH_HOME` is the seam `perch_agent::instructions` documents for exactly this.
+pub fn hermetic() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let home = std::env::temp_dir().join("perch-tests-home");
+        let _ = std::fs::create_dir_all(&home);
+        // Safety: set once per process, before any app is built, and only under test.
+        unsafe { std::env::set_var("PERCH_HOME", &home) };
+    });
+}

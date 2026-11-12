@@ -85,6 +85,8 @@ impl<L: Live> Shell<L> {
                 // list does not hold, so it is clamped to the row just added.
                 self.active = index.min(self.sessions.len() - 1);
                 self.reopen_files();
+                // A different folder is a different tree, so the file tabs start over.
+                self.reset_panes();
                 self.refresh();
             }
             Err(words) => self.folder.notice = Some(words),

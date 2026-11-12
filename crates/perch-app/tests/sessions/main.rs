@@ -5,6 +5,9 @@
 //! Nothing here reaches a provider: a session is opened, listed and switched, and no turn is sent
 //! to the base URL — which is why it can be a dead port.
 
+mod branch;
+mod commands;
+mod fork;
 mod harness;
 mod list;
 mod missing;

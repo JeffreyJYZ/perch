@@ -7,7 +7,7 @@
 
 mod support;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use perch_app::AppState;
 use perch_plugins::PanelSection;
@@ -26,17 +26,34 @@ fn data_with(files: &[(&str, &str)]) -> tempfile::TempDir {
     data
 }
 
-/// Pumps until the worker has nothing left to do, so the snapshot read afterwards is the one that
-/// answered the press.
+/// The app, once the worker has published the tools and panels it loads.
+///
+/// The worker builds off the frame thread and hands back the built-ins first, so an app straight
+/// out of `open` has no panel in its snapshot yet — the window draws that empty column for one
+/// frame, which is the point. A test that wants to press a control has to be past it.
+fn opened(dir: &std::path::Path) -> AppState {
+    let mut state = app(dir);
+    settled(&mut state);
+    state
+}
+
+/// Pumps until the worker has published the tools, plugins and panels it loads.
+///
+/// `busy()` is the worker's own flag: it is set before the thread starts loading and cleared only
+/// after it has published, so waiting on it waits exactly as long as a cold wasmtime compile takes
+/// and no longer. A fixed iteration count is not enough — the first fixture load on a busy box
+/// outlives it, and then the snapshot read is the built-ins and the test blames the code.
 fn settled(state: &mut AppState) {
-    for _ in 0..500 {
-        if !state.busy() {
-            break;
-        }
-        state.pump(Duration::from_millis(5));
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while state.busy() && Instant::now() < deadline {
+        state.pump(Duration::from_millis(10));
     }
     // The last snapshot is read on a pump, not on the worker's publish.
-    state.pump(Duration::from_millis(5));
+    state.pump(Duration::from_millis(10));
+    assert!(
+        !state.busy(),
+        "the worker never finished loading the plugins"
+    );
 }
 
 /// Every text line of `plugin`'s panel as the column would draw it.
@@ -61,7 +78,10 @@ fn lines(state: &AppState, plugin: &str) -> Vec<String> {
 #[test]
 fn a_button_press_reaches_the_plugin_and_the_column_changes() {
     let data = data_with(&[("counter.wasm", "counter.wasm")]);
-    let mut state = app(data.path());
+    let mut state = opened(data.path());
+    // The window opens before the sources are built, so the first snapshot carries the panels:
+    // a test that read them on the open would be reading the frame before the plugins loaded.
+    settled(&mut state);
     assert_eq!(
         lines(&state, "counter"),
         ["count: 0"],
@@ -91,7 +111,10 @@ fn a_button_press_reaches_the_plugin_and_the_column_changes() {
 #[test]
 fn a_press_for_a_control_the_panel_does_not_declare_is_stated() {
     let data = data_with(&[("counter.wasm", "counter.wasm")]);
-    let mut state = app(data.path());
+    let mut state = opened(data.path());
+    // The window opens before the sources are built, so the first snapshot carries the panels:
+    // a test that read them on the open would be reading the frame before the plugins loaded.
+    settled(&mut state);
 
     let refused = state
         .panel_action("counter", "no-such-control", None)
@@ -111,7 +134,7 @@ fn a_press_for_a_control_the_panel_does_not_declare_is_stated() {
 #[test]
 fn a_press_for_a_plugin_that_is_gone_is_stated() {
     let data = data_with(&[("counter.wasm", "counter.wasm")]);
-    let state = app(data.path());
+    let state = opened(data.path());
 
     let refused = state
         .panel_action("no-such-plugin", "bump", None)
@@ -125,7 +148,10 @@ fn a_press_for_a_plugin_that_is_gone_is_stated() {
 #[test]
 fn a_press_that_traps_disables_the_plugin_and_says_so_in_the_column() {
     let data = data_with(&[("trap-action/trap-action.wasm", "trap-action.wasm")]);
-    let mut state = app(data.path());
+    let mut state = opened(data.path());
+    // The window opens before the sources are built, so the first snapshot carries the panels:
+    // a test that read them on the open would be reading the frame before the plugins loaded.
+    settled(&mut state);
     assert_eq!(lines(&state, "trap-action"), ["press the button"]);
 
     // The press is accepted; the trap happens on the worker's thread, which is where the host is.

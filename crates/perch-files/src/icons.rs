@@ -1,57 +1,67 @@
-//! File-type icons as Material Symbols names, from one extension table.
+//! What a row is, as one table of kinds — not a glyph name.
+//!
+//! The kind is answered from [`language_for`], the crate's only extension table: a second list
+//! here would drift from the preview's colouring the first time one of them learned a new
+//! suffix. A directory has no extension to read, so its kind comes from the node that named it.
 
 use std::path::Path;
 
-/// Glyph for a directory that is closed, and one that is open.
-pub const DIR_ICON: &str = "folder";
-pub const DIR_OPEN_ICON: &str = "folder_open";
-/// Glyph for a file whose type is unknown.
-pub const FILE_ICON: &str = "draft";
+use crate::language_for;
 
-/// The only extension-to-glyph table; every entry is a name Material Symbols actually ships.
-const BY_EXTENSION: &[(&str, &str)] = &[
-    ("bmp", "image"),
-    ("c", "code"),
-    ("cc", "code"),
-    ("cpp", "code"),
-    ("css", "css"),
-    ("gif", "image"),
-    ("go", "code"),
-    ("h", "code"),
-    ("hpp", "code"),
-    ("html", "html"),
-    ("jpeg", "image"),
-    ("jpg", "image"),
-    ("js", "javascript"),
-    ("json", "data_object"),
-    ("jsx", "javascript"),
-    ("lock", "lock"),
-    ("md", "description"),
-    ("pdf", "picture_as_pdf"),
-    ("png", "image"),
-    ("py", "code"),
-    ("rs", "code"),
-    ("sh", "terminal"),
-    ("svg", "image"),
-    ("toml", "settings"),
-    ("ts", "code"),
-    ("tsx", "code"),
-    ("txt", "description"),
-    ("yaml", "data_object"),
-    ("yml", "data_object"),
-    ("zsh", "terminal"),
-];
+/// The kinds a row can be drawn as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Kind {
+    /// A directory, always drawn with a caret of its own.
+    Folder,
+    /// Rust sources.
+    Rust,
+    /// C sources and headers.
+    C,
+    /// C++ sources and headers.
+    Cpp,
+    /// TOML, and the lock files it describes.
+    Toml,
+    /// JSON.
+    Json,
+    /// Markdown.
+    Markdown,
+    /// Everything else, extension or none.
+    File,
+}
 
-/// A Material Symbols glyph name for `path`, falling back to the plain file glyph.
-pub fn icon_for(path: &Path) -> &'static str {
-    let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
-        return FILE_ICON;
-    };
-    let extension = extension.to_ascii_lowercase();
-    match BY_EXTENSION.iter().find(|(known, _)| *known == extension) {
-        Some((_, glyph)) => glyph,
-        None => FILE_ICON,
+impl Kind {
+    /// Every kind, so a test can prove each one is drawn and each icon is its own.
+    pub const ALL: [Kind; 8] = [
+        Kind::Folder,
+        Kind::Rust,
+        Kind::C,
+        Kind::Cpp,
+        Kind::Toml,
+        Kind::Json,
+        Kind::Markdown,
+        Kind::File,
+    ];
+
+    /// The kind a language name from the preview's table is drawn as.
+    fn of_language(language: &str) -> Kind {
+        match language {
+            "rust" => Kind::Rust,
+            "c" => Kind::C,
+            "cpp" => Kind::Cpp,
+            "toml" => Kind::Toml,
+            "json" => Kind::Json,
+            "markdown" => Kind::Markdown,
+            _ => Kind::File,
+        }
     }
+}
+
+/// The kind `path` is drawn as, read from the one extension table this crate has.
+///
+/// Only a node knows it is a directory: two names without an extension are the same path here,
+/// so [`Kind::Folder`] never comes back from this function.
+pub fn icon_for(path: &Path) -> Kind {
+    language_for(path).map_or(Kind::File, Kind::of_language)
 }
 
 #[cfg(test)]
@@ -59,8 +69,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn two_rows_bind_an_extension_to_a_material_symbol() {
-        assert_eq!(icon_for(Path::new("main.rs")), "code");
-        assert_eq!(icon_for(Path::new("notes.md")), "description");
+    fn every_kind_the_tree_draws_is_answered_from_the_language_table() {
+        let cases = [
+            ("main.rs", Kind::Rust),
+            ("main.c", Kind::C),
+            ("main.h", Kind::C),
+            ("main.cc", Kind::Cpp),
+            ("main.cpp", Kind::Cpp),
+            ("main.cxx", Kind::Cpp),
+            ("main.hpp", Kind::Cpp),
+            ("main.hh", Kind::Cpp),
+            ("main.hxx", Kind::Cpp),
+            ("Cargo.toml", Kind::Toml),
+            ("Cargo.lock", Kind::Toml),
+            ("package.json", Kind::Json),
+            ("README.md", Kind::Markdown),
+            ("notes.txt", Kind::File),
+            ("Makefile", Kind::File),
+            ("LICENSE", Kind::File),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(icon_for(Path::new(name)), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn an_uppercase_extension_is_the_same_kind() {
+        assert_eq!(icon_for(Path::new("MAIN.RS")), Kind::Rust);
+        assert_eq!(icon_for(Path::new("NOTES.MD")), Kind::Markdown);
+    }
+
+    #[test]
+    fn a_path_never_answers_folder() {
+        assert!(Kind::ALL.contains(&Kind::Folder));
+        assert_eq!(icon_for(Path::new("src")), Kind::File);
+        assert_eq!(icon_for(Path::new("src/")), Kind::File);
     }
 }

@@ -1,88 +1,24 @@
 //! The settings panel's state, and the presses that open, close and save it.
 //!
-//! The panel is a draft, never the live settings: nothing is written until Save validates every
-//! field, and a field that fails keeps the panel open with the reason beside it. The key is the
-//! one value that is never read back — the app stores it and the panel shows the word "stored" or
-//! "missing" instead, so a saved secret has no path onto the screen.
+//! The panel is a draft, never the live settings: nothing is written until Save validates it.
 
 use rune::TextEdit;
 
-use crate::settings::{Invalid, SettingsDraft};
+use crate::settings::SettingsDraft;
 
-use super::live::{KeyStatus, Live, SettingsSnapshot};
+use super::keybind::Bindable;
+use super::live::Live;
+use super::pane::Pane;
+use super::settings_draft::edit;
 use super::state::Shell;
 
-/// The settings form as the window holds it.
-pub struct Panel {
-    /// The provider's API root, as the field shows it.
-    pub(super) base_url: TextEdit,
-    /// The model every new session asks for.
-    pub(super) model: TextEdit,
-    /// A key to store. Emptied after a save: the store holds it, the panel never does.
-    pub(super) api_key: TextEdit,
-    /// One of [`THEMES`].
-    pub(super) theme: String,
-    /// The release manifest to check, empty when the app checks nothing.
-    pub(super) update_check: TextEdit,
-    /// The field that refused the last save, when one did.
-    pub(super) error: Option<Invalid>,
-    /// Whether a key is stored, as the panel says it after the last save.
-    pub(super) key: KeyStatus,
-    /// "saved", or why the app could not save: a word the person reads, never an empty panel.
-    pub(super) notice: Option<String>,
-}
-
-impl Panel {
-    /// The panel for `snapshot`, every field filled with what is saved.
-    fn new(snapshot: &SettingsSnapshot) -> Panel {
-        Panel {
-            base_url: edit(&snapshot.base_url),
-            model: edit(&snapshot.model),
-            api_key: TextEdit::default(),
-            theme: snapshot.theme.clone(),
-            update_check: edit(&snapshot.update_check),
-            error: None,
-            key: snapshot.key,
-            notice: None,
-        }
-    }
-
-    /// The values a save would write: the fields as they stand, trimmed.
-    pub fn draft(&self) -> SettingsDraft {
-        SettingsDraft {
-            base_url: self.base_url.text.trim().to_string(),
-            model: self.model.text.trim().to_string(),
-            theme: self.theme.clone(),
-            update_check: self.update_check.text.trim().to_string(),
-            api_key: self.api_key.text.trim().to_string(),
-        }
-    }
-
-    /// What the panel says about the key: a word, never the key.
-    pub fn key_words(&self) -> &'static str {
-        self.key.words()
-    }
-
-    /// The field that refused the last save, when one did.
-    pub fn error(&self) -> Option<&Invalid> {
-        self.error.as_ref()
-    }
-
-    /// "saved", or why the save the app refused.
-    pub fn notice(&self) -> Option<&str> {
-        self.notice.as_deref()
-    }
-
-    /// The theme the panel shows selected.
-    pub fn theme(&self) -> &str {
-        &self.theme
-    }
-}
+pub use super::settings_draft::Panel;
 
 impl<L: Live> Shell<L> {
-    /// Whether the settings panel is drawn in place of the transcript.
+    /// Whether the settings pane is drawn in place of the transcript. It answers from the pane,
+    /// never from the panel being built, so the strip's active tab cannot disagree with it.
     pub fn settings_open(&self) -> bool {
-        self.settings.is_some()
+        matches!(self.pane, Pane::Settings)
     }
 
     /// The panel, when it is open.
@@ -90,13 +26,11 @@ impl<L: Live> Shell<L> {
         self.settings.as_ref()
     }
 
-    /// Shows the settings panel, filled with what is saved.
-    ///
-    /// This is the one action the gear and ⌘, both take: neither knows how the panel is built,
-    /// so the two can never drift into opening different forms.
+    /// Shows the settings pane, filled with what is saved, or returns to the session when it is
+    /// already showing: the settings tab and ⌘, take this one action, so neither can drift.
     pub fn toggle_settings(&mut self) {
         if self.settings_open() {
-            self.settings = None;
+            self.close_settings();
             return;
         }
         let snapshot = self
@@ -104,12 +38,56 @@ impl<L: Live> Shell<L> {
             .as_ref()
             .and_then(Live::settings)
             .unwrap_or_default();
+        self.set_theme(&snapshot.theme);
+        self.refresh_appearance();
         self.settings = Some(Panel::new(&snapshot));
+        self.pane = Pane::Settings;
+        // The list is loaded as the panel opens: an empty list that waits for Refresh looks broken.
+        self.refresh_models();
     }
 
-    /// Hides the panel, discarding the draft: nothing unsaved is written.
+    /// Hides the settings pane, discarding the draft, and returns to the session: nothing unsaved
+    /// is written.
     pub fn close_settings(&mut self) {
         self.settings = None;
+        self.back_to_session();
+    }
+
+    /// Selects the provider profile at `index`: the fields below the list become that profile's.
+    ///
+    /// The key field is emptied, never filled: a key is write-only from the window's side, so a
+    /// stored one has no path back into a field.
+    pub fn select_profile(&mut self, index: usize) {
+        if let Some(panel) = self.settings.as_mut() {
+            panel.select(index);
+        }
+    }
+
+    /// Adds a provider profile to the list and selects it, empty, so its fields can be filled in.
+    ///
+    /// Nothing is written until Save: the list the panel draws is the draft, like every other
+    /// field in it.
+    pub fn add_profile(&mut self) {
+        if let Some(panel) = self.settings.as_mut() {
+            panel.add();
+        }
+    }
+
+    /// Makes the selected provider profile the active one, and saves.
+    ///
+    /// The next turn asks it: the address, the key and the model all follow, with no restart and
+    /// no session reopened. A profile whose fields are refused is not activated, and the pane
+    /// says which field refused it.
+    pub fn activate_profile(&mut self) -> bool {
+        let Some(panel) = self.settings.as_mut() else {
+            return false;
+        };
+        panel.activate = true;
+        let saved = self.save_settings();
+        if let Some(panel) = self.settings.as_mut() {
+            panel.activate = false;
+        }
+        saved
     }
 
     /// Replaces the draft, as a preset or a test does. Only the fields a draft carries change.
@@ -117,24 +95,47 @@ impl<L: Live> Shell<L> {
         let Some(panel) = self.settings.as_mut() else {
             return;
         };
+        // A draft that names a profile edits that profile: the fields below the list are its.
+        if !draft.profile.is_empty()
+            && let Some(index) = panel
+                .profiles()
+                .iter()
+                .position(|p| p.name == draft.profile)
+        {
+            panel.select(index);
+        }
         panel.base_url = edit(&draft.base_url);
         panel.model = edit(&draft.model);
         panel.api_key = edit(&draft.api_key);
         panel.theme = draft.theme;
+        panel.font_size = edit(&draft.font_size);
+        panel.shell = edit(&draft.shell);
         panel.update_check = edit(&draft.update_check);
+        // A chord the draft names is the field's text, exactly as typing it into it would be.
+        for (index, intent) in Bindable::ALL.iter().enumerate() {
+            let chord = draft
+                .keybinds
+                .get(intent.name())
+                .cloned()
+                .unwrap_or_default();
+            if let Some(field) = panel.keybinds.field_mut(index) {
+                *field = edit(&chord);
+            }
+        }
+        panel.activate = draft.activate;
         panel.error = None;
         panel.notice = None;
     }
 
-    /// Validates the draft and saves it. Reports whether the settings reached the app.
-    ///
-    /// A field that fails names itself in the panel and nothing is written; a save the app
-    /// refuses says why and leaves the panel open, so the value is not lost with the window.
+    /// Validates the draft and saves it. Reports whether the settings reached the app: a field
+    /// that fails names itself and nothing is written, and a save the app refuses leaves the panel
+    /// open, so the value is not lost with the window.
     pub fn save_settings(&mut self) -> bool {
         let Some(panel) = self.settings.as_ref() else {
             return false;
         };
         let draft = panel.draft();
+        let theme = draft.theme.clone();
         if let Err(invalid) = draft.validate() {
             let panel = self.settings.as_mut().expect("the panel is open");
             panel.error = Some(invalid);
@@ -150,10 +151,13 @@ impl<L: Live> Shell<L> {
             Ok(key) => {
                 panel.error = None;
                 panel.key = key;
-                // The key is written, so the field is emptied: the store holds it and the panel
-                // says "stored" from here on.
+                // The key is written, so the field is emptied: only the word "stored" remains.
                 panel.api_key = TextEdit::default();
                 panel.notice = Some("saved".to_string());
+                self.set_theme(&theme);
+                // The app has just written `settings.toml`, so ask it what the file now says: the
+                // theme and the type size are drawn from here, with no restart.
+                self.refresh_appearance();
                 true
             }
             Err(words) => {
@@ -165,14 +169,7 @@ impl<L: Live> Shell<L> {
     }
 }
 
-/// A field holding `value`.
-fn edit(value: &str) -> TextEdit {
-    let mut edit = TextEdit::default();
-    edit.text = value.to_string();
-    edit
-}
-
-/// The presses a settings field takes before the window's own map: Escape closes the panel and
+/// The presses a settings field takes before the window's own map: Escape leaves the settings and
 /// ⌘⏎ saves, so the form is usable without reaching for the mouse.
 pub fn settings_key<L: Live>(shell: &mut Shell<L>, ev: &rune::KeyEvent, _: &mut rune::Tx) -> bool {
     match &ev.key {

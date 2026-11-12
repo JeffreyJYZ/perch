@@ -15,8 +15,9 @@
 //! [`dock`]; [`state`] holds what every region reads and [`actions`] the presses that change it;
 //! [`pump`] folds a frame of the world in; [`keymap`] is the one place a press becomes an
 //! [`Intent`] and [`term_keys`] the one place a press becomes bytes for a shell; [`live`] is the
-//! seam to the app, and [`paint`] is what a terminal run looks like. [`settings`] is the
-//! provider form the window shows in place of the transcript.
+//! seam to the app, and [`paint`] is what a terminal run looks like. [`pane`] is the one value
+//! that decides which pane the workspace draws, and [`tabs`] draws the strip that names them all:
+//! a session, an opened file, and the settings last, reachable by its tab and by ⌘,.
 //!
 //! Five presses reach past a region: [`card`] is the key a focused tool card answers, [`paste`]
 //! is the clipboard arriving at the app root, [`session`] starts one on the worktree already
@@ -26,41 +27,95 @@
 mod actions;
 mod answer;
 mod answer_view;
+mod appearance;
 mod card;
+mod commands;
+mod commands_diff;
+mod commands_export;
+mod commands_run;
+mod commands_session;
+mod commands_skills;
+mod commands_undo;
+mod commands_view;
 mod composer;
+mod composer_menu;
 mod dock;
 mod editor;
+mod finder;
+mod finder_match;
+mod finder_scan;
+mod finder_take;
+mod finder_view;
 mod folder;
+mod history;
+mod history_walk;
+mod idle;
+mod keybind;
 mod keymap;
 mod layout;
 mod live;
+mod meter;
+mod model_picker;
+mod model_picker_shell;
+mod model_picker_view;
 mod paint;
+mod palette;
+mod palette_take;
+mod palette_view;
+mod pane;
 mod panel_form;
 mod panels;
 mod paste;
 mod pump;
+mod search_hits;
+mod search_session;
+mod search_session_view;
+mod search_transcript;
+mod search_transcript_view;
+mod search_visible;
 mod session;
 mod settings;
+mod settings_draft;
+mod settings_draft_profiles;
 mod settings_fields;
+mod settings_keybinds;
+mod settings_profiles;
+mod settings_snapshot;
 mod settings_view;
 mod sidebar;
 mod state;
+mod state_build;
+mod state_keys;
+mod tabs;
 mod term_keys;
 mod terminal;
+mod todo;
 mod waiting;
 
 pub use card::window_key;
+pub use commands::{COMMANDS, Command};
 pub use composer::composer_key;
 pub use dock::terminal_key;
+pub use finder::{FinderRow, MAX_FILES, MAX_ROWS};
+pub use history::file as prompt_history_file;
+pub use idle::Idle;
+pub use keybind::{Bindable, Bindings, KeybindView, Keybinds};
 pub use keymap::{Intent, Typing, intent, typing_intent};
 pub use layout::view;
-pub use live::{BUDGET, Idle, KeyStatus, Live, SHELL_TICK, SettingsSnapshot, TURN_TICK, Waiting};
+mod ticks;
+pub use live::Live;
+pub use meter::{context_words, meter_words, price_words, token_words};
+pub use palette::{ACTIONS, Action, Row};
+pub use pane::Pane;
 pub use panels::Panels;
 pub use paste::root_paste;
 pub use settings::Panel;
 pub use settings::settings_key;
+pub use settings_snapshot::{KeyStatus, ProviderView, SettingsSnapshot};
 pub use state::Shell;
 pub use terminal::{EXITED, GRID, TerminalTab};
+pub use ticks::{BUDGET, SHELL_TICK, TURN_TICK};
+pub use waiting::Waiting;
 
 /// The left column's width, in points.
 pub const COLUMN: f32 = 276.0;
@@ -68,5 +123,8 @@ pub const COLUMN: f32 = 276.0;
 const DOCK: f32 = 220.0;
 /// The tab strip's row height, in points.
 const TABS: f32 = 38.0;
+/// The settings tab's id in the strip, which no session may take: the settings are not a session,
+/// and the strip draws them after the sessions and the files with the gear's own glyph.
+const SETTINGS: &str = "settings";
 /// How tall one session row is, in points.
 const ROW: f32 = 40.0;

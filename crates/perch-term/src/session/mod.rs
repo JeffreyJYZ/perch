@@ -33,4 +33,7 @@ pub enum TermError {
     /// The terminal thread never reported that it had started.
     #[error("the terminal thread did not start")]
     Thread,
+    /// The saved shell command names a program this machine does not have.
+    #[error("no such command: {0}")]
+    Missing(String),
 }

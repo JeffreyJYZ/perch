@@ -22,6 +22,15 @@ data: {"id":"chatcmpl-s2","object":"chat.completion.chunk","created":1762730019,
 
 data: [DONE]
 
+
+: next request
+
+data: {"id":"chatcmpl-title","object":"chat.completion.chunk","created":1762730019,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Write two files"}}]}
+
+data: {"id":"chatcmpl-title","object":"chat.completion.chunk","created":1762730019,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
 : next request
 
 data: {"id":"chatcmpl-s3","object":"chat.completion.chunk","created":1762730020,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Writing the third."}}]}

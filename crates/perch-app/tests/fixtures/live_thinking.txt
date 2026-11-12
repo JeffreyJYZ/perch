@@ -1,0 +1,13 @@
+: stream open
+
+data: {"id":"chatcmpl-k","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","reasoning":"Let me look at the file before answering."}}]}
+
+data: {"id":"chatcmpl-k","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[{"index":0,"delta":{"reasoning_content":" It is probably short."}}]}
+
+data: {"id":"chatcmpl-k","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[{"index":0,"delta":{"content":"The file is fine."}}]}
+
+data: {"id":"chatcmpl-k","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-k","object":"chat.completion.chunk","created":1762730100,"model":"test/model","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}
+
+data: [DONE]

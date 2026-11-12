@@ -1,15 +1,13 @@
 //! Tool dispatch: the approval gate, execution, and one tool message per call.
 //!
 //! The dispatcher is the only place a tool the model asked for becomes a result. It consults the
-//! registry for whether a call needs approval, asks the [`Interactor`], runs the call, and answers
-//! every call with a [`ToolReply`]: a [`Message::tool_result`] that repeats the call's id — the
-//! provider addresses each result to the assistant's call by that id, so a lost or renumbered id
-//! is a rejected conversation — plus whether the call actually ran.
+//! registry, asks the [`Interactor`] when a call needs approval — or reads a saved [`Rules`]
+//! decision — then runs the call and answers it with a [`ToolReply`]: a [`Message::tool_result`]
+//! that repeats the call's id, because a lost or renumbered id is a rejected conversation.
 //!
-//! Nothing here can panic into the turn: a tool that fails, an unknown tool, and a denied call all
-//! become message content, because the model can act on a stated failure and cannot act on a
-//! dead thread. The outcome travels beside that text so no caller has to read the wording to
-//! learn whether the call ran.
+//! Nothing here can panic into the turn: a failed tool, an unknown tool and a denied call all
+//! become message content the model can act on, with the outcome beside it so no caller has to
+//! read the wording to learn whether the call ran.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -19,12 +17,13 @@ use perch_tools::{Preview, ToolCtx, ToolRegistry};
 use crate::ask::{self, AskUser};
 use crate::event::ToolCall;
 use crate::provider::Message;
+use crate::rules::{Permission, Rules};
 
 /// One call's answer: the tool message the provider receives, and whether the call ran.
 ///
 /// `ok` is the outcome, not the tool's opinion of it. A command that exits non-zero still ran, so
 /// it is `ok: true` and the model reads the exit code; a denial, a failed preview, an unknown tool
-/// and a tool that returned an error are `ok: false`, because none of them produced a result.
+/// and a tool that errored are `ok: false`, because none of them produced a result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolReply {
     /// The `tool` message that answers the call, carrying the call's id.
@@ -47,8 +46,7 @@ pub enum Decision {
 /// What the user did with a question.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Answer {
-    /// Picked these options, in the order they were picked: one index for a single-choice
-    /// question, several for `multiple: true`, and none for a dismissal.
+    /// Picked these options in order: one, several for `multiple`, none for a dismissal.
     Picks(Vec<usize>),
     /// Typed an answer of their own.
     Text(String),
@@ -56,10 +54,9 @@ pub enum Answer {
     Cancelled,
 }
 
-/// Everything a turn needs from the person in front of the window.
-///
-/// One trait rather than callbacks so a headless test and the UI take the same path: the
-/// dispatcher neither knows nor cares whether an approval came from a dialog or a script.
+/// Everything a turn needs from the person in front of the window. One trait rather than
+/// callbacks, so a headless test and the UI take the same path: nothing here cares whether an
+/// approval came from a dialog or a script.
 pub trait Interactor {
     /// Whether to run this call, with whatever the approval view can show about it.
     fn approve(&mut self, name: &str, preview: Option<&Preview>) -> Decision;
@@ -68,18 +65,24 @@ pub trait Interactor {
     fn ask(&mut self, prompt: &str, options: &[String], multiple: bool) -> Answer;
 }
 
-/// Runs the tool calls of one turn.
-///
-/// The "for session" allowance lives here, keyed by tool name, so it lasts as long as the
-/// dispatcher does and covers only the tool the user allowed.
+/// Runs the tool calls of one turn. The "for session" allowance lives here, keyed by tool name,
+/// so it lasts as long as the dispatcher does and covers only the tool the user allowed.
 #[derive(Default)]
 pub struct Dispatcher {
     allowed: BTreeSet<String>,
+    /// Rules a person saved, consulted before they are asked again.
+    rules: Option<Rules>,
 }
 
 impl Dispatcher {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Consults these saved rules before asking, so a remembered decision survives a restart.
+    pub fn with_rules(mut self, rules: Rules) -> Self {
+        self.rules = Some(rules);
+        self
     }
 
     /// The six built-ins plus `ask_user`, which the model calls like any other tool.
@@ -114,9 +117,25 @@ impl Dispatcher {
         match registry.needs_approval(&call.name) {
             Ok(false) => {}
             Ok(true) => {
+                // A saved rule answers for a call whose exact shape it was written for; a saved
+                // denial refuses the call before anything is shown.
+                let saved = self
+                    .rules
+                    .as_ref()
+                    .and_then(|rules| rules.permit(&call.name, &call.args, &ctx.root));
+                if saved == Some(Permission::Deny) {
+                    return reply(
+                        call,
+                        format!(
+                            "a saved permission rule denies the {} call, so it did not run",
+                            call.name
+                        ),
+                        false,
+                    );
+                }
                 // A tool already allowed for the session is not asked about again; the allowance
                 // is keyed by name, so allowing `bash` says nothing about `write`.
-                if !self.allowed.contains(&call.name) {
+                if saved.is_none() && !self.allowed.contains(&call.name) {
                     // The tool describes its own change, so nothing here has to know what a diff
                     // is. A change that cannot be described is denied rather than approved
                     // blind, and it is denied *before* the user is asked: offering a call whose

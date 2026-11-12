@@ -45,3 +45,19 @@ pub(crate) fn reason_word(reason: &EndReason) -> String {
         EndReason::Errored(why) => format!("errored: {why}"),
     }
 }
+
+/// What a compaction left out, in the column's words: the exchanges first, then the messages
+/// they held, because an exchange is what a person remembers losing.
+///
+/// Nothing to drop is a refusal, and says so rather than reporting a win of zero.
+pub(crate) fn compaction_words(dropped: usize, exchanges: usize) -> String {
+    if dropped == 0 {
+        return "nothing to compact: the conversation has no older exchange to drop.".to_string();
+    }
+    let exchanges = if exchanges == 1 {
+        "1 older exchange".to_string()
+    } else {
+        format!("{exchanges} older exchanges")
+    };
+    format!("compacted: {exchanges} ({dropped} messages) left out.")
+}

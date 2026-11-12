@@ -7,11 +7,16 @@
 use std::path::Path;
 use std::time::Duration;
 
-use perch_plugins::PanelEntry;
 use perch_ui::Transcript;
-use perch_ui::shell::{Live, Panels, Waiting};
+use perch_ui::shell::{Live, Waiting};
 
-use crate::{AppState, Pending};
+use crate::AppState;
+
+mod panels;
+mod row;
+mod waiting;
+
+use row::row;
 
 impl Live for AppState {
     fn pump(&mut self, budget: Duration) -> bool {
@@ -22,8 +27,7 @@ impl Live for AppState {
         self.active_session().map(crate::SessionRuntime::transcript)
     }
 
-    /// The session's own transcript, not the window's copy: a card opened here is opened for as
-    /// long as the session lives, not for as long as one frame is drawn.
+    /// The session's own transcript: a card opened here lives as long as the session, not a frame.
     fn transcript_mut(&mut self) -> Option<&mut Transcript> {
         self.active_session_mut()
             .map(|session| &mut session.transcript)
@@ -38,6 +42,15 @@ impl Live for AppState {
         row(self, index)
     }
 
+    /// Forks the session at `index` into one of its own, and answers its index and header.
+    fn fork_session(
+        &mut self,
+        index: usize,
+    ) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
+        let fork = AppState::fork_session(self, index).map_err(|error| error.to_string())?;
+        row(self, fork)
+    }
+
     /// Opens a session on a folder a person picked, accepted wherever it is.
     fn open_folder(
         &mut self,
@@ -48,19 +61,10 @@ impl Live for AppState {
     }
 
     fn waiting(&self) -> Waiting {
-        match self
-            .active_session()
-            .and_then(crate::SessionRuntime::pending)
-        {
-            Some(Pending::Approval { .. }) => Waiting::Approval,
-            Some(Pending::Question {
-                options, multiple, ..
-            }) => Waiting::Question {
-                options: options.len(),
-                multiple: *multiple,
-            },
-            None => Waiting::Nothing,
-        }
+        waiting::of(
+            self.active_session()
+                .and_then(crate::SessionRuntime::pending),
+        )
     }
 
     fn busy(&self) -> bool {
@@ -103,8 +107,85 @@ impl Live for AppState {
         let _ = AppState::switch(self, index);
     }
 
+    fn session(&self, index: usize) -> Option<perch_store::SessionMeta> {
+        self.sessions.get(index).map(|session| session.meta.clone())
+    }
+
+    fn model(&self) -> Option<String> {
+        AppState::model(self)
+    }
+
+    fn models(&mut self) -> std::result::Result<Vec<perch_agent::ListedModel>, String> {
+        AppState::list_models(self)
+    }
+
+    fn start_models(&mut self) {
+        AppState::start_models(self);
+    }
+
+    fn models_ready(
+        &mut self,
+    ) -> Option<std::result::Result<Vec<perch_agent::ListedModel>, String>> {
+        AppState::models_ready(self)
+    }
+
+    fn model_limit(&self) -> Option<u32> {
+        AppState::model_limit(self)
+    }
+
+    fn tokens_used(&self) -> Option<u32> {
+        self.active_session()
+            .and_then(crate::SessionRuntime::tokens_used)
+    }
+
+    /// Puts the last turn's files back; the error is the refusal, in words.
+    fn undo(&mut self) -> std::result::Result<Vec<String>, String> {
+        AppState::undo_turn(self)
+    }
+
+    fn turn_cost(&self) -> Option<f64> {
+        AppState::turn_cost(self)
+    }
+
+    fn todos(&self) -> Vec<perch_tools::Todo> {
+        AppState::todos(self)
+    }
+
+    fn compact(&mut self) {
+        let _ = AppState::compact(self);
+    }
+
+    fn choose_model(&mut self, id: String) -> std::result::Result<(), String> {
+        AppState::choose_model(self, &id).map_err(|error| error.to_string())
+    }
+
+    fn rename_session(
+        &mut self,
+        index: usize,
+        title: &str,
+    ) -> std::result::Result<perch_store::SessionMeta, String> {
+        AppState::rename_session(self, index, title).map_err(|error| error.to_string())
+    }
+
+    fn delete_session(&mut self, index: usize) -> std::result::Result<usize, String> {
+        AppState::delete_session(self, index).map_err(|error| error.to_string())
+    }
+
+    fn set_theme(&mut self, theme: &str) -> std::result::Result<(), String> {
+        AppState::save_theme(self, theme).map_err(|error| error.to_string())
+    }
+
+    fn data_dir(&self) -> Option<std::path::PathBuf> {
+        Some(self.dir.clone())
+    }
+
     fn settings(&self) -> Option<perch_ui::shell::SettingsSnapshot> {
         Some(AppState::settings(self))
+    }
+
+    /// The theme and type size, read from `settings.toml` per call, so a save reaches an open window.
+    fn appearance(&self) -> Option<perch_ui::theme::Appearance> {
+        Some(AppState::appearance(self))
     }
 
     fn save_settings(
@@ -112,47 +193,5 @@ impl Live for AppState {
         draft: perch_ui::SettingsDraft,
     ) -> std::result::Result<perch_ui::shell::KeyStatus, String> {
         AppState::save_settings(self, draft)
-    }
-}
-
-/// The header of the session just opened: the row the window appends without reading the disk.
-fn row(
-    app: &AppState,
-    index: usize,
-) -> std::result::Result<(usize, perch_store::SessionMeta), String> {
-    let meta = app
-        .active_session()
-        .map(|session| session.meta.clone())
-        .ok_or_else(|| "the session did not open".to_string())?;
-    Ok((index, meta))
-}
-
-/// The plugin column, over the worker's last snapshot: the frames and the words are built off the
-/// frame thread, so the window reads them rather than asking a plugin while it draws.
-impl Panels for AppState {
-    /// The plugin panels, then the update offer: the column is the one region a person can read
-    /// without a session open, and an update is exactly that kind of news.
-    fn panels(&self) -> Vec<PanelEntry> {
-        let mut panels = self.snapshot.panels.clone();
-        if let Some(status) = self.update_status.as_ref() {
-            panels.push(status.panel());
-        }
-        panels
-    }
-
-    fn plugin_words(&self) -> Vec<String> {
-        self.snapshot.words.clone()
-    }
-
-    /// A press on a panel control: refused here when the drawn panel cannot address it, and
-    /// otherwise queued for the worker that owns the plugin host. The panel it changes is re-read
-    /// into the next snapshot, which is what draws the change.
-    fn panel_action(
-        &mut self,
-        plugin: &str,
-        control: &str,
-        value: Option<String>,
-    ) -> std::result::Result<(), String> {
-        AppState::panel_action(self, plugin, control, value)
     }
 }

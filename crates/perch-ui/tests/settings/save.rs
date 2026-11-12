@@ -7,10 +7,39 @@ use crate::fake::Fake;
 use crate::harness::{draft, layout};
 
 #[test]
+fn a_staged_font_size_reaches_the_app_and_the_panel_draws_its_field() {
+    let mut shell = Shell::new(Vec::new(), 0).with_live(Fake::default());
+    shell.toggle_settings();
+    let mut staged = draft("https://example.com/v1", "test/model", "dark", "");
+    staged.font_size = "14".to_string();
+    shell.stage_settings(staged);
+
+    assert_eq!(
+        shell.settings_panel().map(|panel| panel.draft().font_size),
+        Some("14".to_string()),
+        "the panel holds the size it was staged with"
+    );
+    assert!(shell.save_settings(), "the app took the draft");
+    assert_eq!(
+        shell
+            .live()
+            .and_then(|fake| fake.saved.as_ref().map(|saved| saved.font_size.clone())),
+        Some("14".to_string()),
+        "the size the person typed is the one saved"
+    );
+
+    let tree = layout(shell).accessibility_json().to_string();
+    assert!(
+        tree.contains("Font size"),
+        "the form draws the field:\n{tree}"
+    );
+}
+
+#[test]
 fn a_saved_key_is_worded_and_never_held_by_the_panel() {
     let mut shell = Shell::new(Vec::new(), 0).with_live(Fake {
         key: KeyStatus::Missing,
-        saved: None,
+        ..Fake::default()
     });
     shell.toggle_settings();
     let mut draft = draft("https://example.com/v1", "test/model", "dark", "sk-secret");

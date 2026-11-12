@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use perch_store::SessionMeta;
 use perch_ui::Shell;
-use perch_ui::shell::terminal_key;
+use perch_ui::shell::{Live, terminal_key};
 use rune::{Env, Key, KeyEvent, Mods, Runtime, Tx};
 use serde_json::Value;
 
@@ -39,7 +39,7 @@ pub fn use_sh() {
 }
 
 /// Types `line` at the shell and presses Return, one key at a time through the dock's own map.
-pub fn type_line(shell: &mut Shell, line: &str) {
+pub fn type_line<L: Live>(shell: &mut Shell<L>, line: &str) {
     let mut tx = Tx::default();
     for character in line.chars() {
         let ev = KeyEvent {
@@ -62,7 +62,7 @@ pub fn type_line(shell: &mut Shell, line: &str) {
 }
 
 /// The text of the frame the dock would paint, all rows joined.
-pub fn frame_text(shell: &Shell) -> String {
+pub fn frame_text<L: Live>(shell: &Shell<L>) -> String {
     let Some(frame) = shell.active_terminal().and_then(|tab| tab.frame()) else {
         return String::new();
     };
@@ -73,7 +73,7 @@ pub fn frame_text(shell: &Shell) -> String {
 }
 
 /// Pumps the window until `done` holds, or [`TIMEOUT`] runs out.
-pub fn pump_until(shell: &mut Shell, done: impl Fn(&Shell) -> bool) -> bool {
+pub fn pump_until<L: Live>(shell: &mut Shell<L>, done: impl Fn(&Shell<L>) -> bool) -> bool {
     let deadline = Instant::now() + TIMEOUT;
     while Instant::now() < deadline {
         if done(shell) {

@@ -12,10 +12,11 @@ use std::{
     time::Duration,
 };
 
-use portable_pty::{CommandBuilder, native_pty_system};
+use portable_pty::native_pty_system;
 
 use super::{TermError, TermHandle, command::Inbound, run::run};
 use crate::frame::Frame;
+use crate::shell::{ShellCommand, missing_program};
 
 /// How long `spawn` waits for the terminal thread to create its emulator.
 pub(super) const READY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -29,17 +30,64 @@ impl TermSession {
     /// Returns the handle the UI drives and the channel on which it receives
     /// frames. The first frame is published as soon as the emulator exists, so
     /// a caller can paint an empty grid before the shell has printed anything.
+    ///
+    /// This is [`Self::spawn_with_wake`] without a wake callback: a window that
+    /// polls the frame channel on a tick needs nothing more.
     pub fn spawn(
         cwd: &Path,
         cols: u16,
         rows: u16,
     ) -> Result<(TermHandle, Receiver<Frame>), TermError> {
+        Self::spawn_command(cwd, "", cols, rows)
+    }
+
+    /// Spawns the command `line` names, or this machine's own shell when it names none.
+    ///
+    /// A line that names a program this machine does not have is refused by name before a pty is
+    /// opened, so a person reads what is wrong instead of watching a tab die.
+    pub fn spawn_command(
+        cwd: &Path,
+        line: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<(TermHandle, Receiver<Frame>), TermError> {
+        Self::spawn_command_with_wake(cwd, line, cols, rows, || {})
+    }
+
+    /// [`Self::spawn`], calling `wake` after every frame is published.
+    ///
+    /// The frame channel has no way to say a frame is ready, so a window that
+    /// only reads it on a timer shows a shell's output one tick late. `wake` is
+    /// that answer: a window passes something that wakes its event loop (Rune's
+    /// `AppHandle::wake`), and an echoed character is drawn on the next display
+    /// tick instead of the next poll. It runs on the terminal thread, so it must
+    /// be cheap and must not block.
+    pub fn spawn_with_wake(
+        cwd: &Path,
+        cols: u16,
+        rows: u16,
+        wake: impl Fn() + Send + 'static,
+    ) -> Result<(TermHandle, Receiver<Frame>), TermError> {
+        Self::spawn_command_with_wake(cwd, "", cols, rows, wake)
+    }
+
+    /// [`Self::spawn_command`], calling `wake` after every frame is published.
+    pub fn spawn_command_with_wake(
+        cwd: &Path,
+        line: &str,
+        cols: u16,
+        rows: u16,
+        wake: impl Fn() + Send + 'static,
+    ) -> Result<(TermHandle, Receiver<Frame>), TermError> {
+        if let Some(program) = missing_program(line) {
+            return Err(TermError::Missing(program));
+        }
         let pty = native_pty_system();
         let pair = pty
             .openpty(pty_size(cols, rows))
             .map_err(|error| TermError::Pty(error.to_string()))?;
 
-        let mut command = CommandBuilder::new(shell());
+        let mut command = ShellCommand::parse(line).builder();
         command.cwd(cwd);
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
@@ -84,6 +132,7 @@ impl TermSession {
                     frames,
                     thread_dirty,
                     ready,
+                    wake,
                 );
             })
             .map_err(|error| TermError::Pty(error.to_string()))?;
@@ -108,12 +157,6 @@ pub(super) fn pty_size(cols: u16, rows: u16) -> portable_pty::PtySize {
         pixel_width: 0,
         pixel_height: 0,
     }
-}
-
-/// `$SHELL` is what the user's terminal already uses; zsh is the fallback
-/// because this is a macOS app.
-fn shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_owned())
 }
 
 fn read_pty(mut reader: Box<dyn Read + Send>, tx: Sender<Inbound>) {

@@ -18,9 +18,9 @@ if [ -f "$root/scripts/zig-env.sh" ]; then
 	. "$root/scripts/zig-env.sh"
 fi
 
-# Its own target dir, so a bundle build never invalidates the dev tree's artefacts (or the other
-# way round) and the release profile does not sit in the default `target/`.
-CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$root/target-package}
+# One shared target dir for the whole repo, never a per-lane `target-*`: fourteen lane dirs
+# duplicated rune, wgpu and wasmtime to ~60 GiB, and only the shared one builds incrementally.
+CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$root/target}
 export CARGO_TARGET_DIR
 
 app=$root/dist/Perch.app

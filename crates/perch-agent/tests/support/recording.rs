@@ -11,8 +11,19 @@ pub struct Recording {
     pub pause: Option<Duration>,
     /// One entry per request: the SSE events of that response.
     pub responses: Vec<Vec<String>>,
+    /// How each response refuses its request instead of streaming, when the fixture says.
+    pub refusals: Vec<Option<Refusal>>,
     /// Whether the last response answers every further request, for a turn that never settles.
     pub repeat: bool,
+}
+
+/// A response that is a refusal rather than a stream, which is how a provider answers a request
+/// it will not accept at all.
+#[derive(Clone)]
+pub struct Refusal {
+    pub status: u16,
+    /// The body the provider would send with that status.
+    pub body: String,
 }
 
 /// Read a recording into its responses.
@@ -21,6 +32,7 @@ pub fn read_fixture(path: &str) -> Recording {
     let mut pause = None;
     let mut repeat = false;
     let mut bodies: Vec<String> = vec![String::new()];
+    let mut refusals: Vec<Option<Refusal>> = vec![None];
     for line in recorded.lines() {
         let Some(note) = line.trim_start().strip_prefix(": ") else {
             if let Some(body) = bodies.last_mut() {
@@ -33,8 +45,17 @@ pub fn read_fixture(path: &str) -> Recording {
         if let Some(millis) = note.strip_prefix("pace_ms ") {
             let millis = millis.trim().parse::<u64>().unwrap_or(0).min(MAX_PACE);
             pause = Some(Duration::from_millis(millis));
+        } else if let Some(rest) = note.strip_prefix("status ") {
+            // `: status 400 <body>`: this response refuses its request instead of streaming one.
+            let (code, body) = rest.split_once(' ').unwrap_or((rest, ""));
+            let status = code.trim().parse::<u16>().unwrap_or(200);
+            let body = body.trim().to_string();
+            if let Some(slot) = refusals.last_mut() {
+                *slot = Some(Refusal { status, body });
+            }
         } else if note == "next request" {
             bodies.push(String::new());
+            refusals.push(None);
         } else if note == "repeat" {
             repeat = true;
         }
@@ -43,6 +64,7 @@ pub fn read_fixture(path: &str) -> Recording {
     Recording {
         pause,
         responses: bodies.iter().map(|body| events_of(body)).collect(),
+        refusals,
         repeat,
     }
 }

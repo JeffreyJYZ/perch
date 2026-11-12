@@ -3,19 +3,13 @@
 use std::path::Path;
 use std::time::Duration;
 
+use perch_agent::ListedModel;
 use perch_store::SessionMeta;
 
-use crate::settings::{DEFAULT_THEME, SettingsDraft};
+use super::settings_snapshot::{KeyStatus, SettingsSnapshot};
+use super::waiting::Waiting;
+use crate::settings::SettingsDraft;
 use crate::transcript::Transcript;
-
-/// What one frame may spend folding a turn's events. The rest of the frame is the frame's: a
-/// drawing thread that waits on a turn is a window that stops responding.
-pub const BUDGET: Duration = Duration::from_millis(1);
-/// How long the window waits before polling again while a turn is streaming.
-pub const TURN_TICK: Duration = Duration::from_millis(8);
-/// The same for a live shell, which has no channel to wake the window with: it is polled on a
-/// tick because its output arrives whether or not anyone asked.
-pub const SHELL_TICK: Duration = Duration::from_millis(16);
 
 /// What the window asks of the app behind it.
 ///
@@ -29,10 +23,8 @@ pub trait Live: 'static {
     /// The active session's transcript, when a session is open.
     fn transcript(&self) -> Option<&Transcript>;
 
-    /// The transcript a press may change — a card opened or closed — when a session is open.
-    ///
-    /// The window draws a copy of this transcript, so a change made to the copy alone would last
-    /// one frame. `None` is a window with no app behind it, or no session to change.
+    /// The transcript a press may change. The window draws a copy, so a change to the copy alone
+    /// lasts one frame; `None` is no app, or no session to change.
     fn transcript_mut(&mut self) -> Option<&mut Transcript> {
         None
     }
@@ -44,6 +36,11 @@ pub trait Live: 'static {
         _worktree: &Path,
     ) -> std::result::Result<(usize, SessionMeta), String> {
         Err("no app is running, so no session was opened".to_string())
+    }
+
+    /// Forks the session at `index` into one of its own; answers its index and header.
+    fn fork_session(&mut self, _index: usize) -> std::result::Result<(usize, SessionMeta), String> {
+        Err("no app is running, so no session was forked".to_string())
     }
 
     /// Opens a session on the folder a person picked in the window, as that folder: the window
@@ -86,98 +83,118 @@ pub trait Live: 'static {
     /// Shows the session at `index`.
     fn switch(&mut self, index: usize);
 
+    /// The header of the session at `index`, when one is open.
+    ///
+    /// The window keeps its own copy of the list, so a branch the app re-read after a checkout
+    /// (or a title a rename wrote) reaches the row through this, never through a guess.
+    fn session(&self, _index: usize) -> Option<SessionMeta> {
+        None
+    }
+
     /// The saved settings, when an app is behind the window. `None` is a window with no data
     /// directory, which the settings panel opens over with its defaults.
     fn settings(&self) -> Option<SettingsSnapshot> {
         None
     }
 
+    /// What the frame draws with: the theme's own anchors and the type size, when an app is behind
+    /// the window.
+    ///
+    /// Read here rather than cached in the window, because the app answers it from `settings.toml`
+    /// on every call: a save then reaches a window that is already open with no copy to invalidate.
+    /// `None` is a window with no app, which draws the built-in kit its saved word names.
+    fn appearance(&self) -> Option<crate::theme::Appearance> {
+        None
+    }
+
+    /// The active session's model id, exactly as the composer shows it.
+    fn model(&self) -> Option<String> {
+        None
+    }
+
+    /// The provider.rs model ids, sorted as returned; the error is why nothing was listed. This is
+    /// the blocking form — a click path uses [`Live::start_models`] and [`Live::models_ready`].
+    fn models(&mut self) -> std::result::Result<Vec<ListedModel>, String> {
+        Err("no app is running, so no models were listed".to_string())
+    }
+
+    /// Starts asking the provider what it offers, and returns at once.
+    fn start_models(&mut self) {}
+
+    /// The answer to [`Live::start_models`], once it is there, so a frame never waits on it.
+    fn models_ready(&mut self) -> Option<std::result::Result<Vec<ListedModel>, String>> {
+        None
+    }
+
+    /// The context window the provider states for this session's model, when it states one.
+    fn model_limit(&self) -> Option<u32> {
+        None
+    }
+
+    /// The tokens the last turn reported, when one has ended.
+    fn tokens_used(&self) -> Option<u32> {
+        None
+    }
+
+    /// The dollars the last turn cost, when the provider stated the model's price.
+    ///
+    /// A window with no price states none: an invented bill is worse than no bill.
+    fn turn_cost(&self) -> Option<f64> {
+        None
+    }
+
+    /// The active session's todo list, from the table `todowrite` writes.
+    ///
+    /// Read every frame: a `todowrite` inside a turn changes it mid-run.
+    fn todos(&self) -> Vec<perch_tools::Todo> {
+        Vec::new()
+    }
+
+    /// Asks the session to compact its conversation, and returns at once: mid-turn the request
+    /// runs at the end of the current turn, ahead of any prompt queued behind it.
+    fn compact(&mut self) {}
+
+    /// Picks `id` for the active session only: its next turn asks for it, no session restarts.
+    fn choose_model(&mut self, _id: String) -> std::result::Result<(), String> {
+        Err("no session is open, so the model was not changed".to_string())
+    }
+
+    /// Names the session at `index`, and answers its header as the list now carries it.
+    ///
+    /// The title is written where the next start reads it, so a rename outlives the window.
+    fn rename_session(
+        &mut self,
+        _index: usize,
+        _title: &str,
+    ) -> std::result::Result<SessionMeta, String> {
+        Err("no app is running, so the title was not saved".to_string())
+    }
+
+    /// Deletes the session at `index`, stopping its bridge and dropping its runtime, and answers
+    /// the index the window should show afterwards. The error is why nothing was deleted.
+    fn delete_session(&mut self, _index: usize) -> std::result::Result<usize, String> {
+        Err("no app is running, so no session was deleted".to_string())
+    }
+
+    /// Saves the theme a restart reads, and keeps it for the sessions already open.
+    fn set_theme(&mut self, _theme: &str) -> std::result::Result<(), String> {
+        Err("no app is running, so the theme was not saved".to_string())
+    }
+
+    /// The directory a session's export is written under, when the app has one.
+    fn data_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+
     /// Writes `draft` and reports whether a key is stored afterwards.
     ///
-    /// The error is why it was not written, in words. Validation belongs to the panel, so a
-    /// caller here has already refused anything the person could see was wrong.
+    /// Validation belongs to the panel, so a caller here has already refused a bad field.
     fn save_settings(&mut self, _draft: SettingsDraft) -> std::result::Result<KeyStatus, String> {
         Err("no app is running, so nothing was saved".to_string())
     }
-}
 
-/// Whether a provider key is stored, as the settings panel says it.
-///
-/// The key itself is never part of this: the panel shows one of these words instead, so a saved
-/// secret has no path back to the screen.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum KeyStatus {
-    /// Nothing is stored for the provider account.
-    #[default]
-    Missing,
-    /// A key is stored; its value is the keychain's business, not the window's.
-    Stored,
-}
-
-impl KeyStatus {
-    /// The word the panel shows in place of the key.
-    pub fn words(self) -> &'static str {
-        match self {
-            KeyStatus::Missing => "missing",
-            KeyStatus::Stored => "stored",
-        }
+    /// Puts the last turn's files back as it found them; `Err` is the refusal, in words.
+    fn undo(&mut self) -> std::result::Result<Vec<String>, String> {
+        Err("no app is running, so nothing was restored".to_string())
     }
 }
-
-/// What the settings panel opens with: the saved provider settings and whether a key is stored.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SettingsSnapshot {
-    /// The provider's API root.
-    pub base_url: String,
-    /// The model every new session asks for.
-    pub model: String,
-    /// The saved theme.
-    pub theme: String,
-    /// The saved update check URL, empty when the app checks nothing.
-    pub update_check: String,
-    /// Whether a key is stored for the provider account.
-    pub key: KeyStatus,
-}
-
-impl Default for SettingsSnapshot {
-    fn default() -> Self {
-        Self {
-            base_url: String::new(),
-            model: String::new(),
-            theme: DEFAULT_THEME.to_string(),
-            update_check: String::new(),
-            key: KeyStatus::Missing,
-        }
-    }
-}
-
-/// A window with no app behind it: the layout, the file panel and the dock alone.
-///
-/// This is what a `--tree` dump and a layout test run against: no data directory, no keychain.
-pub struct Idle;
-
-impl Live for Idle {
-    fn pump(&mut self, _: Duration) -> bool {
-        false
-    }
-    fn transcript(&self) -> Option<&Transcript> {
-        None
-    }
-    fn waiting(&self) -> Waiting {
-        Waiting::Nothing
-    }
-    fn busy(&self) -> bool {
-        false
-    }
-    fn prompt(&mut self, _: String) -> std::result::Result<(), String> {
-        Err("no session is open".to_string())
-    }
-    fn cancel(&mut self) {}
-    fn approve(&mut self) {}
-    fn deny(&mut self) {}
-    fn pick(&mut self, _: usize) {}
-    fn switch(&mut self, _: usize) {}
-}
-
-/// What the active session is waiting on, as the key map needs it.
-pub use super::waiting::Waiting;

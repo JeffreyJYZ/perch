@@ -29,6 +29,9 @@ pub fn app_against(fixture: &str) -> (AppState, crate::support::Fixture, TempDir
     let server = crate::support::serve(fixture);
     let data = tempfile::tempdir().unwrap();
     let worktree = tempfile::tempdir().unwrap();
+    // No machine-wide instructions: a real home file would join every system prompt and decide
+    // what the column says. See `crate::support::hermetic`.
+    crate::support::hermetic();
     let mut app = AppState::open_with(data.path(), defaults(&server.base_url)).unwrap();
     let index = app.new_session(worktree.path()).unwrap();
     app.switch(index).unwrap();
@@ -65,4 +68,20 @@ pub fn request(fixture: &crate::support::Fixture, index: usize) -> String {
         .get(index)
         .unwrap_or_else(|| panic!("the fixture never received request {index}: {bodies:?}"))
         .clone()
+}
+
+/// How many requests the conversation itself made.
+///
+/// The titler names the session on the same provider, and a turn ending is what asks it, so its
+/// request lands on the fixture's socket too. A test about what the turn asked counts its own.
+pub fn turn_requests(fixture: &crate::support::Fixture) -> usize {
+    /// The titler's system message, which no turn's request carries.
+    const TITLER: &str = "You name conversations.";
+    fixture
+        .bodies
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|body| !body.contains(TITLER))
+        .count()
 }

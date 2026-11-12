@@ -1,13 +1,12 @@
 //! The settings path end to end, with the keychain kept out of it.
 //!
-//! Every app here is opened over an [`MemorySecrets`], so the tests prove what a save writes and
-//! what the panel reads back without touching the login keychain. A keychain round trip is out of
-//! scope on purpose: that call needs a signed-in session and a human to allow it, so it is checked
-//! by hand once, not by the suite.
+//! Every app here is opened over a [`MemorySecrets`], so the tests prove what a save writes and
+//! what the panel reads back without touching the login keychain. A keychain round trip needs a
+//! signed-in human, so it is checked by hand once, not by the suite.
 
 use std::sync::Arc;
 
-use perch_app::settings::KEY_ACCOUNT;
+use perch_app::settings::account_for;
 use perch_app::{AppState, ProviderDefaults};
 use perch_store::Settings;
 use perch_store::secret::{MemorySecrets, SecretStore};
@@ -23,8 +22,8 @@ fn draft(base_url: &str, model: &str, theme: &str, api_key: &str) -> SettingsDra
         base_url: base_url.to_string(),
         model: model.to_string(),
         theme: theme.to_string(),
-        update_check: String::new(),
         api_key: api_key.to_string(),
+        ..Default::default()
     }
 }
 
@@ -64,7 +63,7 @@ fn a_saved_key_reaches_the_store_and_never_the_settings_file() {
     );
     // The trait is the one way in and out, so the key round-trips through it.
     assert_eq!(
-        secrets.load(KEY_ACCOUNT).unwrap().as_deref(),
+        secrets.load(&account_for("default")).unwrap().as_deref(),
         Some("sk-test-secret")
     );
     assert_eq!(app.provider_defaults().api_key, "sk-test-secret");
@@ -131,7 +130,7 @@ fn a_save_without_a_key_keeps_the_one_already_stored() {
         "an empty key field does not clear the store"
     );
     assert_eq!(
-        secrets.load(KEY_ACCOUNT).unwrap().as_deref(),
+        secrets.load(&account_for("default")).unwrap().as_deref(),
         Some("sk-first")
     );
     assert_eq!(app.provider_defaults().base_url, "https://example.com/v2");
@@ -192,7 +191,7 @@ fn the_panels_save_reaches_the_app_and_the_store() {
         Some("stored".to_string())
     );
     assert_eq!(
-        secrets.load(KEY_ACCOUNT).unwrap().as_deref(),
+        secrets.load(&account_for("default")).unwrap().as_deref(),
         Some("sk-from-the-panel")
     );
     let app = shell.live().expect("the window kept its app");

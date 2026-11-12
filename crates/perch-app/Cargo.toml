@@ -20,6 +20,9 @@ perch-tools = { path = "../perch-tools" }
 perch-files = { path = "../perch-files" }
 perch-plugins = { path = "../perch-plugins" }
 perch-mcp = { path = "../perch-mcp" }
+perch-board = { path = "../perch-board" }
+perch-codemode = { path = "../perch-codemode" }
+perch-web = { path = "../perch-web" }
 perch-update = { path = "../perch-update" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

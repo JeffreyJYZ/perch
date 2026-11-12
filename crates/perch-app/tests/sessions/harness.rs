@@ -12,7 +12,25 @@ use tempfile::TempDir;
 /// The window the tests lay out, in points: the same size the binary opens.
 const WINDOW: (f32, f32) = (1280.0, 820.0);
 
+/// Tests must not read the machine they run on.
+///
+/// A real `~/.config/opencode/AGENTS.md` joins every session's system message, so a machine's own
+/// notes would change what the column says and a test would pass here and fail there. This points
+/// the home at an empty directory once per test process; `PERCH_HOME` is the seam
+/// `perch_agent::instructions` documents. Called from [`defaults`], which every app in this
+/// target uses before it opens.
+fn hermetic() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let home = std::env::temp_dir().join("perch-tests-home");
+        let _ = std::fs::create_dir_all(&home);
+        // Safety: it is set once per process, before any app is built, and only under test.
+        unsafe { std::env::set_var("PERCH_HOME", &home) };
+    });
+}
+
 pub fn defaults() -> ProviderDefaults {
+    hermetic();
     ProviderDefaults {
         base_url: "http://127.0.0.1:9".to_string(),
         api_key: "test-key".to_string(),

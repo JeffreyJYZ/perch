@@ -5,12 +5,16 @@
 //! the line being written, and a torn last line is dropped when the file is read back.
 
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
+
+mod fork;
+mod logged;
+pub use logged::Logged;
 
 /// Everything the session list needs, written as the first line of the log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +51,11 @@ pub enum SessionEvent {
         reason: String,
         tokens_in: u32,
         tokens_out: u32,
+    },
+    /// A line the log keeps that is not part of the conversation: a title it could not name, a
+    /// session removed, anything a person never sees in the transcript.
+    Note {
+        text: String,
     },
 }
 
@@ -87,20 +96,11 @@ impl SessionLog {
     }
 
     /// Every readable event, in file order. A line that does not parse is dropped.
+    ///
+    /// [`SessionLog::logged`] is the same read with the number of dropped lines, which is what a
+    /// reader that has to tell the truth about a damaged log wants.
     pub fn events(&self) -> Result<Vec<SessionEvent>> {
-        let mut events = Vec::new();
-        for (index, line) in BufReader::new(File::open(&self.path)?).lines().enumerate() {
-            let Ok(line) = line else {
-                continue;
-            };
-            if index == 0 && serde_json::from_str::<SessionMeta>(&line).is_ok() {
-                continue;
-            }
-            if let Ok(event) = serde_json::from_str::<SessionEvent>(&line) {
-                events.push(event);
-            }
-        }
-        Ok(events)
+        Ok(self.logged()?.events)
     }
 
     /// The header this log was opened with.
@@ -108,9 +108,69 @@ impl SessionLog {
         &self.meta
     }
 
+    /// Rewrites the header so a session whose model changed remembers the new one.
+    ///
+    /// Only the first line is rewritten; every event after it is kept byte for byte, so a log a
+    /// crash left mid-line is not repaired or reordered by this.
+    pub fn set_model(&mut self, model: &str) -> Result<()> {
+        if self.meta.model == model {
+            return Ok(());
+        }
+        self.meta.model = model.to_string();
+        self.rewrite_header()
+    }
+
+    /// Rewrites the header so the row carries the branch the worktree is on now.
+    pub fn set_branch(&mut self, branch: &str) -> Result<()> {
+        if self.meta.branch == branch {
+            return Ok(());
+        }
+        self.meta.branch = branch.to_string();
+        self.rewrite_header()
+    }
+
+    /// Rewrites the header so the session carries the title a person gave it.
+    ///
+    /// The title is the first line's, like the model, so a session read at start is listed under
+    /// the name it was renamed to; every event after the header is kept byte for byte.
+    pub fn set_title(&mut self, title: &str) -> Result<()> {
+        let title = title.trim();
+        if self.meta.title == title {
+            return Ok(());
+        }
+        self.meta.title = title.to_string();
+        self.rewrite_header()
+    }
+
+    /// Deletes this session's log, closing the file first. The last copy of the conversation goes
+    /// with it: a delete that left the file behind would put the session back at the next start.
+    pub fn remove(self) -> Result<()> {
+        let path = self.path.clone();
+        drop(self);
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+
     /// The file this log appends to.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn rewrite_header(&mut self) -> Result<()> {
+        let text = std::fs::read_to_string(&self.path)?;
+        let rest = text.split_once('\n').map_or("", |(_, rest)| rest);
+        let header = serde_json::to_string(&self.meta)?;
+        let scratch = self.path.with_extension("jsonl.tmp");
+        {
+            let mut file = File::create(&scratch)?;
+            file.write_all(header.as_bytes())?;
+            file.write_all(b"\n")?;
+            file.write_all(rest.as_bytes())?;
+            file.sync_all()?;
+        }
+        std::fs::rename(&scratch, &self.path)?;
+        self.file = OpenOptions::new().append(true).open(&self.path)?;
+        Ok(())
     }
 
     fn write_line(&mut self, line: &str) -> Result<()> {

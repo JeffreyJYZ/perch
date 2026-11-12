@@ -32,6 +32,8 @@ fn parses_text_tool_calls_and_usage_from_recorded_sse() {
                 ..
             } => args.push_str(&fragment),
             Chunk::Usage { input, output } => usage = Some((input, output)),
+            // Thinking is its own stream: the answer is what this test is about.
+            Chunk::Reasoning(_) => {}
         }
     }
     assert_eq!(text, "done");

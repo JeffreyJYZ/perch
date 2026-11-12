@@ -126,3 +126,54 @@ fn a_bad_field_keeps_the_panel_open_and_nothing_is_written() {
         "a refused field is an error, not a notice"
     );
 }
+
+#[test]
+fn the_font_size_is_optional_and_clamped_rather_than_refused() {
+    // Empty is the default scale, which is what a fresh install has.
+    let mut empty = draft("https://example.com/v1", "test/model", "dark", "");
+    empty.font_size = "  ".to_string();
+    empty
+        .validate()
+        .expect("an empty size is the default scale");
+    assert_eq!(empty.font_points(), None, "empty means no override");
+
+    // A number is clamped to the scale's bounds and saves as the size the pane says it draws.
+    let mut small = draft("https://example.com/v1", "test/model", "dark", "");
+    small.font_size = "8".to_string();
+    small
+        .validate()
+        .expect("8 is a number, so it is not refused");
+    assert_eq!(small.font_points(), Some(10.0), "8 draws at the minimum");
+
+    let mut large = draft("https://example.com/v1", "test/model", "dark", "");
+    large.font_size = "30".to_string();
+    large
+        .validate()
+        .expect("30 is a number, so it is not refused");
+    assert_eq!(large.font_points(), Some(20.0), "30 draws at the maximum");
+
+    let mut exact = draft("https://example.com/v1", "test/model", "dark", "");
+    exact.font_size = "14".to_string();
+    exact.validate().expect("14 is inside the scale");
+    assert_eq!(exact.font_points(), Some(14.0), "an in-range size is kept");
+
+    // Text that is not a number is the one refusal, and it names the field.
+    for bad in ["big", "13pt", "inf"] {
+        let mut refused = draft("https://example.com/v1", "test/model", "dark", "");
+        refused.font_size = bad.to_string();
+        let invalid = refused
+            .validate()
+            .expect_err(&format!("`{bad}` is not a size"));
+        assert_eq!(
+            invalid.field,
+            perch_ui::Field::FontSize,
+            "`{bad}` must be refused as the font size field: {}",
+            invalid.words
+        );
+        assert!(
+            invalid.words.contains("font size"),
+            "the refusal names the field: {}",
+            invalid.words
+        );
+    }
+}

@@ -1,0 +1,9 @@
+: repeat
+
+data: {"id":"chatcmpl-r","object":"chat.completion.chunk","created":1762730300,"model":"test/model","choices":[{"index":0,"delta":{"role":"assistant","content":"Done."}}]}
+
+data: {"id":"chatcmpl-r","object":"chat.completion.chunk","created":1762730300,"model":"test/model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-r","object":"chat.completion.chunk","created":1762730300,"model":"test/model","choices":[],"usage":{"prompt_tokens":9,"completion_tokens":2,"total_tokens":11}}
+
+data: [DONE]

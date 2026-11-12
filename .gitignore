@@ -5,3 +5,4 @@ target-*
 /.zig-env
 *.dmg
 dist/
+secrets.json

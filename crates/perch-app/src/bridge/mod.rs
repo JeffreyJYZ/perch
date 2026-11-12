@@ -30,6 +30,8 @@ pub use crate::answer::ANSWER_TIMEOUT;
 pub enum BridgeEvent {
     /// Assistant text, appended to the open message.
     Text(String),
+    /// The model thinking, as the provider streamed it.
+    Reasoning(String),
     /// A call the model finished asking for. The card is added from here, before the call runs.
     ToolCall(ToolCall),
     /// What the call did, once the dispatcher has decided and run it.
@@ -48,6 +50,9 @@ pub enum BridgeEvent {
     },
     /// The turn is over; there is exactly one of these per turn.
     TurnEnd { reason: EndReason, usage: Usage },
+    /// A compaction answered: what it left out, sent for a request the person made and for one the
+    /// harness made itself.
+    Compacted { dropped: usize, exchanges: usize },
 }
 
 /// The answer to whatever a session is waiting on.

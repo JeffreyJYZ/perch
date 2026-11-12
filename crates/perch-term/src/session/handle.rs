@@ -65,21 +65,33 @@ impl TermHandle {
     /// The encoding is done on the terminal thread, because the escape
     /// sequence for a modified key depends on modes the terminal owns —
     /// application cursor keys, the keypad set, `modifyOtherKeys`, the Kitty
-    /// keyboard protocol. The wait is bounded by `KEY_TIMEOUT`; a timeout
-    /// falls back to the stateless encoding in [`crate::keys::encode_key`],
-    /// which is right for every key the modes do not change.
+    /// keyboard protocol. This answers the bytes and writes nothing; a
+    /// keystroke on its way to the shell uses [`Self::send_key`], which never
+    /// waits. The wait is bounded by `KEY_TIMEOUT`; a timeout falls back to the
+    /// stateless encoding in [`crate::keys::encode_key`], which is right for
+    /// every key the modes do not change.
     #[must_use]
     pub fn key(&self, event: KeyEvent) -> Vec<u8> {
         let (reply, encoded) = mpsc::channel();
         if self
             .tx
-            .send(Inbound::Cmd(Cmd::Key { event, reply }))
+            .send(Inbound::Cmd(Cmd::EncodeKey { event, reply }))
             .is_ok()
             && let Ok(bytes) = encoded.recv_timeout(KEY_TIMEOUT)
         {
             return bytes;
         }
         crate::keys::encode_key(event)
+    }
+
+    /// A keystroke on its way, without waiting for the encoding.
+    ///
+    /// The bytes depend on modes only the terminal thread owns, but a key that arrives after a
+    /// round trip is a key that feels late: the terminal thread encodes and writes it in one
+    /// step, so typing costs one channel send instead of two plus a wait. The same channel
+    /// carries text, so a key never overtakes the characters typed before it.
+    pub fn send_key(&self, event: KeyEvent) {
+        let _ = self.tx.send(Inbound::Cmd(Cmd::Key { event }));
     }
 
     /// Whether a program turned `mode` on.

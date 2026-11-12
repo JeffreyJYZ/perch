@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use perch_agent::{Agent, AgentConfig, Dispatcher, EndReason, SecretString, Tools};
+use perch_agent::{Agent, AgentConfig, Dispatcher, EndReason, Endpoint, Model, Tools};
 use perch_tools::ToolCtx;
 
 use crate::drive::{Run, drive};
@@ -55,9 +55,8 @@ pub(super) fn run() -> i32 {
     let registry = Dispatcher::builtin_registry();
 
     let (handle, events) = Agent::spawn(AgentConfig {
-        base_url: BASE_URL.to_string(),
-        api_key: SecretString::from(key),
-        model: model.clone(),
+        endpoint: Endpoint::new(BASE_URL.to_string(), key),
+        model: Model::new(model.clone()),
         system: SYSTEM.to_string(),
         // The registry's spec and the wire spec are separate types; the app maps them the
         // same way, so the probe offers exactly what a session would.

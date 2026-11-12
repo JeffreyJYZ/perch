@@ -9,3 +9,4 @@ mod answer;
 mod card;
 mod harness;
 mod preview;
+mod tabs;

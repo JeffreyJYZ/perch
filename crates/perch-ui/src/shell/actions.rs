@@ -14,15 +14,22 @@ impl<L: Live> Shell<L> {
     /// Selects the session at `index`. An index past the end is ignored rather than clamped: it
     /// names a session that is gone, and switching to a neighbour would switch to the wrong one.
     ///
-    /// A switch is the whole window's: the app shows the session, and the file panel is re-read
-    /// from that session's worktree, because a tab owns the tree of the directory it runs in.
+    /// A switch is the whole window's: the app shows the session, the file panel is re-read from
+    /// that session's worktree, and the file tabs start over — they name files in the tree that
+    /// was just replaced.
     pub fn select(&mut self, index: usize) {
         if index < self.sessions.len() {
             self.active = index;
             if let Some(live) = self.live.as_mut() {
                 live.switch(index);
             }
+            // The app may have re-read this session's branch on the switch, so the row takes
+            // whatever it now holds rather than the word it had when the list was built.
+            if let Some(meta) = self.live.as_ref().and_then(|live| live.session(index)) {
+                self.sessions[index] = meta;
+            }
             self.reopen_files();
+            self.reset_panes();
             self.refresh();
         }
     }
@@ -60,6 +67,18 @@ impl<L: Live> Shell<L> {
         }
     }
 
+    /// The command a new tab runs: the saved line, or this machine's own shell when none is saved.
+    ///
+    /// The app answers from `settings.toml` on every call, so a save reaches the next tab with no
+    /// copy to invalidate, and a window with no app runs the default.
+    fn shell_command(&self) -> String {
+        self.live
+            .as_ref()
+            .and_then(Live::settings)
+            .map(|snapshot| snapshot.shell)
+            .unwrap_or_default()
+    }
+
     /// Puts `text` in the composer, as typing would.
     pub fn set_prompt(&mut self, text: impl Into<String>) {
         self.prompt = TextEdit::default();
@@ -84,6 +103,10 @@ impl<L: Live> Shell<L> {
 
     /// Spawns a shell for a new terminal tab, in the active session's worktree, and shows it.
     ///
+    /// The command is the one saved in settings, read when the tab opens: a save reaches the next
+    /// tab, and a tab already running keeps the shell it started, because restarting a pty under a
+    /// half-typed command is worse than the setting arriving one tab late.
+    ///
     /// This blocks until the emulator exists, so it is called when a tab is opened and never from
     /// a frame.
     pub fn open_terminal(&mut self) -> std::result::Result<usize, String> {
@@ -95,8 +118,9 @@ impl<L: Live> Shell<L> {
             || cwd.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
+        let command = self.shell_command();
         let (cols, rows) = self.grid.get();
-        let spawned = TermSession::spawn(&cwd, cols, rows);
+        let spawned = TermSession::spawn_command(&cwd, &command, cols, rows);
         let (handle, frames) = match spawned {
             Ok(spawned) => spawned,
             Err(error) => {
@@ -118,16 +142,27 @@ impl<L: Live> Shell<L> {
     /// Sends the composer's text as a turn, and empties the box when it was sent.
     ///
     /// The app owns the transcript: a refusal is a turn the app refused, and the sentence saying
-    /// why is in the transcript the app keeps, not one invented here.
+    /// why is in the transcript the app keeps, not one invented here. A line that names a command
+    /// is taken by the same press and never reaches the model as a user message.
     pub fn submit(&mut self) -> bool {
         let text = self.prompt.text.trim().to_owned();
         if text.is_empty() {
             return false;
         }
-        let sent = match self.live.as_mut() {
-            Some(live) => live.prompt(text),
-            None => return false,
+        self.close_menu();
+        if self.run_command(&text) {
+            // A command that found nothing to change leaves the box as it was sent, and is
+            // emptied; `/skill` replaced the text with a prompt the person edits, which is kept.
+            if self.prompt.text.trim() == text {
+                self.prompt = TextEdit::default();
+            }
+            self.refresh();
+            return true;
+        }
+        let Some(live) = self.live.as_mut() else {
+            return false;
         };
+        let sent = live.prompt(text);
         self.refresh();
         if sent.is_ok() {
             self.prompt = TextEdit::default();

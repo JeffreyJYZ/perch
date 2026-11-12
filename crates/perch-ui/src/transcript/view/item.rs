@@ -5,7 +5,7 @@ use rune_kit::Kit;
 use rune_kit::markdown::Markdown;
 
 use super::speaker;
-use crate::transcript::card::tool_card;
+use crate::transcript::card::{Card, CardPress, tool_card};
 use crate::transcript::words::summary_line;
 use crate::transcript::{Item, Transcript};
 
@@ -32,16 +32,21 @@ impl TurnState {
 }
 
 /// One item, keyed by its place in the column so a growing transcript keeps earlier elements.
-pub(super) fn item_view(
+///
+/// A found item is wrapped in one element of its own, keyed `find-hit-<index>`: that wrapper is
+/// what the search scrolls to and what a reader sees marked, because a run of text inside a
+/// rendered markdown child is not reachable from this crate.
+pub(super) fn item_view<S: CardPress>(
     index: usize,
     item: &Item,
     state: TurnState,
     model: &Transcript,
     kit: &Kit,
+    found: bool,
 ) -> El {
-    match item {
+    let view = match item {
         Item::User { text: body } => col()
-            .key(format!("turn-{index}"))
+            .key(item.key(index))
             .role("group")
             .label("You")
             .w_full()
@@ -65,7 +70,7 @@ pub(super) fn item_view(
                 None => "Assistant".to_string(),
             };
             let mut turn = col()
-                .key(format!("turn-{index}"))
+                .key(item.key(index))
                 .role("group")
                 .label("Assistant")
                 .w_full()
@@ -84,25 +89,53 @@ pub(super) fn item_view(
                         .key("body"),
                 )
         }
+        // Thinking is spoken in the window's own quiet voice: a mark in the margin, the face the
+        // column uses for asides, and plain text, because a model's reasoning is not the reply and
+        // must never look like one.
+        Item::Reasoning { text: body } => col()
+            .key(item.key(index))
+            .role("group")
+            .label("Thinking")
+            .w_full()
+            .gap(3.0)
+            .px(8.0)
+            .child(
+                text("Thinking")
+                    .font(kit.ty.small_medium)
+                    .color(kit.c.text_faint),
+            )
+            .child(
+                text(body.clone())
+                    .key("reasoning-body")
+                    .w_full()
+                    .font(kit.ty.small)
+                    .color(kit.c.text_muted)
+                    .selectable(true),
+            ),
         Item::Tool {
             id,
             name,
             status,
             output,
             preview,
-        } => tool_card(
+            target,
+        } => tool_card::<S>(
             index,
-            name,
-            *status,
-            output,
-            preview.as_ref(),
-            model.is_expanded(id),
+            id,
+            &Card {
+                name,
+                status: *status,
+                output,
+                preview: preview.as_ref(),
+                target: target.as_deref(),
+                expanded: model.is_expanded(id),
+            },
             kit,
         ),
         // A system line is drawn as it is written: one text element, no markdown, in the faint
         // ink a footnote uses, so it never competes with what the model said.
         Item::Note(body) => text(body.clone())
-            .key(format!("note-{index}"))
+            .key(item.key(index))
             .w_full()
             .font(kit.ty.small)
             .color(kit.c.text_faint)
@@ -112,10 +145,21 @@ pub(super) fn item_view(
             failed,
             tokens,
         } => text(summary_line(*tools, *failed, *tokens))
-            .key(format!("summary-{index}"))
+            .key(item.key(index))
             .w_full()
             .font(kit.ty.small)
             .color(kit.c.text_faint)
             .selectable(true),
+    };
+    if !found {
+        return view;
     }
+    col()
+        .key(format!("find-hit-{index}"))
+        .role("group")
+        .label("Found text")
+        .w_full()
+        .border(1.0, kit.c.border_strong)
+        .radius(kit.radius.md)
+        .child(view)
 }

@@ -63,6 +63,22 @@ fn a_file_dropped_into_the_plugin_directory_reports_one_change() {
     assert!(wait(&watcher), "no change was reported within {TIMEOUT:?}");
 }
 
+#[test]
+fn a_save_made_the_moment_watching_starts_is_reported() {
+    let data = tempfile::tempdir().unwrap();
+    let plugins = data.path().join("plugins");
+    std::fs::create_dir_all(&plugins).unwrap();
+    let settings = perch_store::settings::path_in(data.path());
+    std::fs::write(&settings, "").unwrap();
+
+    // Watching is a poll rather than a kernel stream, so there is no window between asking for it
+    // and being watched: a save written here is one the next sweep sees.
+    let watcher = watch::watch(&settings, &plugins).expect("the watcher starts");
+    std::fs::write(&settings, "model = \"saved\"").unwrap();
+
+    assert!(wait(&watcher), "no change was reported within {TIMEOUT:?}");
+}
+
 fn wait(watcher: &Watch) -> bool {
     let deadline = Instant::now() + TIMEOUT;
     while Instant::now() < deadline {

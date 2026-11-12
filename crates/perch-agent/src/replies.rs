@@ -60,6 +60,12 @@ pub fn collect(
             Err(RecvTimeoutError::Disconnected) => return Err(Lost::Gone),
         }
     }
+    // The last reply can arrive in the same breath as a cancel, and then the wait set empties
+    // without the loop ever reaching the check above. A cancelled turn must not go on to ask the
+    // model again with results the user has stopped waiting for, so the check is repeated here.
+    if stopped() {
+        return Err(Lost::Cancelled);
+    }
     Ok(calls
         .iter()
         .filter_map(|call| answered.remove(&call.id))

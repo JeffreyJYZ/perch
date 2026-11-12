@@ -2,16 +2,20 @@
 //! worktree, one transcript, the terminal tabs and the prompt.
 
 use std::cell::Cell;
+use std::path::PathBuf;
 
 use perch_files::Workspace;
 use perch_store::SessionMeta;
 use rune::TextEdit;
 
 use super::answer::Answering;
-use super::live::{Idle, Live, Waiting};
+use super::idle::Idle;
+use super::live::Live;
+use super::pane::Pane;
 use super::panel_form::PanelForm;
 use super::settings::Panel;
-use super::terminal::{GRID, TerminalTab};
+use super::terminal::TerminalTab;
+use super::waiting::Waiting;
 use crate::files::FilePanel;
 use crate::transcript::Transcript;
 
@@ -39,90 +43,47 @@ pub struct Shell<L: Live = Idle> {
     /// The grid the dock measured last, as the pty is told it.
     pub(super) grid: Cell<(u16, u16)>,
     pub(super) prompt: TextEdit,
-    /// The settings panel, when it is open: a draft, never the live settings.
+    /// The pane the workspace draws: the one value the strip's active tab is derived from.
+    pub(super) pane: Pane,
+    /// The files the strip carries, in the order they were opened. Their paths are absolute.
+    pub(super) files_open: Vec<PathBuf>,
+    /// The settings panel, when the pane is the settings: a draft, never the live settings.
     pub(super) settings: Option<Panel>,
+    /// The theme the window draws when no panel is open: the saved word, read once when the shell
+    /// was built and again when the panel opens or saves. The panel's draft answers while it is
+    /// open, so a pick is drawn before Save.
+    pub(super) dark: bool,
+    /// The appearance `/theme` resolved a name to, when it was picked in this window: its anchors
+    /// are the ones a file theme names, which the saved word alone cannot recover.
+    pub(super) picked: Option<crate::theme::Appearance>,
+    /// The chords the window answers to, read with the theme: at build, at the panel, at a save.
+    pub(super) bindings: super::keybind::Bindings,
     /// What the plugin column's controls hold: each input's text and the last refusal.
     pub(super) panel: PanelForm,
     pub(super) folder: super::folder::Folder,
-}
-
-impl Shell<Idle> {
-    /// A window with no app behind it: the layout, the file panel and the dock alone.
-    ///
-    /// This is what a layout test and a `--tree` dump build, so neither needs a data directory,
-    /// a keychain or a provider.
-    pub fn idle(sessions: Vec<SessionMeta>, active: usize) -> Shell<Idle> {
-        Shell::new(sessions, active)
-    }
+    /// The command list above the composer: whether typing `/` opened it, and the picked row.
+    pub(super) menu: super::composer_menu::Menu,
+    /// The palette, when the pane is the palette.
+    pub(super) palette: Option<super::palette::Palette>,
+    /// The file finder, when its overlay is open: the list read on the way in and the rows kept.
+    pub(super) finder: Option<super::finder::Finder>,
+    /// ⌘F's transcript search, when its bar is showing: the field and the hit it is on.
+    pub(super) find: Option<super::search_transcript::Find>,
+    /// The sidebar's session filter: the field's words, and never the sessions themselves.
+    pub(super) session_filter: super::search_session::SessionFilter,
+    /// Whether the dock is hidden: the palette's Toggle dock action flips it.
+    pub(super) dock_hidden: bool,
+    /// Whether the keyboard is in the session list, where Up and Down move and Escape returns.
+    pub(super) sessions_focused: bool,
+    /// The session row armed by one press of its delete control, waiting for the second.
+    pub(super) pending_delete: Option<usize>,
+    /// `/quit` was run: the next frame closes the window.
+    pub(super) quit: bool,
+    /// `/sessions` asked for the focus: taken once, by the press handler that has a `Tx`.
+    pub(super) focus_sessions: bool,
 }
 
 impl<L: Live> Shell<L> {
-    /// The shell over `sessions`, with `active` selected. An out-of-range `active` falls back to
-    /// the first session, so a caller never has to clamp it.
-    pub fn new(sessions: Vec<SessionMeta>, active: usize) -> Shell<L> {
-        let active = if sessions.is_empty() {
-            0
-        } else {
-            active.min(sessions.len() - 1)
-        };
-        Shell {
-            sessions,
-            active,
-            workspace: None,
-            files: None,
-            transcript: Transcript::default(),
-            live: None,
-            waiting: Waiting::Nothing,
-            answer: Answering::default(),
-            terminals: Vec::new(),
-            terminal: 0,
-            grid: Cell::new(GRID),
-            prompt: TextEdit::default(),
-            settings: None,
-            panel: PanelForm::default(),
-            folder: super::folder::Folder::default(),
-        }
-    }
-
-    /// The shell bound to `workspace`: the file panel is read from it once, so the window shows
-    /// the worktree the session belongs to.
-    ///
-    /// This is the constructor the app uses; passing the workspace in rather than a path keeps a
-    /// test's temp repo and the app on the same path, with no second walk.
-    pub fn with_workspace(
-        sessions: Vec<SessionMeta>,
-        active: usize,
-        workspace: Workspace,
-    ) -> Shell<L> {
-        let mut shell = Shell::new(sessions, active);
-        shell.files = Some(FilePanel::new(&workspace));
-        shell.workspace = Some(workspace);
-        shell
-    }
-
-    /// The shell plus the app that owns its sessions.
-    ///
-    /// The type carries which app, so a test can reach the app it attached and assert on what it
-    /// did; the window itself only ever goes through [`Live`].
-    #[must_use]
-    pub fn with_live(mut self, live: L) -> Shell<L> {
-        self.live = Some(live);
-        self.refresh();
-        self
-    }
-
-    /// The shell plus a terminal tab showing `frame`.
-    ///
-    /// A seeded frame is how a test drives the dock without a PTY: the tab draws exactly what
-    /// [`paint_rows`](crate::terminal_view::paint_rows) makes of the frame, which is the same
-    /// path a live tab takes.
-    #[must_use]
-    pub fn with_frame(mut self, title: impl Into<String>, frame: perch_term::Frame) -> Shell<L> {
-        self.terminals.push(TerminalTab::new(title, Some(frame)));
-        self.terminal = self.terminals.len() - 1;
-        self
-    }
-
     /// The active session's index.
     pub fn active(&self) -> usize {
         self.active
@@ -139,6 +100,34 @@ impl<L: Live> Shell<L> {
     /// The active session, when there is one.
     pub fn active_session(&self) -> Option<&SessionMeta> {
         self.sessions.get(self.active)
+    }
+
+    /// Whether the window draws the dark kit.
+    ///
+    /// The panel's draft answers while it is open, so the theme picked there is the theme drawn
+    /// before Save; otherwise it is the saved word, which is read when the shell is built and when
+    /// the panel opens or saves — never per frame, because reading it asks the app, and the app
+    /// reads `settings.toml` and the keychain.
+    pub fn dark(&self) -> bool {
+        match self.settings.as_ref() {
+            Some(panel) => is_dark(&panel.theme),
+            None => self.dark,
+        }
+    }
+
+    /// The saved word, drawn from the next frame: the word a restart reads back from disk.
+    ///
+    /// A pick from `/theme` is a resolved appearance; a word that no longer matches it must not
+    /// keep drawing the old anchors, so the pick is dropped when the name moves on.
+    pub fn set_theme(&mut self, theme: &str) {
+        self.dark = is_dark(theme);
+        if self
+            .picked
+            .as_ref()
+            .is_some_and(|picked| picked.theme != theme)
+        {
+            self.picked = None;
+        }
     }
 
     /// The worktree this shell is bound to, when it was opened with one.
@@ -196,4 +185,13 @@ impl<L: Live> Shell<L> {
     pub fn prompt_text(&self) -> &str {
         &self.prompt.text
     }
+}
+
+/// Whether `theme` draws the dark kit.
+///
+/// Light is the one offered word that is not the default, so every other word — including one a
+/// person typed into `settings.toml` by hand — draws the default dark rather than a window with
+/// no readable text.
+fn is_dark(theme: &str) -> bool {
+    theme != "light"
 }

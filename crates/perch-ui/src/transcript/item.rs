@@ -35,6 +35,37 @@ impl std::fmt::Display for ToolStatus {
     }
 }
 
+impl ToolStatus {
+    /// What a card with no output says instead of drawing an empty block: a refusal and a call
+    /// still running are both read in words, so neither looks like a card that was opened.
+    #[must_use]
+    pub fn empty_words(self) -> &'static str {
+        match self {
+            ToolStatus::Running => "no output yet — the call is still running.",
+            ToolStatus::ApprovalNeeded => "no output yet — the call is waiting for your approval.",
+            ToolStatus::Cancelled => "no output — the turn ended before the call returned.",
+            ToolStatus::Ok | ToolStatus::Failed => "no output — the call returned nothing.",
+        }
+    }
+}
+
+impl Item {
+    /// The key the column draws this item under.
+    ///
+    /// One source for the key, so the node a search scrolls to and the node the column draws
+    /// cannot drift apart.
+    #[must_use]
+    pub fn key(&self, index: usize) -> String {
+        match self {
+            Item::User { .. } | Item::Assistant { .. } => format!("turn-{index}"),
+            Item::Reasoning { .. } => format!("reasoning-{index}"),
+            Item::Tool { .. } => format!("tool-{index}"),
+            Item::Note(_) => format!("note-{index}"),
+            Item::Summary { .. } => format!("summary-{index}"),
+        }
+    }
+}
+
 /// One entry of the transcript column.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Item {
@@ -60,11 +91,20 @@ pub enum Item {
         output: String,
         /// The diff or command the approval view needs, when there is one.
         preview: Option<perch_tools::Preview>,
+        /// What the call acted on, as its arguments name it: a path, a command, a pattern. The card
+        /// names it in its header, so a read shows the file it read rather than its first lines.
+        target: Option<String>,
     },
     /// A system line that belongs to no speaker: a turn that was cancelled, a provider error, a
     /// tool the user refused. The column draws it quieter than a reply, and never as markdown,
     /// because its words are held to be literally true rather than written to be styled.
     Note(String),
+    /// What the model was thinking, as the provider streamed it: drawn apart from the reply,
+    /// because a thought is not the answer.
+    Reasoning {
+        /// The thought so far, one string per stretch of thinking.
+        text: String,
+    },
     /// How one turn ended: what ran, what failed, and what it cost when the provider said.
     Summary {
         /// Tool calls the turn ran.

@@ -1,34 +1,33 @@
-//! The read-only preview: a language label, numbered lines, and the Zed handoff.
+//! The read-only preview: the centre column's stand-in for the transcript.
 //!
-//! Files are read-only in perch. The preview shows what the selected file contains and offers
-//! one action — open it in Zed — while a file git reports deleted shows the reason in words
-//! instead of an empty page. Long files are drawn up to [`RENDER_LINES`] and say so, because
-//! thousands of text elements make a frame slow for no reading benefit.
+//! Files are read-only in perch. Selecting one in the tree shows its contents in the centre
+//! column at full width, and the transcript is never lost: it keeps streaming while hidden, and
+//! Escape — or the header's button — brings it back with the file still selected in the tree.
+//! Long files are drawn up to [`RENDER_LINES`] and say so, because thousands of text elements
+//! make a frame slow for no reading benefit.
+
+mod body;
+mod keys;
 
 use std::path::Path;
 
-use perch_files::{PREVIEW_MAX_LINES, PreviewText};
 use rune::{El, col, row, text};
 use rune_kit::{Button, ButtonVariant, Kit};
 
 use crate::files::{FilePanel, note, section_label};
 use crate::shell::{Live, Shell};
 
+pub use body::preview_lines;
+pub use keys::preview_key;
+
 /// How many lines of a preview the view draws.
-const RENDER_LINES: usize = 400;
+pub const RENDER_LINES: usize = 400;
 
-/// A preview's lines, numbered from one.
-pub fn preview_lines(text: &PreviewText) -> Vec<(usize, String)> {
-    text.lines
-        .iter()
-        .enumerate()
-        .map(|(index, line)| (index + 1, line.clone()))
-        .collect()
-}
-
-/// The preview panel: its header, its toolbar and the selected file's numbered lines.
-pub fn preview_view<L: Live>(panel: &FilePanel) -> El {
-    let kit = Kit::neutral(true);
+/// The preview: a header strip naming the file, its numbered lines, and the Zed handoff.
+///
+/// The header is a strip of its own above the body, so the path and the two actions stay put
+/// while the lines scroll under them.
+pub fn preview_view<L: Live>(panel: &FilePanel, kit: &Kit) -> El {
     let mut view = col()
         .key("preview")
         .role("region")
@@ -36,58 +35,91 @@ pub fn preview_view<L: Live>(panel: &FilePanel) -> El {
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .px(20.0)
-        .py(16.0)
-        .gap(6.0)
-        .child(header(&kit, panel))
-        .child(toolbar::<L>(&kit, panel));
+        .fill(kit.c.bg_deep)
+        .child(header::<L>(kit, panel));
     // Words about the handoff belong beside the file they are about, not in place of it: a
     // refusal keeps the preview on screen so the reader can try again.
     if panel.selected().is_some()
         && let Some(words) = panel.message()
     {
-        view = view.child(note(&kit, words));
+        view = view.child(note(kit, words).px(20.0).py(4.0));
     }
     match (panel.selected_path(), panel.selected()) {
-        (Some(_), Some(preview)) => view = view.child(body(&kit, preview)),
+        (Some(_), Some(preview)) => view = view.child(body::lines(kit, preview)),
         _ => {
             let message = panel
                 .message()
                 .map_or_else(|| "Select a file to preview it.".to_string(), str::to_owned);
-            view = view.child(text(message).font(kit.ty.body).color(kit.c.text_muted));
+            view = view.child(note(kit, &message).px(20.0).py(4.0));
         }
     }
     view
 }
 
-/// The panel's label and the selected file's language, as words.
-fn header(kit: &Kit, panel: &FilePanel) -> El {
+/// The header strip: what is open, in what language, and the way back to the transcript.
+fn header<L: Live>(kit: &Kit, panel: &FilePanel) -> El {
+    let path = panel
+        .selected_path()
+        .map_or_else(|| "No file selected".to_string(), display);
     let language = panel
         .selected()
         .and_then(|preview| preview.language.as_deref())
         .map_or("plain text", language_label);
-    row()
+    let mut strip = row()
         .key("preview-header")
         .w_full()
-        .justify_between()
-        .gap(8.0)
+        .gap(10.0)
+        .px(16.0)
+        .pt(7.0)
+        .pb(7.0)
+        .fill(kit.c.bg_base)
         .child(section_label(kit, "Preview", "preview-label"))
-        .child(text(language).font(kit.ty.small).color(kit.c.text_faint))
+        .child(
+            // The path is context, not the title of the window: the code under it is what the eye
+            // should land on first, so the path is muted and the body keeps the bright ink.
+            text(path)
+                .key("preview-path")
+                .grow(1.0)
+                .min_w(0.0)
+                .font(kit.ty.mono)
+                .color(kit.c.text_muted)
+                .truncate_middle(),
+        );
+    // The cap is stated where the file is named, not only under the last drawn line: a reader
+    // who never scrolls to the bottom still learns the file is longer than what is shown.
+    if let Some(words) = cap(panel) {
+        strip = strip.child(
+            text(words)
+                .key("preview-cap")
+                .font(kit.ty.small)
+                .color(kit.c.text_faint),
+        );
+    }
+    strip
+        .child(
+            text(language)
+                .key("preview-language")
+                .font(kit.ty.small)
+                .color(kit.c.text_faint),
+        )
+        .child(zed::<L>(kit, panel))
+        .child(close::<L>(kit))
 }
 
-/// The selected path and the one action the panel offers: hand it to Zed.
+/// Where the preview stops, when the file is longer than [`RENDER_LINES`].
+fn cap(panel: &FilePanel) -> Option<String> {
+    let total = panel.selected()?.lines.len();
+    (total > RENDER_LINES).then(|| format!("first {RENDER_LINES} of {total} lines"))
+}
+
+/// The one action the preview offers: hand the selected file to the app's editor.
 ///
-/// The path and the button stack, because the preview sits in the left column: a path long
-/// enough to be useful would push the button past the column's edge, where nothing can press it.
 /// The button carries the path in its tooltip and is disabled without a preview, so nothing ever
 /// asks Zed to open a file that is not there. The press runs the app's [`Editor`], the only code
 /// in the window that touches a command line.
 ///
 /// [`Editor`]: crate::files::Editor
-fn toolbar<L: Live>(kit: &Kit, panel: &FilePanel) -> El {
-    let path = panel
-        .selected_path()
-        .map_or_else(|| "No file selected".to_string(), display);
+fn zed<L: Live>(kit: &Kit, panel: &FilePanel) -> El {
     let mut button = Button::new("Open in Zed").variant(ButtonVariant::GhostMuted);
     button = match panel.open_in_zed_request() {
         Some(target) => button
@@ -97,73 +129,24 @@ fn toolbar<L: Live>(kit: &Kit, panel: &FilePanel) -> El {
             }),
         None => button.disabled(true),
     };
-    col()
-        .key("preview-toolbar")
-        .w_full()
-        .gap(4.0)
-        .child(
-            text(path)
-                .font(kit.ty.mono)
-                .color(kit.c.text_faint)
-                .w_full()
-                .truncate_middle(),
-        )
-        .child(
-            row()
-                .key("preview-actions")
-                .w_full()
-                .gap(8.0)
-                .child(button.build(kit).key("open-in-zed")),
-        )
+    button.build(kit).key("open-in-zed")
 }
 
-/// The numbered lines, capped so one huge file cannot cost a frame its budget.
-fn body(kit: &Kit, preview: &PreviewText) -> El {
-    let lines = preview_lines(preview);
-    let total = lines.len();
-    let shown = total.min(RENDER_LINES);
-    let mut column = col().key("preview-lines").w_full().gap(0.0);
-    if shown == 0 {
-        return column.child(note(kit, "The file is empty."));
-    }
-    for (number, line) in lines.iter().take(shown) {
-        column = column.child(line_view(kit, *number, line));
-    }
-    if shown < total {
-        column = column.child(note(
-            kit,
-            &format!("Showing the first {shown} of {total} lines."),
-        ));
-    }
-    if total >= PREVIEW_MAX_LINES {
-        column = column.child(note(
-            kit,
-            &format!("The preview stops at {PREVIEW_MAX_LINES} lines."),
-        ));
-    }
-    column
-}
-
-/// One line: its number, then its text, both in the same mono face so the column aligns.
-fn line_view(kit: &Kit, number: usize, line: &str) -> El {
-    row()
-        .key(format!("preview-line-{number}"))
-        .w_full()
-        .gap(12.0)
-        .child(
-            text(format!("{number:>5}"))
-                .font(kit.ty.mono)
-                .color(kit.c.text_faint),
-        )
-        .child(
-            text(line.to_owned())
-                .font(kit.ty.mono)
-                .color(kit.c.text_base),
-        )
+/// The way back: the transcript, with the tree's selection untouched.
+fn close<L: Live>(kit: &Kit) -> El {
+    Button::new("Back to transcript")
+        .variant(ButtonVariant::GhostMuted)
+        .shortcut("esc")
+        .help("Leave the preview for the transcript; the file stays selected (Esc)")
+        .on_press(|shell: &mut Shell<L>| {
+            shell.close_preview();
+        })
+        .build(kit)
+        .key("preview-close")
 }
 
 /// The language as a word to show; an unknown name is shown as the preview spelled it.
-fn language_label(language: &str) -> &str {
+pub(crate) fn language_label(language: &str) -> &str {
     if language.is_empty() {
         "plain text"
     } else {
@@ -173,4 +156,15 @@ fn language_label(language: &str) -> &str {
 
 fn display(path: &Path) -> String {
     path.display().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::language_label;
+
+    #[test]
+    fn a_language_is_shown_as_its_name_and_an_empty_one_as_plain_text() {
+        assert_eq!(language_label("rust"), "rust");
+        assert_eq!(language_label(""), "plain text");
+    }
 }

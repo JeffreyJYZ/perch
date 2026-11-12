@@ -10,6 +10,7 @@
 //! runs the app's `open -a` and a test can stand a fake in its place.
 
 mod editor;
+mod icons;
 mod tree;
 mod view;
 

@@ -32,6 +32,7 @@ impl<L: Live> Shell<L> {
         // The app made this session active; an index past the end would name one the list does
         // not hold, so it is clamped to the row that was just added.
         self.active = index.min(self.sessions.len() - 1);
+        self.close_settings();
         self.refresh();
         true
     }

@@ -9,6 +9,17 @@ use super::{Item, ToolStatus, Transcript};
 pub(super) fn apply(model: &mut Transcript, event: &AgentEvent) {
     match event {
         AgentEvent::TextDelta(delta) => push_delta(model, delta),
+        // Thinking opens its own block, and the answer below it starts a new paragraph: an answer
+        // that continued a thought would put two voices in one paragraph.
+        AgentEvent::ReasoningDelta(words) => match model.items.last_mut() {
+            Some(super::Item::Reasoning { text }) => text.push_str(words),
+            _ => {
+                model.open = None;
+                model.items.push(super::Item::Reasoning {
+                    text: words.clone(),
+                });
+            }
+        },
         AgentEvent::ToolCall(call) => {
             // A tool card sits between the text before it and the text after it, so the
             // reply must not keep appending to the paragraph above the card.
@@ -19,9 +30,13 @@ pub(super) fn apply(model: &mut Transcript, event: &AgentEvent) {
                 status: ToolStatus::Running,
                 output: String::new(),
                 preview: None,
+                target: target_of(&call.args),
             });
         }
         AgentEvent::ToolResult { id, ok, text } => {
+            // A card that has just changed underneath a reader shuts: the block they opened was
+            // the one before this result, and it must never stand over a different card.
+            model.collapse(id);
             if let Some(Item::Tool { status, output, .. }) = model.tool_mut(id) {
                 *status = if *ok {
                     ToolStatus::Ok
@@ -31,8 +46,28 @@ pub(super) fn apply(model: &mut Transcript, event: &AgentEvent) {
                 *output = text.clone();
             }
         }
+        // A compaction is not part of a reply: the model was asked again smaller, so the column
+        // says what happened in its own voice and the next text opens a new reply.
+        AgentEvent::Compacted { .. } => {
+            if let Some(words) = event.notice() {
+                model.note(words);
+            }
+        }
         AgentEvent::TurnEnd { reason, usage } => finish(model, reason, *usage),
     }
+}
+
+/// What a call acted on, as its arguments name it: the path it read, the command it ran, the
+/// pattern it searched for. The card's header says this, so a read names its file instead of
+/// showing whatever its first lines happen to be.
+fn target_of(args: &serde_json::Value) -> Option<String> {
+    ["path", "file", "command", "pattern", "query"]
+        .iter()
+        .find_map(|key| args.get(key).and_then(|value| value.as_str()))
+        // An argument that is present but empty names nothing: the card leaves the space out
+        // rather than drawing an empty run of mono where a target would be.
+        .filter(|target| !target.trim().is_empty())
+        .map(str::to_string)
 }
 
 /// Appends to the open assistant item, or opens a new one.
@@ -53,6 +88,9 @@ fn push_delta(model: &mut Transcript, delta: &str) {
 /// line reports what the turn did.
 fn finish(model: &mut Transcript, reason: &perch_agent::EndReason, usage: perch_agent::Usage) {
     model.open = None;
+    // A turn that ends is a turn that continues differently: an opened block belonged to the turn
+    // as it was, so it shuts rather than describing a column that has moved on.
+    model.close_cards();
     let (tools, failed) = count_tools(model);
     match reason {
         perch_agent::EndReason::Done => {}

@@ -4,9 +4,17 @@
 //! keeps its "key" in memory, so a draft is validated, drawn and saved without a provider. The
 //! key's round trip through a real store is proved in `perch-app`'s tests.
 
+mod compact;
 mod draw;
 mod entry;
 mod fake;
 mod harness;
+mod keybinds;
+mod meter;
+mod picker;
+mod profiles;
 mod save;
+mod shell;
+mod tab;
+mod theme;
 mod validate;
