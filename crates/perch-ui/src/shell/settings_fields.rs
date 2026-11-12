@@ -85,6 +85,35 @@ fn clamp_note(text: &str) -> Option<String> {
     size.is_finite().then(|| clamp_size(size).1).flatten()
 }
 
+/// The shell a new terminal tab runs, with the empty field named as the default.
+///
+/// The value is a command line, so quoting it is the person's; an empty one is this machine's own
+/// shell rather than an error, which is why the note says so instead of refusing it.
+pub(super) fn shell_field<L: Live>(panel: &Panel, refused: bool, kit: &Kit) -> El {
+    let input = TextInput::new(&panel.shell)
+        .label("Shell")
+        .placeholder("sh -l")
+        .width(None)
+        .invalid(refused)
+        .on_edit(|shell: &mut Shell<L>| {
+            &mut shell.settings.as_mut().expect("the panel is open").shell
+        })
+        .on_key(settings_key::<L>)
+        .build(kit);
+    col()
+        .key("settings-shell")
+        .w_full()
+        .gap(6.0)
+        .child(field(kit, "Shell", "settings-shell-command", input))
+        .child(
+            note(
+                kit,
+                "Empty runs this machine's own shell. A new tab uses it; a tab already open keeps its shell.",
+            )
+            .key("settings-shell-note"),
+        )
+}
+
 /// The key field, with the word the panel says instead of the key beside it.
 pub(super) fn key_field<L: Live>(panel: &Panel, kit: &Kit) -> El {
     let input = TextInput::new(&panel.api_key)

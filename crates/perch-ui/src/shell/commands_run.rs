@@ -62,6 +62,7 @@ impl<L: Live> Shell<L> {
             "skills" => self.command_skills(),
             "skill" => self.command_skill(arg),
             "diff" => self.command_diff(arg),
+            "undo" => self.command_undo(),
             "export" => self.command_export(),
             "help" => {
                 for line in help_lines() {

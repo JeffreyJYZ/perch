@@ -41,6 +41,7 @@ fn draft(update_check: &str) -> SettingsDraft {
         theme: "dark".to_string(),
         font_size: String::new(),
         update_check: update_check.to_string(),
+        shell: String::new(),
         api_key: String::new(),
         profile: String::new(),
         activate: false,

@@ -5,7 +5,7 @@ use rune_kit::Kit;
 use rune_kit::markdown::Markdown;
 
 use super::speaker;
-use crate::transcript::card::{Card, tool_card};
+use crate::transcript::card::{Card, CardPress, tool_card};
 use crate::transcript::words::summary_line;
 use crate::transcript::{Item, Transcript};
 
@@ -36,7 +36,7 @@ impl TurnState {
 /// A found item is wrapped in one element of its own, keyed `find-hit-<index>`: that wrapper is
 /// what the search scrolls to and what a reader sees marked, because a run of text inside a
 /// rendered markdown child is not reachable from this crate.
-pub(super) fn item_view(
+pub(super) fn item_view<S: CardPress>(
     index: usize,
     item: &Item,
     state: TurnState,
@@ -119,8 +119,9 @@ pub(super) fn item_view(
             output,
             preview,
             target,
-        } => tool_card(
+        } => tool_card::<S>(
             index,
+            id,
             &Card {
                 name,
                 status: *status,

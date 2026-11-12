@@ -37,6 +37,7 @@ pub fn apply(
     settings.theme = draft.theme.clone();
     settings.font_size = font_size;
     settings.update_check = draft.update_check.clone();
+    settings.shell = draft.shell.trim().to_string();
 
     let named = draft.profile.trim();
     let named = if named.is_empty() {

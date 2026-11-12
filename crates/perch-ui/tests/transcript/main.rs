@@ -2,6 +2,7 @@
 //! the words the column shows for their state.
 
 mod items;
+mod opened;
 mod output;
 mod reasoning;
 mod render;

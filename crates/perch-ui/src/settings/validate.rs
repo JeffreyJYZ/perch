@@ -23,8 +23,9 @@ impl SettingsDraft {
     /// scale, and otherwise must be a number; a number outside the scale's bounds is clamped by
     /// [`Self::font_points`] rather than refused, and the pane says where it landed. The update
     /// check is allowed to be empty, which is the app never reaching the network, and otherwise is
-    /// held to the same URL rule as the provider's address. A chord has to be one the grammar can
-    /// read, and one chord may answer one intent only.
+    /// held to the same URL rule as the provider's address. The shell is allowed to be empty,
+    /// which is this machine's own shell, and otherwise must name a program this machine can run.
+    /// A chord has to be one the grammar can read, and one chord may answer one intent only.
     pub fn validate(&self) -> Result<(), Invalid> {
         self.validate_with(&Library::discover())
     }
@@ -64,6 +65,15 @@ impl SettingsDraft {
             return Err(Invalid::new(
                 Field::FontSize,
                 "must be a number in points, for example 13",
+            ));
+        }
+        let shell = self.shell.trim();
+        if !shell.is_empty()
+            && let Some(program) = perch_term::shell::missing_program(shell)
+        {
+            return Err(Invalid::new(
+                Field::Shell,
+                format!("{program} is not a command this machine can run"),
             ));
         }
         let manifest = self.update_check.trim();

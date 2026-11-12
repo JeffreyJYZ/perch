@@ -67,6 +67,7 @@ impl Live for Window {
         delete_session(index: usize) -> usize;
         set_theme(theme: &str) -> ();
         save_settings(draft: SettingsDraft) -> KeyStatus;
+        undo() -> Vec<String>;
     }
 
     fn cancel(&mut self) {

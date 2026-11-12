@@ -10,4 +10,5 @@
 
 mod exit;
 mod harness;
+mod shell_choice;
 mod spawn;

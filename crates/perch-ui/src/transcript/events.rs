@@ -34,6 +34,9 @@ pub(super) fn apply(model: &mut Transcript, event: &AgentEvent) {
             });
         }
         AgentEvent::ToolResult { id, ok, text } => {
+            // A card that has just changed underneath a reader shuts: the block they opened was
+            // the one before this result, and it must never stand over a different card.
+            model.collapse(id);
             if let Some(Item::Tool { status, output, .. }) = model.tool_mut(id) {
                 *status = if *ok {
                     ToolStatus::Ok
@@ -85,6 +88,9 @@ fn push_delta(model: &mut Transcript, delta: &str) {
 /// line reports what the turn did.
 fn finish(model: &mut Transcript, reason: &perch_agent::EndReason, usage: perch_agent::Usage) {
     model.open = None;
+    // A turn that ends is a turn that continues differently: an opened block belonged to the turn
+    // as it was, so it shuts rather than describing a column that has moved on.
+    model.close_cards();
     let (tools, failed) = count_tools(model);
     match reason {
         perch_agent::EndReason::Done => {}

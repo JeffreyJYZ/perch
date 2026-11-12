@@ -75,6 +75,34 @@ fn a_update_check_url_written_by_hand_is_read_and_round_trips() {
 }
 
 #[test]
+fn a_shell_command_is_written_only_when_a_person_states_one() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        Settings::default().shell,
+        "",
+        "the default is this machine's own shell, not a command"
+    );
+
+    Settings::default().save(dir.path()).unwrap();
+    let text = std::fs::read_to_string(path_in(dir.path())).unwrap();
+    assert!(
+        !text.contains("shell"),
+        "a file nobody touched does not mention the field:\n{text}"
+    );
+
+    std::fs::write(path_in(dir.path()), "shell = \"sh -l\"\n").unwrap();
+    let settings = Settings::load(dir.path()).unwrap();
+    assert_eq!(settings.shell, "sh -l", "the line is read as it was typed");
+
+    settings.save(dir.path()).unwrap();
+    assert_eq!(
+        Settings::load(dir.path()).unwrap().shell,
+        "sh -l",
+        "and a save keeps it"
+    );
+}
+
+#[test]
 fn the_written_file_holds_a_provider_list_and_reads_back() {
     let dir = tempfile::tempdir().unwrap();
     let settings = Settings::default();

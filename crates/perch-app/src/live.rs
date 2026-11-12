@@ -10,10 +10,11 @@ use std::time::Duration;
 use perch_ui::Transcript;
 use perch_ui::shell::{Live, Waiting};
 
-use crate::{AppState, Pending};
+use crate::AppState;
 
 mod panels;
 mod row;
+mod waiting;
 
 use row::row;
 
@@ -60,19 +61,10 @@ impl Live for AppState {
     }
 
     fn waiting(&self) -> Waiting {
-        match self
-            .active_session()
-            .and_then(crate::SessionRuntime::pending)
-        {
-            Some(Pending::Approval { .. }) => Waiting::Approval,
-            Some(Pending::Question {
-                options, multiple, ..
-            }) => Waiting::Question {
-                options: options.len(),
-                multiple: *multiple,
-            },
-            None => Waiting::Nothing,
-        }
+        waiting::of(
+            self.active_session()
+                .and_then(crate::SessionRuntime::pending),
+        )
     }
 
     fn busy(&self) -> bool {
@@ -144,6 +136,11 @@ impl Live for AppState {
     fn tokens_used(&self) -> Option<u32> {
         self.active_session()
             .and_then(crate::SessionRuntime::tokens_used)
+    }
+
+    /// Puts the last turn's files back; the error is the refusal, in words.
+    fn undo(&mut self) -> std::result::Result<Vec<String>, String> {
+        AppState::undo_turn(self)
     }
 
     fn turn_cost(&self) -> Option<f64> {

@@ -8,3 +8,4 @@ mod harness;
 mod menu;
 mod palette;
 mod skills;
+mod undo;

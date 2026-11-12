@@ -16,6 +16,7 @@ fn draft(font_size: &str) -> SettingsDraft {
         theme: "dark".to_string(),
         font_size: font_size.to_string(),
         update_check: String::new(),
+        shell: String::new(),
         api_key: String::new(),
         profile: String::new(),
         activate: false,

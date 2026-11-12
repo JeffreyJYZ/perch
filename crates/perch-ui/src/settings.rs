@@ -32,6 +32,8 @@ pub enum Field {
     FontSize,
     /// The release manifest the app checks, when one is named.
     UpdateCheck,
+    /// The command a new terminal tab runs.
+    Shell,
     /// A chord an intent answers to.
     Keybind,
 }
@@ -45,6 +47,7 @@ impl Field {
             Field::Theme => "theme",
             Field::FontSize => "font size",
             Field::UpdateCheck => "update check URL",
+            Field::Shell => "shell",
             Field::Keybind => "keybind",
         }
     }
@@ -84,6 +87,11 @@ pub struct SettingsDraft {
     pub font_size: String,
     /// The release manifest to check, empty when the app must not reach the network.
     pub update_check: String,
+    /// The command a new terminal tab runs, empty for this machine's own shell.
+    ///
+    /// A command line, never a path: quoting is the person's, and an empty field is the default
+    /// rather than an error.
+    pub shell: String,
     /// A key to store, empty when the person typed none.
     pub api_key: String,
     /// The provider profile this draft edits: the name of the profile the panel has selected.

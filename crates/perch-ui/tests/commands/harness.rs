@@ -53,6 +53,8 @@ pub struct Fake {
     pub renamed: Option<(usize, String)>,
     pub deleted: Option<usize>,
     pub answered: Option<(usize, String)>,
+    /// What `/undo` answers: the lines it restored, or the refusal, in words.
+    pub undo: Option<Result<Vec<String>, String>>,
 }
 
 impl Fake {
@@ -136,6 +138,11 @@ impl Live for Fake {
     fn choose_model(&mut self, id: String) -> std::result::Result<(), String> {
         self.chosen_model = Some(id);
         Ok(())
+    }
+    fn undo(&mut self) -> std::result::Result<Vec<String>, String> {
+        self.undo
+            .clone()
+            .unwrap_or_else(|| Err("no app is running, so nothing was restored".to_string()))
     }
 }
 

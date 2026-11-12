@@ -35,6 +35,20 @@ impl std::fmt::Display for ToolStatus {
     }
 }
 
+impl ToolStatus {
+    /// What a card with no output says instead of drawing an empty block: a refusal and a call
+    /// still running are both read in words, so neither looks like a card that was opened.
+    #[must_use]
+    pub fn empty_words(self) -> &'static str {
+        match self {
+            ToolStatus::Running => "no output yet — the call is still running.",
+            ToolStatus::ApprovalNeeded => "no output yet — the call is waiting for your approval.",
+            ToolStatus::Cancelled => "no output — the turn ended before the call returned.",
+            ToolStatus::Ok | ToolStatus::Failed => "no output — the call returned nothing.",
+        }
+    }
+}
+
 impl Item {
     /// The key the column draws this item under.
     ///

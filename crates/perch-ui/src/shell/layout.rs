@@ -121,6 +121,9 @@ fn centre<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         column = column.child(bar);
     }
     column
-        .child(transcript_view_marked(&shell.transcript, shell.find_mark()))
+        .child(transcript_view_marked::<Shell<L>>(
+            &shell.transcript,
+            shell.find_mark(),
+        ))
         .child(composer(shell, kit))
 }

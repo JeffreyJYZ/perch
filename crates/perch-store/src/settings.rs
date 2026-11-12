@@ -35,6 +35,13 @@ pub struct Settings {
     /// The URL of the release manifest this app checks at startup. Empty by default, and empty
     /// means "do not check": a window that opens must never reach the network unasked.
     pub update_check: String,
+    /// The command a new terminal tab runs, such as `sh -l`.
+    ///
+    /// Empty by default, and empty means this machine's own shell (`$SHELL`), which is why it is
+    /// a line and not a path: quoting is the person's. Skipped when empty, so a file nobody
+    /// touched stays byte for byte what it was.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub shell: String,
     /// The chords a person rebound, by intent name: `settings = "mod+,"`.
     ///
     /// Empty by default, and skipped when empty, so a file nobody touched stays byte for byte
@@ -55,6 +62,7 @@ impl Default for Settings {
             theme: "dark".to_string(),
             font_size: None,
             update_check: String::new(),
+            shell: String::new(),
             keybinds: BTreeMap::new(),
             mcp_servers: Vec::new(),
             providers: vec![ProviderProfile::default()],

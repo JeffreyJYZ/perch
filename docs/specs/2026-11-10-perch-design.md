@@ -269,7 +269,7 @@ Shipped: session list and a single tab strip over JSONL logs, with one pane valu
 
 ## Open questions
 
-- Whether the transcript should keep full tool output on disk for replay, and for how long.
+- For how long a log should keep full tool output: every result is kept whole today, and a reopened card opens the same item (`crates/perch-app/tests/reopen/opened.rs`); nothing prunes a log yet, so the open half is retention rather than replay.
 - Which wasmtime component-model features to permit (WASI clock and randomness, nothing else) before a plugin needs more.
 - Whether a live OAuth server belongs in the test suite, or whether the fake credential store is the right ceiling.
 - When the install step should exist at all: a relaunch that swaps the bundle, or a person unpacking an archive after quit.

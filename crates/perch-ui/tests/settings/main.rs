@@ -14,6 +14,7 @@ mod meter;
 mod picker;
 mod profiles;
 mod save;
+mod shell;
 mod tab;
 mod theme;
 mod validate;

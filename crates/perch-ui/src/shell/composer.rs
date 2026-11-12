@@ -193,5 +193,7 @@ pub fn composer_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -
             shell.toggle_find();
             true
         }
+        // ⌘O: the card's whole output in place, which a press on its header also opens.
+        Intent::Open => shell.open_card(tx),
     }
 }

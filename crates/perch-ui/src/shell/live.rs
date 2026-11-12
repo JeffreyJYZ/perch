@@ -138,16 +138,14 @@ pub trait Live: 'static {
 
     /// The dollars the last turn cost, when the provider stated the model's price.
     ///
-    /// A window with no price states no money at all: an invented bill is worse than no bill, so
-    /// the meter leaves the amount out rather than showing a zero.
+    /// A window with no price states none: an invented bill is worse than no bill.
     fn turn_cost(&self) -> Option<f64> {
         None
     }
 
     /// The active session's todo list, from the table `todowrite` writes.
     ///
-    /// Read on every frame rather than kept by the window: a `todowrite` inside a turn changes it
-    /// mid-run, and a copy taken once would draw the plan the model has already moved past.
+    /// Read every frame: a `todowrite` inside a turn changes it mid-run.
     fn todos(&self) -> Vec<perch_tools::Todo> {
         Vec::new()
     }
@@ -163,8 +161,7 @@ pub trait Live: 'static {
 
     /// Names the session at `index`, and answers its header as the list now carries it.
     ///
-    /// The title is written where the next start reads it, so a rename outlives the window. An
-    /// app that cannot write the log says why rather than answering a header it did not save.
+    /// The title is written where the next start reads it, so a rename outlives the window.
     fn rename_session(
         &mut self,
         _index: usize,
@@ -191,9 +188,13 @@ pub trait Live: 'static {
 
     /// Writes `draft` and reports whether a key is stored afterwards.
     ///
-    /// The error is why it was not written, in words. Validation belongs to the panel, so a
-    /// caller here has already refused anything the person could see was wrong.
+    /// Validation belongs to the panel, so a caller here has already refused a bad field.
     fn save_settings(&mut self, _draft: SettingsDraft) -> std::result::Result<KeyStatus, String> {
         Err("no app is running, so nothing was saved".to_string())
+    }
+
+    /// Puts the last turn's files back as it found them; `Err` is the refusal, in words.
+    fn undo(&mut self) -> std::result::Result<Vec<String>, String> {
+        Err("no app is running, so nothing was restored".to_string())
     }
 }

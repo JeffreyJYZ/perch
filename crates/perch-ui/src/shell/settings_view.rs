@@ -17,7 +17,7 @@ use crate::files::note;
 use super::live::Live;
 use super::model_picker_view::settings_model;
 use super::settings::settings_key;
-use super::settings_fields::{field, font_field, key_field, theme_field};
+use super::settings_fields::{field, font_field, key_field, shell_field, theme_field};
 use super::settings_keybinds::keybinds;
 use super::settings_profiles::providers;
 use super::state::Shell;
@@ -77,6 +77,11 @@ pub(super) fn panel<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
             .child(font_field::<L>(
                 panel,
                 refused.is_some_and(|e| e.field == crate::settings::Field::FontSize),
+                kit,
+            ))
+            .child(shell_field::<L>(
+                panel,
+                refused.is_some_and(|e| e.field == crate::settings::Field::Shell),
                 kit,
             ))
             .child(field(

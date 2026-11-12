@@ -8,6 +8,7 @@
 use rune::{Align, El, ScrollSpec, col, row, text};
 use rune_kit::Kit;
 
+use super::CardPress;
 use super::Transcript;
 
 use item::{TurnState, item_view};
@@ -24,7 +25,7 @@ const WORDS_WIDTH: f32 = 160.0;
 /// scrolled up it stays where the reader left it, and back at the bottom it follows again.
 #[must_use]
 pub fn transcript_view(model: &Transcript) -> El {
-    transcript_view_marked(model, None)
+    transcript_view_marked::<Transcript>(model, None)
 }
 
 /// The transcript column with item `marked` drawn as the one a search found.
@@ -32,8 +33,11 @@ pub fn transcript_view(model: &Transcript) -> El {
 /// The mark is the item itself, ringed: marking the matched run inside a rendered markdown child
 /// is not reachable from this crate, so the honest smaller thing is done — the item that holds
 /// the text is what a reader is taken to and what is outlined.
+///
+/// `S` is the state a press on a card's header reaches — the column itself here, and the window
+/// when it draws the same column — so the handle opens the card in the state that owns it.
 #[must_use]
-pub fn transcript_view_marked(model: &Transcript, marked: Option<usize>) -> El {
+pub fn transcript_view_marked<S: CardPress>(model: &Transcript, marked: Option<usize>) -> El {
     let kit = Kit::neutral(model.dark);
     col()
         .key("transcript")
@@ -43,7 +47,7 @@ pub fn transcript_view_marked(model: &Transcript, marked: Option<usize>) -> El {
         .grow(1.0)
         .min_h(0.0)
         .child(header(model, &kit))
-        .child(viewport(model, &kit, marked))
+        .child(viewport::<S>(model, &kit, marked))
 }
 
 /// The line over the column: what it is, and how far above the newest turn it is scrolled.
@@ -72,7 +76,7 @@ fn header(model: &Transcript, kit: &Kit) -> El {
 }
 
 /// The turns, in one scroll viewport that takes the wheel and follows the newest turn.
-fn viewport(model: &Transcript, kit: &Kit, marked: Option<usize>) -> El {
+fn viewport<S: CardPress>(model: &Transcript, kit: &Kit, marked: Option<usize>) -> El {
     let words = model.scroll().clone();
     let line = kit.ty.body.line_px();
     let mut column = col()
@@ -103,7 +107,7 @@ fn viewport(model: &Transcript, kit: &Kit, marked: Option<usize>) -> El {
         } else {
             TurnState::Settled
         };
-        column = column.child(item_view(
+        column = column.child(item_view::<S>(
             index,
             item,
             state,

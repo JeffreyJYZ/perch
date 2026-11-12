@@ -1,7 +1,9 @@
-//! perch-files: the worktree browser, git status, branch and diff, preview, and the Zed handoff.
+//! perch-files: the worktree browser, git status, branch and diff, preview, the Zed handoff, and
+//! the tree snapshot `/undo` puts a turn's own files back from.
 //!
-//! Files are read-only here. The agent and Zed write; this crate only reads, and refuses
-//! anything whose canonical path leaves the workspace root.
+//! Files are read-only here with one exception: a restore writes back the files of a turn the
+//! person asked to undo, and nothing else. The agent and Zed write; this crate only reads
+//! otherwise, and refuses anything whose canonical path leaves the workspace root.
 
 mod branch;
 mod diff;
@@ -10,6 +12,7 @@ mod language;
 mod open;
 mod preview;
 mod process;
+pub mod snapshot;
 mod status;
 mod tree;
 

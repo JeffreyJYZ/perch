@@ -35,6 +35,8 @@ pub struct Fake {
     pub theme: String,
     /// The type scale the saved settings carry, empty for the default scale.
     pub font_size: String,
+    /// The shell command the saved settings carry, empty for this machine's own shell.
+    pub shell: String,
     /// The provider profiles the settings carry, as the panel lists them.
     pub profiles: Vec<ProviderView>,
     /// The chords the settings carry, over the defaults.
@@ -58,6 +60,7 @@ impl Default for Fake {
             cost: None,
             theme: "dark".to_string(),
             font_size: String::new(),
+            shell: String::new(),
             profiles: Vec::new(),
             keybinds: Bindings::defaults(),
         }
@@ -144,6 +147,7 @@ impl Live for Fake {
             theme: self.theme.clone(),
             font_size: self.font_size.clone(),
             update_check: String::new(),
+            shell: self.shell.clone(),
             key: self.key,
             profiles: self.profiles.clone(),
             keybinds: self.keybinds.clone(),
@@ -153,6 +157,7 @@ impl Live for Fake {
         self.model = draft.model.clone();
         self.theme = draft.theme.clone();
         self.font_size = draft.font_size.clone();
+        self.shell = draft.shell.clone();
         self.saved = Some(draft);
         Ok(KeyStatus::Stored)
     }

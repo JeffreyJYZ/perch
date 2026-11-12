@@ -25,6 +25,8 @@ pub struct Panel {
     pub(super) theme: String,
     /// The type scale in points, empty when the default is drawn.
     pub(super) font_size: TextEdit,
+    /// The command a new terminal tab runs, empty for this machine's own shell.
+    pub(super) shell: TextEdit,
     /// The release manifest to check, empty when the app checks nothing.
     pub(super) update_check: TextEdit,
     /// The field that refused the last save, when one did.
@@ -72,6 +74,7 @@ impl Panel {
             api_key: TextEdit::default(),
             theme: snapshot.theme.clone(),
             font_size: edit(&snapshot.font_size),
+            shell: edit(&snapshot.shell),
             update_check: edit(&snapshot.update_check),
             error: None,
             session_only: false,
@@ -92,6 +95,7 @@ impl Panel {
             model: self.model.text.trim().to_string(),
             theme: self.theme.clone(),
             font_size: self.font_size.text.trim().to_string(),
+            shell: self.shell.text.trim().to_string(),
             update_check: self.update_check.text.trim().to_string(),
             api_key: self.api_key.text.trim().to_string(),
             profile: self
@@ -111,36 +115,6 @@ impl Panel {
     /// The profile the fields below belong to.
     pub fn selected_profile(&self) -> Option<&ProviderView> {
         self.profiles.get(self.selected)
-    }
-
-    /// Selects the profile at `index` and fills the fields with it.
-    ///
-    /// The key field is emptied, never filled: a key is write-only from the window's side, so a
-    /// stored one has no path back into a field.
-    pub(super) fn select(&mut self, index: usize) {
-        let Some(profile) = self.profiles.get(index) else {
-            return;
-        };
-        self.selected = index;
-        self.base_url = edit(&profile.base_url);
-        self.model = edit(&profile.model);
-        self.api_key = TextEdit::default();
-        self.key = profile.key;
-        self.error = None;
-        self.notice = None;
-    }
-
-    /// Adds a profile to the list and selects it, empty, so its fields can be filled in.
-    pub(super) fn add(&mut self) {
-        let name = self.fresh_name();
-        self.profiles.push(ProviderView {
-            name,
-            base_url: String::new(),
-            model: String::new(),
-            key: KeyStatus::Missing,
-            active: false,
-        });
-        self.select(self.profiles.len() - 1);
     }
 
     /// How many models the provider listed, as the picker holds them. Zero before a listing.
@@ -176,18 +150,6 @@ impl Panel {
     /// The theme the panel shows selected.
     pub fn theme(&self) -> &str {
         &self.theme
-    }
-
-    /// A name no profile in the list carries.
-    fn fresh_name(&self) -> String {
-        let mut index = self.profiles.len() + 1;
-        loop {
-            let name = format!("provider-{index}");
-            if !self.profiles.iter().any(|profile| profile.name == name) {
-                return name;
-            }
-            index += 1;
-        }
     }
 }
 

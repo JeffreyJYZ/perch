@@ -11,4 +11,5 @@ mod support;
 
 mod context;
 mod harness;
+mod opened;
 mod transcript;

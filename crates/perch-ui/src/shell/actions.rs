@@ -67,6 +67,18 @@ impl<L: Live> Shell<L> {
         }
     }
 
+    /// The command a new tab runs: the saved line, or this machine's own shell when none is saved.
+    ///
+    /// The app answers from `settings.toml` on every call, so a save reaches the next tab with no
+    /// copy to invalidate, and a window with no app runs the default.
+    fn shell_command(&self) -> String {
+        self.live
+            .as_ref()
+            .and_then(Live::settings)
+            .map(|snapshot| snapshot.shell)
+            .unwrap_or_default()
+    }
+
     /// Puts `text` in the composer, as typing would.
     pub fn set_prompt(&mut self, text: impl Into<String>) {
         self.prompt = TextEdit::default();
@@ -91,6 +103,10 @@ impl<L: Live> Shell<L> {
 
     /// Spawns a shell for a new terminal tab, in the active session's worktree, and shows it.
     ///
+    /// The command is the one saved in settings, read when the tab opens: a save reaches the next
+    /// tab, and a tab already running keeps the shell it started, because restarting a pty under a
+    /// half-typed command is worse than the setting arriving one tab late.
+    ///
     /// This blocks until the emulator exists, so it is called when a tab is opened and never from
     /// a frame.
     pub fn open_terminal(&mut self) -> std::result::Result<usize, String> {
@@ -102,8 +118,9 @@ impl<L: Live> Shell<L> {
             || cwd.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
+        let command = self.shell_command();
         let (cols, rows) = self.grid.get();
-        let spawned = TermSession::spawn(&cwd, cols, rows);
+        let spawned = TermSession::spawn_command(&cwd, &command, cols, rows);
         let (handle, frames) = match spawned {
             Ok(spawned) => spawned,
             Err(error) => {

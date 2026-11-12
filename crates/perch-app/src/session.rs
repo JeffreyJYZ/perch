@@ -46,8 +46,7 @@ pub struct SessionRuntime {
     dispatcher: Arc<Mutex<Dispatcher>>,
     pub(crate) bridge: Bridge,
     pending: Option<Pending>,
-    /// Whether a turn is in flight, which includes waiting on the user: nothing can arrive until
-    /// it is answered, so the window stops polling for it.
+    /// Whether a turn is in flight, including while it waits on the user.
     running: bool,
     turns: u32,
     /// The text this turn has streamed, so the log keeps the reply the transcript showed.
@@ -69,6 +68,8 @@ pub struct SessionRuntime {
     /// Whether a compaction is on its way. Requests travel the agent's own queue, so one sent
     /// mid-turn lands right after that turn and before any prompt queued behind it.
     compacting: bool,
+    /// The worktree as it was when the turn in flight started, for `/undo`.
+    pub(crate) undo: perch_files::snapshot::Undo,
 }
 
 impl SessionRuntime {
@@ -105,6 +106,7 @@ impl SessionRuntime {
             running_model: None,
             compacting: false,
             last_reason: None,
+            undo: perch_files::snapshot::Undo::default(),
         }
     }
 
@@ -157,6 +159,8 @@ impl SessionRuntime {
     /// this turn is charged at is the model it names — not whatever is picked while it streams.
     pub(crate) fn begin(&mut self, text: &str) {
         self.open_text.clear();
+        // The worktree as it is *before* the agent can touch it: `/undo` puts this back.
+        self.undo.capture(&self.meta.worktree);
         self.running = true;
         self.running_model = Some(self.model.current());
         self.transcript.push_user(text.to_string());

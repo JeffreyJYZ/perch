@@ -60,6 +60,8 @@ pub struct SettingsSnapshot {
     pub font_size: String,
     /// The saved update check URL, empty when the app checks nothing.
     pub update_check: String,
+    /// The command a new terminal tab runs, empty for this machine's own shell.
+    pub shell: String,
     /// Whether a key is stored for the active provider.
     pub key: KeyStatus,
     /// The provider profiles the settings file holds.
@@ -76,6 +78,7 @@ impl Default for SettingsSnapshot {
             theme: DEFAULT_THEME.to_string(),
             font_size: String::new(),
             update_check: String::new(),
+            shell: String::new(),
             key: KeyStatus::Missing,
             profiles: Vec::new(),
             keybinds: Bindings::defaults(),

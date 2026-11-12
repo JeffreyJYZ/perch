@@ -18,6 +18,7 @@ fn draft(model: &str) -> SettingsDraft {
         theme: "dark".to_string(),
         font_size: String::new(),
         update_check: String::new(),
+        shell: String::new(),
         api_key: String::new(),
         profile: String::new(),
         activate: false,

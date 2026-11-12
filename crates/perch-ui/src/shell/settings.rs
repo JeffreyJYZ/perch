@@ -109,6 +109,7 @@ impl<L: Live> Shell<L> {
         panel.api_key = edit(&draft.api_key);
         panel.theme = draft.theme;
         panel.font_size = edit(&draft.font_size);
+        panel.shell = edit(&draft.shell);
         panel.update_check = edit(&draft.update_check);
         // A chord the draft names is the field's text, exactly as typing it into it would be.
         for (index, intent) in Bindable::ALL.iter().enumerate() {

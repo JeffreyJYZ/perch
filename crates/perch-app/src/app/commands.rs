@@ -55,6 +55,7 @@ impl AppState {
             theme: theme.to_string(),
             font_size: snapshot.font_size,
             update_check: snapshot.update_check,
+            shell: snapshot.shell,
             api_key: String::new(),
             profile: String::new(),
             activate: false,

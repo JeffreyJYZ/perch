@@ -69,6 +69,7 @@ pub const COMMANDS: &[Command] = &[
         "show the files the last turn changed, and their diffs",
         "[path]",
     ),
+    Command::bare("undo", "put the files of the last turn back"),
     Command::bare("export", "write this transcript to a file"),
     Command::bare("help", "list every command"),
     Command::bare("quit", "close the window"),

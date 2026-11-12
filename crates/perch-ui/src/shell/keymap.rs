@@ -39,6 +39,9 @@ pub enum Intent {
     Finder,
     /// Show the transcript's search bar, or hide it when it is open: ⌘F.
     Find,
+    /// Open the focused tool card's whole output, or the newest card's when no card holds the
+    /// focus: ⌘O.
+    Open,
     /// Nothing this window does with that key.
     Ignore,
 }
@@ -80,6 +83,11 @@ pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
     // a composer key either; the dock's copy and paste are C and V.
     if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command('f')) {
         return Intent::Find;
+    }
+    // ⌘O opens the focused tool card's whole output. O is not a composer key and not a terminal
+    // key, and the dock owns ⌘C and ⌘V only, so nothing else answers this chord.
+    if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command('o')) {
+        return Intent::Open;
     }
     // ⌘Enter is the second approval key, read before the chord guard below: it is the window's
     // chord, and only an approval has anything to allow for the session.

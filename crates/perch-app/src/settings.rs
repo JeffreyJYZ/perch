@@ -147,6 +147,7 @@ pub fn snapshot(dir: &Path, secrets: &dyn SecretStore) -> SettingsSnapshot {
             .map(|size| size.to_string())
             .unwrap_or_default(),
         update_check: settings.update_check.clone(),
+        shell: settings.shell.clone(),
         key: profiles::key_status(secrets, &name),
         profiles: profiles::views(&settings, secrets),
         keybinds: perch_ui::shell::Bindings::resolved(&settings.keybinds),
