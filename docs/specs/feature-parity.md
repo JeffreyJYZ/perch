@@ -23,7 +23,7 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Show unread or seen state per session — **MISSING** — opencode `session.view`
 - Move a session to another directory at a delivery boundary — **MISSING** — opencode `session.move`
 - Aggregate session stats over a time range — **MISSING** — opencode `experimental.session.stats`, `feature-plugins/system/stats.tsx`
-- Diff the files one turn changed — **MISSING** — opencode `session.diff`, `packages/core/src/session/diff.ts`
+- Diff the files one turn changed — **HAVE** — `/diff [path]` reads the last finished turn's writing targets from the transcript itself (`crates/perch-ui/src/transcript/turn.rs`), confines each one the way the tools do, and shows `perch_files::file_diff` for it through a note (`crates/perch-ui/src/shell/commands_diff.rs`); `git status` is never the source, and a target outside the worktree is refused in words. Not covered: a file written by `patch` (its target is a diff, not a path) or by a shell call — tests `crates/perch-ui/tests/commands/diff.rs` — opencode `session.diff`, `packages/core/src/session/diff.ts`
 
 ## 2. Turns
 
@@ -175,15 +175,14 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 
 ## The gaps still open, in the order a person meets them
 
-Eleven of the twelve this section first carried have landed — resuming a session, rename and delete, slash commands with autocomplete, project instructions, session and transcript search, the todo tool and its PLAN panel, saved permission rules, per-turn money, glob and patch, subagents and skills, and several providers with one active. They are listed as **HAVE** above and are not planned here again. What is left:
+All twelve this section first carried have landed — resuming a session, rename and delete, slash commands with autocomplete, project instructions, session and transcript search, the todo tool and its PLAN panel, saved permission rules, per-turn money, glob and patch, subagents and skills, several providers with one active, and the diff of what one turn changed. They are listed as **HAVE** above and are not planned here again. What is left:
 
 1. **Undo a turn and restore the files it changed** — `perch-agent`, `perch-app`, `perch-files` — new checkpoint module, `agent/turn.rs`, `app/session.rs` — expensive: needs a snapshot per step and a restore path that does not fight the agent's own writes — opencode `session.revert.stage`.
-2. **Diff the files one turn changed** — `perch-files`, `perch-ui` — the branch plumbing exists (`files/branch.rs`), so this is a patch renderer over `git diff` for one turn's writes, drawn where the preview is — opencode `session.diff`.
-3. **Steer a running turn with a mid-turn message** — the queue exists and delivers at the end of a turn; what is missing is delivery *into* the turn at a step boundary — `crates/perch-ui/src/shell/composer*` — opencode `session.inbox.update` (`delivery: "steer"`).
-4. **Attach an image to a prompt** — the wire is text-only (`crates/perch-agent/src/provider/wire.rs`), so this is a content-part type plus the provider's own shape — opencode `experimental.media.get`.
-5. **Edit MCP servers without leaving the app** — TOML only today; the store already parses `[[mcp_servers]]`, so this is a pane section over the same list — opencode `experimental.mcp.add`.
-6. **Per-project configuration** — one global file; the merge order that instructions already use (worktree up to root, deepest wins) is the model to copy — opencode `project.update`.
-7. **Create, remove or switch a worktree from the app** — a session binds to an existing one — opencode `worktree.create`.
-8. **Choose the shell the dock runs** — the dock is `$SHELL` with no field — opencode `config.shells`.
-9. **Log in to a provider with OAuth or a device code** — the only credential path is a key written by hand — opencode `integration.oauth.connect`.
+2. **Steer a running turn with a mid-turn message** — the queue exists and delivers at the end of a turn; what is missing is delivery *into* the turn at a step boundary — `crates/perch-ui/src/shell/composer*` — opencode `session.inbox.update` (`delivery: "steer"`).
+3. **Attach an image to a prompt** — the wire is text-only (`crates/perch-agent/src/provider/wire.rs`), so this is a content-part type plus the provider's own shape — opencode `experimental.media.get`.
+4. **Edit MCP servers without leaving the app** — TOML only today; the store already parses `[[mcp_servers]]`, so this is a pane section over the same list — opencode `experimental.mcp.add`.
+5. **Per-project configuration** — one global file; the merge order that instructions already use (worktree up to root, deepest wins) is the model to copy — opencode `project.update`.
+6. **Create, remove or switch a worktree from the app** — a session binds to an existing one — opencode `worktree.create`.
+7. **Choose the shell the dock runs** — the dock is `$SHELL` with no field — opencode `config.shells`.
+8. **Log in to a provider with OAuth or a device code** — the only credential path is a key written by hand — opencode `integration.oauth.connect`.
 

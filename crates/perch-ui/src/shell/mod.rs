@@ -30,6 +30,7 @@ mod answer_view;
 mod appearance;
 mod card;
 mod commands;
+mod commands_diff;
 mod commands_export;
 mod commands_run;
 mod commands_session;

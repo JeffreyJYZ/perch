@@ -18,6 +18,7 @@ mod card;
 mod events;
 mod item;
 mod scroll;
+mod turn;
 mod view;
 mod words;
 

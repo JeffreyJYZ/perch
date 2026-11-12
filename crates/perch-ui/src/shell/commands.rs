@@ -64,6 +64,11 @@ pub const COMMANDS: &[Command] = &[
     Command::bare("sessions", "focus the session list"),
     Command::bare("skills", "list the skills this session can load"),
     Command::taking("skill", "load a skill's body into the prompt", "<name>"),
+    Command::taking(
+        "diff",
+        "show the files the last turn changed, and their diffs",
+        "[path]",
+    ),
     Command::bare("export", "write this transcript to a file"),
     Command::bare("help", "list every command"),
     Command::bare("quit", "close the window"),

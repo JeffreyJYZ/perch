@@ -61,6 +61,7 @@ impl<L: Live> Shell<L> {
             "sessions" => self.command_sessions(),
             "skills" => self.command_skills(),
             "skill" => self.command_skill(arg),
+            "diff" => self.command_diff(arg),
             "export" => self.command_export(),
             "help" => {
                 for line in help_lines() {

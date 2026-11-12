@@ -16,7 +16,7 @@ mod tree;
 use std::path::PathBuf;
 
 pub use branch::{Branch, branch_of};
-pub use diff::{DIFF_MAX_BYTES, file_diff, worktree_diff};
+pub use diff::{DIFF_MAX_BYTES, file_diff, is_repo, worktree_diff};
 pub use icons::{Kind, icon_for};
 pub use language::language_for;
 pub use open::open_in_zed;

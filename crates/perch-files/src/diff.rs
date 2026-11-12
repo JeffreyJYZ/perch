@@ -33,6 +33,19 @@ pub fn file_diff(root: &Path, path: &Path) -> Option<String> {
     added_diff(&relative, &target).map(cap)
 }
 
+/// Whether `root` is a git worktree, which is what every diff below needs before it can read one.
+///
+/// One `rev-parse` process, and it writes nothing: this is the cheap question a view asks before
+/// it tells a person there is no diff to read.
+pub fn is_repo(root: &Path) -> bool {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(root)
+        .arg("--no-optional-locks")
+        .args(["rev-parse", "--is-inside-work-tree"]);
+    matches!(process::run(cmd, GIT_TIMEOUT), Ok(captured) if captured.ok)
+}
+
 /// Every uncommitted change at once, untracked files included, for a view that scrolls.
 ///
 /// `None` only when `root` is not a repository; a clean worktree is an empty string.
