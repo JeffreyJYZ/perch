@@ -103,7 +103,7 @@ fn a_focused_composer_breaks_the_line_on_shift_enter() {
     let field = runtime
         .elements()
         .into_iter()
-        .find(|element| element.role == "textbox")
+        .find(|element| element.key.as_deref() == Some("composer-field"))
         .expect("the composer's field is in the tree");
     let at = (
         field.rect[0] + field.rect[2] * 0.5,

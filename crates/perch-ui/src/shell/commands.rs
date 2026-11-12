@@ -57,11 +57,8 @@ pub const COMMANDS: &[Command] = &[
     Command::taking("rename", "name this session", "<title>"),
     Command::taking("model", "open the model list, or set one by id", "[id]"),
     Command::bare("compact", "drop the older exchange from the conversation"),
-    Command::taking(
-        "theme",
-        "switch between the dark and light kits",
-        "[light|dark]",
-    ),
+    Command::taking("theme", "switch to a theme; /themes lists them", "[name]"),
+    Command::bare("themes", "list the themes on this machine"),
     Command::bare("terminal", "open a new terminal tab"),
     Command::bare("editor", "hand the open file to Zed"),
     Command::bare("sessions", "focus the session list"),

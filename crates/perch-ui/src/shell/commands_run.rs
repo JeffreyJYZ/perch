@@ -53,6 +53,7 @@ impl<L: Live> Shell<L> {
             "model" => self.command_model(arg),
             "compact" => self.command_compact(),
             "theme" => self.command_theme(arg),
+            "themes" => self.command_themes(),
             "terminal" => self
                 .open_terminal()
                 .map(|index| Some(format!("terminal: tab {}", index + 1))),
@@ -102,32 +103,47 @@ impl<L: Live> Shell<L> {
         Ok(None)
     }
 
-    /// `/theme [light|dark]`: the kit the next frame is drawn with, saved when there is an app.
+    /// `/theme [name]`: the kit the next frame is drawn with, saved when there is an app.
+    ///
+    /// A name is checked against the library before anything switches, so an unknown one is
+    /// refused in words that name what exists and the window keeps the theme it was drawing. A
+    /// bare `/theme` is the toggle it has always been.
     fn command_theme(&mut self, arg: &str) -> Result<Option<String>, String> {
+        let library = crate::theme::Library::discover();
         let word = match arg.trim() {
-            "light" => "light",
-            "dark" => "dark",
-            "" => {
-                if self.dark() {
-                    "light"
-                } else {
-                    "dark"
-                }
+            "" if self.dark() => "light".to_string(),
+            "" => "dark".to_string(),
+            other => {
+                library.choose(other)?;
+                other.to_string()
             }
-            other => return Err(format!("theme takes light or dark, not {other}")),
         };
-        self.set_theme(word);
+        let size = self.appearance().font_size;
+        self.set_appearance(crate::theme::Appearance::resolve(&library, &word, size));
         let saved = self
             .live
             .as_mut()
             .map_or(Err("no app is running".to_string()), |live| {
-                live.set_theme(word)
+                live.set_theme(&word)
             });
         Ok(Some(match saved {
             Ok(()) => format!("theme: {word}"),
             // The window did switch; only the file that a restart reads did not change.
             Err(words) => format!("theme: {word} for this window only ({words})"),
         }))
+    }
+
+    /// `/themes`: every theme this machine has, the drawn one marked, and why a file that will not
+    /// load is still listed.
+    ///
+    /// One line per name, through the transcript, because a failure's reason is a sentence and a
+    /// comma-joined list hides which name it belongs to.
+    fn command_themes(&mut self) -> Result<Option<String>, String> {
+        let active = self.appearance().theme;
+        for line in crate::theme::Library::discover().listing(&active) {
+            self.say(&line);
+        }
+        Ok(None)
     }
 
     /// `/editor`: the selected file, handed to Zed.

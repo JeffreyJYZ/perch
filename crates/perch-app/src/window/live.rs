@@ -160,4 +160,10 @@ impl Live for Window {
     fn settings(&self) -> Option<SettingsSnapshot> {
         self.app().and_then(Live::settings)
     }
+
+    /// The app as the shell asks for it: the window has none when it has no data directory, and
+    /// then the built-in dark appearance is what it draws with.
+    fn appearance(&self) -> Option<perch_ui::theme::Appearance> {
+        self.app().and_then(Live::appearance)
+    }
 }

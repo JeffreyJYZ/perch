@@ -16,7 +16,8 @@ use perch_plugins::PanelEntry;
 use rune::{El, col};
 use rune_kit::Kit;
 
-use super::live::{Idle, Live};
+use super::idle::Idle;
+use super::live::Live;
 use super::state::Shell;
 use crate::files::{note, section_label};
 use crate::plugin_panel::panel_view;

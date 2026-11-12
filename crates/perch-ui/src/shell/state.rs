@@ -9,11 +9,13 @@ use perch_store::SessionMeta;
 use rune::TextEdit;
 
 use super::answer::Answering;
-use super::live::{Idle, Live, Waiting};
+use super::idle::Idle;
+use super::live::Live;
 use super::pane::Pane;
 use super::panel_form::PanelForm;
 use super::settings::Panel;
 use super::terminal::TerminalTab;
+use super::waiting::Waiting;
 use crate::files::FilePanel;
 use crate::transcript::Transcript;
 
@@ -51,6 +53,11 @@ pub struct Shell<L: Live = Idle> {
     /// was built and again when the panel opens or saves. The panel's draft answers while it is
     /// open, so a pick is drawn before Save.
     pub(super) dark: bool,
+    /// The appearance `/theme` resolved a name to, when it was picked in this window: its anchors
+    /// are the ones a file theme names, which the saved word alone cannot recover.
+    pub(super) picked: Option<crate::theme::Appearance>,
+    /// The chords the window answers to, read with the theme: at build, at the panel, at a save.
+    pub(super) bindings: super::keybind::Bindings,
     /// What the plugin column's controls hold: each input's text and the last refusal.
     pub(super) panel: PanelForm,
     pub(super) folder: super::folder::Folder,
@@ -60,6 +67,10 @@ pub struct Shell<L: Live = Idle> {
     pub(super) palette: Option<super::palette::Palette>,
     /// The file finder, when its overlay is open: the list read on the way in and the rows kept.
     pub(super) finder: Option<super::finder::Finder>,
+    /// ⌘F's transcript search, when its bar is showing: the field and the hit it is on.
+    pub(super) find: Option<super::search_transcript::Find>,
+    /// The sidebar's session filter: the field's words, and never the sessions themselves.
+    pub(super) session_filter: super::search_session::SessionFilter,
     /// Whether the dock is hidden: the palette's Toggle dock action flips it.
     pub(super) dock_hidden: bool,
     /// Whether the keyboard is in the session list, where Up and Down move and Escape returns.
@@ -104,9 +115,19 @@ impl<L: Live> Shell<L> {
         }
     }
 
-    /// The saved theme, drawn from the next frame: the word a restart reads back from disk.
+    /// The saved word, drawn from the next frame: the word a restart reads back from disk.
+    ///
+    /// A pick from `/theme` is a resolved appearance; a word that no longer matches it must not
+    /// keep drawing the old anchors, so the pick is dropped when the name moves on.
     pub fn set_theme(&mut self, theme: &str) {
         self.dark = is_dark(theme);
+        if self
+            .picked
+            .as_ref()
+            .is_some_and(|picked| picked.theme != theme)
+        {
+            self.picked = None;
+        }
     }
 
     /// The worktree this shell is bound to, when it was opened with one.

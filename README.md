@@ -77,7 +77,7 @@ Three tools are registered by the app's build in the order that makes them safe 
 
 Two more crates are built and tested but not registered by the app: `perch-web` (`webfetch`, `websearch`) and `perch-board` (the project board's tools).
 
-A saved rules file would let an approval outlive the session (`Dispatcher::with_rules`), and project `AGENTS.md`/`CLAUDE.md` can be assembled for the system prompt (`instructions::for_worktree`). Neither is wired into the app yet: the dispatcher is built with `Dispatcher::new()` and the system prompt is still the fixed sentence in `crates/perch-app/src/app/mod.rs`.
+A saved rules file lets an approval outlive the session: `<data>/permissions.jsonl`, one JSON object per line (`{"tool":"bash","pattern":"cargo test","decision":"allow"}`), consulted before you are asked, never widened beyond its pattern. Project `AGENTS.md`/`CLAUDE.md` are read from the worktree up to the root and carried in each session's system message, capped per file and in total, with one line in the column when a set is very large. A rules file that will not parse leaves no rules and says so, so every gated call asks.
 
 ## Context and compaction
 
@@ -135,6 +135,8 @@ This runs the real turn loop against OpenRouter's free models, one at a time: `c
 provider_base_url = "https://openrouter.ai/api/v1"
 model = ""
 theme = "dark"
+# Optional: 10-20 points. Unset draws at the built-in scale.
+# font_size = 14.0
 # Empty means perch never checks for a release. A URL here is the manifest it reads.
 update_check = ""
 
@@ -148,7 +150,7 @@ name = "remote"
 url = "https://example.com/mcp"
 ```
 
-The first-run defaults are written when the file is absent, and every field has a default so an older file still loads. The settings pane (the `Settings` tab, or ⌘,) edits the provider address, model, theme, update check URL and key; the four file-backed values are validated before anything is written, and a rejected field keeps the pane open and names itself. Picking a theme in that pane repaints the window before Save, and the saved word is what the window draws at the next launch. `mcp_servers` is hand-edited in the file; the pane does not show it.
+The first-run defaults are written when the file is absent, and every field has a default so an older file still loads. The settings pane (the `Settings` tab, or ⌘,) edits the provider address, model, theme, font size, update check URL and key; the file-backed values are validated before anything is written, and a rejected field keeps the pane open and names itself. A font size outside 10–20 points is clamped rather than refused, and the pane says where it landed (`font size 8 is under 10; drawn at 10`). Picking a theme in that pane repaints the window before Save, and the saved word is what the window draws at the next launch. `mcp_servers` is hand-edited in the file; the pane does not show it.
 
 The model field is a picker: **Refresh** asks the provider for its model ids and lists them, and an id can still be typed because a provider need not list its models. The composer's own model control opens the same pane in a session-only mode, so changing the model for the session does not rewrite the saved default. A save that includes a model makes it both the session's and the default.
 
@@ -178,8 +180,8 @@ The model's tool list is read from the live registry when each request starts, s
 
 - The bundle is `arm64` and ad-hoc signed: no notarization and no universal build, so Gatekeeper rejects it on any Mac but the one that built it (see Bundle).
 - The update check stages and verifies a download; installing is the person's step after perch quits. Nothing swaps the running bundle.
-- A session's `branch` is stored empty: the app does not read the worktree's git branch, so the row says "no branch". Ahead/behind and a diff view do not exist.
-- Saved permission rules are implemented in `perch-agent` but never read, because the app's dispatcher is built without one; `AGENTS.md`/`CLAUDE.md` are assembled but not sent, because the system prompt is still fixed.
+- A session's branch is read from `git status --porcelain=v2 --branch` and re-read when the session is shown: the name, `HEAD` when detached, and `↑n`/`↓n` drift against the upstream. There is no diff view.
+- Themes beyond `dark`/`light` are a model, not a wire: `$PERCH_HOME/.config/perch/themes/<name>.toml` (three anchors, everything else derived), validated by the settings pane and stored with an optional 10–20 point `font_size` the pane now edits. The window still draws the built-in kit at the built-in size and `/theme` still takes only `light`/`dark`: `layout` does not read the resolved appearance yet and there is no `/themes` command.
 - `webfetch`, `websearch` and the project board's tools exist in their own crates and are tested; the app registers none of them, so a model is never offered them.
 - The close chip on a file tab is invisible until the pointer is over that tab. A press computed from the pre-hover tree can therefore address a neighbour, which is why the headless test drives `Shell::close_tab` rather than the chip; `close_tab` itself returns to the session.
 - The accessibility tree names regions, text rows, and the terminal's caret and selection; it does not name individual terminal cells.

@@ -103,13 +103,16 @@ impl AppState {
         self.facts()?.price
     }
 
-    /// The dollars the active session's last turn cost, when the provider stated the price.
+    /// The dollars the active session's last turn cost, when the provider stated that turn's price.
     ///
-    /// A session that has run no turn has no usage to price, so nothing is claimed; a provider
-    /// that stated no price says nothing about money either.
+    /// The model is the one the turn's request named, stored with its usage: picking another model
+    /// afterwards prices the next turn and never rewrites this one. A session that has run no turn
+    /// has no usage to price, and a turn whose model stated no price says nothing about money.
     pub fn turn_cost(&self) -> Option<f64> {
         let session = self.sessions.get(self.active)?;
-        self.facts()?.cost(session.usage()?)
+        self.limits
+            .get(session.turn_model()?)?
+            .cost(session.usage()?)
     }
 
     /// What the provider stated for the active session's model.

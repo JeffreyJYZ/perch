@@ -5,15 +5,18 @@
 //! a field of [`Settings`](perch_store::Settings): it goes to the secret store, which is why a
 //! draft can be written to `settings.toml` and never carry a secret with it.
 
-use url::Url;
+use std::collections::BTreeMap;
+
+mod validate;
 
 /// The theme a fresh install uses, and the one the panel offers when nothing is saved yet.
 pub const DEFAULT_THEME: &str = "dark";
 
-/// The themes the settings screen offers.
+/// The two themes the panel's picker offers beside the files a person adds.
 ///
-/// One of these and nothing else: a theme the window cannot draw would save cleanly and then show
-/// as the default, which reads as a choice the app silently dropped.
+/// Saving is held to [`Library`], not to these: a theme file under `$PERCH_HOME` is a name the
+/// window can draw, and refusing it here would drop a choice the person just made. The picker
+/// itself is the shell's, and it lists what it is given.
 pub const THEMES: [&str; 2] = ["dark", "light"];
 
 /// Which field a refusal is about, so the panel can name it and mark the right box.
@@ -23,10 +26,14 @@ pub enum Field {
     BaseUrl,
     /// The model every new session asks for.
     Model,
-    /// One of [`THEMES`].
+    /// One of [`THEMES`], or a theme file this machine has.
     Theme,
+    /// The points the type scale is drawn at, empty for the default.
+    FontSize,
     /// The release manifest the app checks, when one is named.
     UpdateCheck,
+    /// A chord an intent answers to.
+    Keybind,
 }
 
 impl Field {
@@ -36,7 +43,9 @@ impl Field {
             Field::BaseUrl => "base URL",
             Field::Model => "model",
             Field::Theme => "theme",
+            Field::FontSize => "font size",
             Field::UpdateCheck => "update check URL",
+            Field::Keybind => "keybind",
         }
     }
 }
@@ -69,73 +78,24 @@ pub struct SettingsDraft {
     pub base_url: String,
     /// The model id every new session asks for.
     pub model: String,
-    /// One of [`THEMES`].
+    /// One of [`THEMES`], or a name the theme library has: a file under `$PERCH_HOME`.
     pub theme: String,
+    /// The points the type scale is drawn at, empty for the default scale.
+    pub font_size: String,
     /// The release manifest to check, empty when the app must not reach the network.
     pub update_check: String,
     /// A key to store, empty when the person typed none.
     pub api_key: String,
-}
-
-impl SettingsDraft {
-    /// Checks every field, in the order the panel shows them.
+    /// The provider profile this draft edits: the name of the profile the panel has selected.
     ///
-    /// An address has to parse as a URL with an HTTP scheme and a host, because the provider
-    /// client appends `/chat/completions` to it: anything else would save and then fail every
-    /// turn. A model has to be named, because an empty one is not a model the server knows. The
-    /// theme has to be one of [`THEMES`], because anything else cannot be drawn. The update check
-    /// is allowed to be empty, which is the app never reaching the network, and otherwise is held
-    /// to the same URL rule as the provider's address.
-    pub fn validate(&self) -> Result<(), Invalid> {
-        let address = self.base_url.trim();
-        let Ok(url) = Url::parse(address) else {
-            return Err(Invalid::new(
-                Field::BaseUrl,
-                "this is not a URL, for example https://openrouter.ai/api/v1",
-            ));
-        };
-        if !matches!(url.scheme(), "http" | "https") {
-            return Err(Invalid::new(
-                Field::BaseUrl,
-                format!("a {} address is not reachable over HTTP", url.scheme()),
-            ));
-        }
-        if url.host_str().is_none_or(str::is_empty) {
-            return Err(Invalid::new(Field::BaseUrl, "it names no host to reach"));
-        }
-        if self.model.trim().is_empty() {
-            return Err(Invalid::new(
-                Field::Model,
-                "pick one from the provider's list",
-            ));
-        }
-        if !THEMES.contains(&self.theme.as_str()) {
-            return Err(Invalid::new(
-                Field::Theme,
-                format!("must be one of {}", THEMES.join(", ")),
-            ));
-        }
-        let manifest = self.update_check.trim();
-        if !manifest.is_empty() {
-            let Ok(url) = Url::parse(manifest) else {
-                return Err(Invalid::new(
-                    Field::UpdateCheck,
-                    "this is not a URL, for example https://release.example.com/latest.json",
-                ));
-            };
-            if !matches!(url.scheme(), "http" | "https") {
-                return Err(Invalid::new(
-                    Field::UpdateCheck,
-                    format!("a {} address is not reachable over HTTP", url.scheme()),
-                ));
-            }
-            if url.host_str().is_none_or(str::is_empty) {
-                return Err(Invalid::new(
-                    Field::UpdateCheck,
-                    "it names no host to reach",
-                ));
-            }
-        }
-        Ok(())
-    }
+    /// Empty means the active profile, which is what every save from before the list existed
+    /// did.
+    pub profile: String,
+    /// Whether the edited profile becomes the active one on this save.
+    pub activate: bool,
+    /// The chords the person rebound, by intent name: `settings = "mod+,"`.
+    ///
+    /// Empty when nothing was typed, and an empty table is not written to `settings.toml` at
+    /// all, so a file nobody touched stays exactly what it was.
+    pub keybinds: BTreeMap<String, String>,
 }

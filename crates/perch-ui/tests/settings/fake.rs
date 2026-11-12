@@ -10,7 +10,7 @@ use std::time::Duration;
 use perch_agent::ListedModel;
 use perch_ui::SettingsDraft;
 use perch_ui::Transcript;
-use perch_ui::shell::{KeyStatus, Live, Panels, SettingsSnapshot, Waiting};
+use perch_ui::shell::{Bindings, KeyStatus, Live, Panels, ProviderView, SettingsSnapshot, Waiting};
 
 pub struct Fake {
     pub key: KeyStatus,
@@ -33,6 +33,12 @@ pub struct Fake {
     pub cost: Option<f64>,
     /// The theme the saved settings carry, which is what the window draws.
     pub theme: String,
+    /// The type scale the saved settings carry, empty for the default scale.
+    pub font_size: String,
+    /// The provider profiles the settings carry, as the panel lists them.
+    pub profiles: Vec<ProviderView>,
+    /// The chords the settings carry, over the defaults.
+    pub keybinds: Bindings,
 }
 
 impl Default for Fake {
@@ -51,6 +57,9 @@ impl Default for Fake {
             tokens: None,
             cost: None,
             theme: "dark".to_string(),
+            font_size: String::new(),
+            profiles: Vec::new(),
+            keybinds: Bindings::defaults(),
         }
     }
 }
@@ -133,13 +142,17 @@ impl Live for Fake {
             base_url: "https://example.com/v1".to_string(),
             model: self.model.clone(),
             theme: self.theme.clone(),
+            font_size: self.font_size.clone(),
             update_check: String::new(),
             key: self.key,
+            profiles: self.profiles.clone(),
+            keybinds: self.keybinds.clone(),
         })
     }
     fn save_settings(&mut self, draft: SettingsDraft) -> std::result::Result<KeyStatus, String> {
         self.model = draft.model.clone();
         self.theme = draft.theme.clone();
+        self.font_size = draft.font_size.clone();
         self.saved = Some(draft);
         Ok(KeyStatus::Stored)
     }

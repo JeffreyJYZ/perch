@@ -32,16 +32,21 @@ impl TurnState {
 }
 
 /// One item, keyed by its place in the column so a growing transcript keeps earlier elements.
+///
+/// A found item is wrapped in one element of its own, keyed `find-hit-<index>`: that wrapper is
+/// what the search scrolls to and what a reader sees marked, because a run of text inside a
+/// rendered markdown child is not reachable from this crate.
 pub(super) fn item_view(
     index: usize,
     item: &Item,
     state: TurnState,
     model: &Transcript,
     kit: &Kit,
+    found: bool,
 ) -> El {
-    match item {
+    let view = match item {
         Item::User { text: body } => col()
-            .key(format!("turn-{index}"))
+            .key(item.key(index))
             .role("group")
             .label("You")
             .w_full()
@@ -65,7 +70,7 @@ pub(super) fn item_view(
                 None => "Assistant".to_string(),
             };
             let mut turn = col()
-                .key(format!("turn-{index}"))
+                .key(item.key(index))
                 .role("group")
                 .label("Assistant")
                 .w_full()
@@ -88,7 +93,7 @@ pub(super) fn item_view(
         // column uses for asides, and plain text, because a model's reasoning is not the reply and
         // must never look like one.
         Item::Reasoning { text: body } => col()
-            .key(format!("reasoning-{index}"))
+            .key(item.key(index))
             .role("group")
             .label("Thinking")
             .w_full()
@@ -129,7 +134,7 @@ pub(super) fn item_view(
         // A system line is drawn as it is written: one text element, no markdown, in the faint
         // ink a footnote uses, so it never competes with what the model said.
         Item::Note(body) => text(body.clone())
-            .key(format!("note-{index}"))
+            .key(item.key(index))
             .w_full()
             .font(kit.ty.small)
             .color(kit.c.text_faint)
@@ -139,10 +144,21 @@ pub(super) fn item_view(
             failed,
             tokens,
         } => text(summary_line(*tools, *failed, *tokens))
-            .key(format!("summary-{index}"))
+            .key(item.key(index))
             .w_full()
             .font(kit.ty.small)
             .color(kit.c.text_faint)
             .selectable(true),
+    };
+    if !found {
+        return view;
     }
+    col()
+        .key(format!("find-hit-{index}"))
+        .role("group")
+        .label("Found text")
+        .w_full()
+        .border(1.0, kit.c.border_strong)
+        .radius(kit.radius.md)
+        .child(view)
 }

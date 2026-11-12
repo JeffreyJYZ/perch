@@ -2,8 +2,9 @@
 
 use rune::{Key, KeyEvent, Tx};
 
-use super::live::{Live, Waiting};
+use super::live::Live;
 use super::state::Shell;
+use super::waiting::Waiting;
 
 /// What one key press asks of the app.
 ///
@@ -36,6 +37,8 @@ pub enum Intent {
     Palette,
     /// Show the file finder, or hide it when it is open: ⌘P.
     Finder,
+    /// Show the transcript's search bar, or hide it when it is open: ⌘F.
+    Find,
     /// Nothing this window does with that key.
     Ignore,
 }
@@ -72,6 +75,11 @@ pub fn intent(ev: &KeyEvent, waiting: Waiting) -> Intent {
     // owns ⌘C and ⌘V only, so nothing else answers this chord.
     if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command('p')) {
         return Intent::Finder;
+    }
+    // ⌘F is the transcript's search, the one chord on the text a session already holds. F is not
+    // a composer key either; the dock's copy and paste are C and V.
+    if ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Command('f')) {
+        return Intent::Find;
     }
     // ⌘Enter is the second approval key, read before the chord guard below: it is the window's
     // chord, and only an approval has anything to allow for the session.

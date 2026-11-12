@@ -6,6 +6,7 @@ use rune::TextEdit;
 
 use crate::settings::SettingsDraft;
 
+use super::keybind::Bindable;
 use super::live::Live;
 use super::pane::Pane;
 use super::settings_draft::edit;
@@ -38,6 +39,7 @@ impl<L: Live> Shell<L> {
             .and_then(Live::settings)
             .unwrap_or_default();
         self.set_theme(&snapshot.theme);
+        self.refresh_appearance();
         self.settings = Some(Panel::new(&snapshot));
         self.pane = Pane::Settings;
         // The list is loaded as the panel opens: an empty list that waits for Refresh looks broken.
@@ -51,16 +53,75 @@ impl<L: Live> Shell<L> {
         self.back_to_session();
     }
 
+    /// Selects the provider profile at `index`: the fields below the list become that profile's.
+    ///
+    /// The key field is emptied, never filled: a key is write-only from the window's side, so a
+    /// stored one has no path back into a field.
+    pub fn select_profile(&mut self, index: usize) {
+        if let Some(panel) = self.settings.as_mut() {
+            panel.select(index);
+        }
+    }
+
+    /// Adds a provider profile to the list and selects it, empty, so its fields can be filled in.
+    ///
+    /// Nothing is written until Save: the list the panel draws is the draft, like every other
+    /// field in it.
+    pub fn add_profile(&mut self) {
+        if let Some(panel) = self.settings.as_mut() {
+            panel.add();
+        }
+    }
+
+    /// Makes the selected provider profile the active one, and saves.
+    ///
+    /// The next turn asks it: the address, the key and the model all follow, with no restart and
+    /// no session reopened. A profile whose fields are refused is not activated, and the pane
+    /// says which field refused it.
+    pub fn activate_profile(&mut self) -> bool {
+        let Some(panel) = self.settings.as_mut() else {
+            return false;
+        };
+        panel.activate = true;
+        let saved = self.save_settings();
+        if let Some(panel) = self.settings.as_mut() {
+            panel.activate = false;
+        }
+        saved
+    }
+
     /// Replaces the draft, as a preset or a test does. Only the fields a draft carries change.
     pub fn stage_settings(&mut self, draft: SettingsDraft) {
         let Some(panel) = self.settings.as_mut() else {
             return;
         };
+        // A draft that names a profile edits that profile: the fields below the list are its.
+        if !draft.profile.is_empty()
+            && let Some(index) = panel
+                .profiles()
+                .iter()
+                .position(|p| p.name == draft.profile)
+        {
+            panel.select(index);
+        }
         panel.base_url = edit(&draft.base_url);
         panel.model = edit(&draft.model);
         panel.api_key = edit(&draft.api_key);
         panel.theme = draft.theme;
+        panel.font_size = edit(&draft.font_size);
         panel.update_check = edit(&draft.update_check);
+        // A chord the draft names is the field's text, exactly as typing it into it would be.
+        for (index, intent) in Bindable::ALL.iter().enumerate() {
+            let chord = draft
+                .keybinds
+                .get(intent.name())
+                .cloned()
+                .unwrap_or_default();
+            if let Some(field) = panel.keybinds.field_mut(index) {
+                *field = edit(&chord);
+            }
+        }
+        panel.activate = draft.activate;
         panel.error = None;
         panel.notice = None;
     }
@@ -93,6 +154,9 @@ impl<L: Live> Shell<L> {
                 panel.api_key = TextEdit::default();
                 panel.notice = Some("saved".to_string());
                 self.set_theme(&theme);
+                // The app has just written `settings.toml`, so ask it what the file now says: the
+                // theme and the type size are drawn from here, with no restart.
+                self.refresh_appearance();
                 true
             }
             Err(words) => {

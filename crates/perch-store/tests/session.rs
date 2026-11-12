@@ -141,7 +141,7 @@ fn settings_default_when_absent_and_round_trip() {
     assert!(dir.path().join("settings.toml").exists());
 
     let changed = Settings {
-        model: "some/model".to_string(),
+        theme: "light".to_string(),
         ..settings
     };
     changed.save(dir.path()).unwrap();

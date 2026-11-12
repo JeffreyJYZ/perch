@@ -18,7 +18,7 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Fork a session from an earlier message — **HAVE** — `crates/perch-store/src/session/fork.rs` (`SessionLog::fork`: new id, header rewritten, source bytes untouched, cut only after a `TurnEnd` and an interior boundary refused naming why) plus `crates/perch-app/src/app/fork.rs` and `/fork` — 6 store + 3 app tests — opencode `session.fork`, `routes/session/dialog-fork.tsx`
 - Undo/redo by reverting to a boundary and restoring its files — **MISSING** — opencode `session.revert.stage`, `session.revert.commit`; `packages/core/src/session/revert.ts`
 - Export or import a transcript — **MISSING** — the raw JSONL log sits at `<data dir>/<id>.jsonl` with no export path — opencode `experimental.session.export`, `experimental.session.import`
-- Search sessions or inside a transcript — **MISSING** — no search over `crates/perch-store/src/session.rs`
+- Search sessions or inside a transcript — **HAVE** — the sidebar's filter narrows the open session list over title, branch and worktree with `3 of 12 sessions` (`crates/perch-ui/src/shell/{sidebar,search_session,search_session_view}.rs`), and ⌘F searches the open transcript over the words it actually draws — reply, thought, note, tool header and tool output — with `n of m`, Up/Down through the hits and the column scrolled to the one showing (`crates/perch-ui/src/shell/{search_hits,search_visible,search_transcript,search_transcript_view}.rs`) — tests `crates/perch-ui/tests/search/`; only the open transcript is searched: history would need an index, which `crates/perch-store/src/session.rs` does not keep
 - Generate a session title from the conversation — **HAVE** — `crates/perch-app/src/app/title.rs` (one request per session after the first turn that finished on its own, off the frame and off the turn; a cancelled or failed turn is skipped and recorded as asked; the answer is cut to one line of six words; `/rename` always wins) — tests in `crates/perch-app/tests/title/` — opencode `packages/core/src/session/title.ts`
 - Show unread or seen state per session — **MISSING** — opencode `session.view`
 - Move a session to another directory at a delivery boundary — **MISSING** — opencode `session.move`
@@ -38,12 +38,12 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Show model reasoning apart from the answer — **HAVE** — `crates/perch-ui/src/transcript/view/item.rs` — opencode `routes/session/thinking-syntax.ts`
 - Show token totals for a turn — **HAVE** — `crates/perch-agent/src/rounds.rs:96`, `crates/perch-ui/src/transcript/mod.rs` — opencode `session.context`
 - Per-step usage rather than per-turn only — **PARTIAL** — usage is summed per round in `crates/perch-agent/src/rounds.rs` but reported once at `TurnEnd` — absent: a per-step readout
-- Show what a turn cost in money — **MISSING** — no price table or currency anywhere; only tokens in `crates/perch-ui/src/shell/meter.rs` — opencode `experimental.usage.limits`
+- Show what a turn cost in money — **HAVE** — prices parsed from the provider's `/models` payload (`pricing.prompt` / `pricing.completion`, kept beside the context window in `crates/perch-app/src/app/models.rs`) and shown beside the tokens in `crates/perch-ui/src/shell/meter*.rs` as `12.3K (6%) · $0.0042`; a provider that states no price shows no money, because zero is a claim that the model is free — opencode `experimental.usage.limits`
 - Show how much of the context window is used — **HAVE** — `crates/perch-ui/src/shell/meter.rs` — opencode `feature-plugins/sidebar/limit.tsx`
 - Switch the model for the rest of the session from the composer — **HAVE** — `crates/perch-app/src/app/models.rs`, `crates/perch-ui/src/shell/model_picker.rs` — opencode `session.switchModel`
 - Run a shell command inside the session from the prompt — **PARTIAL** — only the model's `bash` tool; a person's shell is the terminal dock — opencode `session.shell`, `shell.create`
 - Background a turn and list background jobs — **MISSING** — opencode `session.background`, `experimental.job.list`
-- Recall earlier prompts with history and frecency — **MISSING** — no prompt history in `crates/perch-ui/src/shell/composer.rs` — opencode `prompt/history.tsx`, `prompt/frecency.tsx`
+- Recall earlier prompts with history and frecency — **HAVE** — Up and Down walk what this worktree sent, ranked by uses over days since the last send and capped at 50; one JSON file per worktree, named by a fingerprint of its path, written after a send — `crates/perch-store/src/history.rs`, `crates/perch-store/src/history_path.rs`, `crates/perch-ui/src/shell/history.rs`, `crates/perch-ui/src/shell/history_walk.rs` — opencode `prompt/history.tsx`, `prompt/frecency.tsx`
 - Stash a draft prompt and come back to it — **MISSING** — opencode `prompt/stash.tsx`
 - Ask the user a structured multi-field form — **PARTIAL** — `ask_user` takes options plus free text only — opencode `session.form.create`, `session.form.reply`
 
@@ -60,11 +60,11 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Confine every path to the session worktree — **HAVE** — `crates/perch-tools/src/confine.rs` — opencode `packages/core/src/file-access.ts`
 - Put a question to the user and wait for the answer — **HAVE** — `crates/perch-agent/src/ask.rs` — opencode `tool/plugin/question.ts`
 - Fetch a URL into the conversation — **HAVE** — `crates/perch-web/src/fetch*` (http/https only, HTML reduced to markdown, 64 KiB cap with the cut named, binary reported by type, non-2xx as a message; 30 tests against fixtures, no network) — opencode `tool/plugin/webfetch.ts`
-- Search the web — **HAVE** — `crates/perch-web/src/search*` (public endpoint, title/url/snippet, deduplicated, a challenge or empty page reported with status and the first 200 characters rather than as "no results") — opencode `tool/plugin/websearch.ts`, `websearch.query`
+- Search the web — **HAVE** — `crates/perch-web/src/search*` (public endpoint, title/url/snippet, deduplicated, a challenge or empty page reported with status and the first 200 characters rather than as "no results"), registered as `webfetch`/`websearch` in `crates/perch-app/src/sources/build.rs::add_web` before `task` and Code Mode — opencode `tool/plugin/websearch.ts`, `websearch.query`
 - Keep a todo list the model edits — **HAVE** — `crates/perch-tools/src/builtin/todo*.rs` (`todowrite` replaces the list, `todoread` returns it; a process-wide table keyed by worktree root, 32-item cap, at most one `in_progress`) plus a read-only PLAN panel in `crates/perch-ui/src/shell/todo.rs` drawn from the same table — 32 tool tests + a frame test — opencode `tool/plugin/todo.ts`, `feature-plugins/sidebar/todo.tsx`
 - Delegate work to a subagent — **HAVE** — `task` in `crates/perch-agent/src/subagent/*` (a child turn with its own loop and round cap, the parent's cancel token, a 64 KiB brief and result cap) wired through `crates/perch-app/src/app/subagent/*` into the registry; the child's registry is filtered to tools that need no approval and never contains `task`, so a task has no grandchildren and cannot write — tests `crates/perch-app/tests/live/subagent.rs` (2 end-to-end) — opencode `tool/plugin/subagent.ts`, `packages/core/src/session/subagent-job.ts`
 - Run several tool calls in one program (Code Mode) — **HAVE** — `crates/perch-codemode` (`execute`: a program calling tools, budgets 30 s / 32 calls / 64 KiB, a tool needing approval is refused through it), registered in `crates/perch-app/src/sources.rs` — opencode `packages/codemode`
-- Load a skill into the conversation — **MISSING** — opencode `tool/plugin/skill.ts`, `experimental.session.skill`
+- Load a skill into the conversation — **HAVE** — `SKILL.md` discovery over the machine's agent skill dirs and the worktree's own, front matter parsed, the `skill` tool registered before `task` and Code Mode so both a child turn and a program can load one, plus `/skills` and `/skill <name>` — `crates/perch-agent/src/{skills.rs,skills/parse.rs,skills_tool.rs}` — opencode `tool/plugin/skill.ts`, `experimental.session.skill`
 - Read an MCP server's resources as a tool result — **MISSING** — MCP tools only, no resource tool — opencode `tool/plugin/mcp-resource.ts`, `mcp.resource.catalog`
 - Generate an image as a tool result — **MISSING** — opencode `tool/plugin/image-generate.ts`, `experimental.generate.image`
 - Create and update a rendered artifact — **MISSING** — opencode `tool/plugin/artifact.ts`, `experimental.artifacts.*`
@@ -72,6 +72,7 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Let the model control sessions (list, rename, move) — **MISSING** — opencode `tool/plugin/opencode.ts`
 - Show one card per call, collapsed with a count of hidden lines, expandable — **HAVE** — `crates/perch-ui/src/transcript/card.rs` — opencode `util/collapse-tool-output.ts`
 - Approve a call with a preview: once, for the session, or reject — **HAVE** — `crates/perch-agent/src/dispatch.rs`, `crates/perch-ui/src/shell/actions.rs` (`approve`, `deny`), `crates/perch-ui/src/shell/keymap.rs` — opencode `session.permission.reply`
+- Keep a permission decision so it is not asked again — **HAVE** — `crates/perch-agent/src/rules/` (`Rules::load`/`permit`/`remember`/`forget`: one JSON rule per line in `permissions.jsonl` beside the sessions, `rules_path` in `crates/perch-store/src/settings/`), loaded at boot by `crates/perch-app/src/app/boot/rules.rs`; a file that will not parse is no rules at all plus one note in the column, never allow-everything — tests `crates/perch-agent/tests/rules/{saved,corrupt}.rs` — opencode `permission.saved`
 - Keep an approval rule across sessions in a saved permission file — **PARTIAL** — `crates/perch-agent/src/rules/{mod,pattern}.rs` (0600 file, exact or tool-wide, `remember`/`forget`, a saved allow never widens past the worktree, corrupt is an error and never an allow, 7 tests) — absent: `Rules::load` passed to the dispatcher at boot, and a settings control to forget one — opencode `permission.saved.list`, `permission.saved.update`
 
 ## 4. Agents
@@ -137,7 +138,7 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Point the app at one OpenAI-compatible endpoint with one key — **HAVE** — `crates/perch-agent/src/provider/endpoint.rs`, `crates/perch-app/src/settings.rs` — opencode `provider.get`
 - List models from the provider and pick one by search — **HAVE** — `crates/perch-agent/src/provider/models.rs`, `crates/perch-ui/src/shell/model_picker.rs` — opencode `model.list`
 - Override the model for one session — **HAVE** — `crates/perch-app/src/app/models.rs` — opencode `session.switchModel`
-- Keep several providers and credentials and activate one — **MISSING** — one endpoint and one key — opencode `credential.create`, `credential.activate`
+- Keep several providers and credentials and activate one — **HAVE** — `crates/perch-store/src/settings/profiles.rs` (the named list, one active), `crates/perch-app/src/settings/profiles.rs` (a key per profile, filed under its name in `secrets.json`), `crates/perch-ui/src/shell/settings_profiles.rs` (the pane lists them, adds one, and activates one); an old file migrates to a one-entry list on read — opencode `credential.create`, `credential.activate`
 - Log in to a provider with OAuth or a device code — **MISSING** — opencode `integration.oauth.connect`, `integration.command.connect`
 - Choose a reasoning effort or variant per model — **MISSING** — no effort field in `crates/perch-store/src/settings.rs` — opencode `variant.ts`, `/variants`
 - Store the provider key in a 0600 file — **HAVE** — `crates/perch-app/src/secrets.rs`, `crates/perch-store/src/secret.rs` — opencode `credential.*`
@@ -148,9 +149,9 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 
 - Change base URL, model, theme and key in a settings pane — **HAVE** — `crates/perch-ui/src/shell/settings*.rs`, `crates/perch-app/src/settings.rs` — opencode `opencode.settings`, `config.get`
 - Pick a dark or light theme — **HAVE** — two themes, `crates/perch-ui/src/settings.rs:17` — opencode `theme/assets/*` (34)
-- Pick from a theme library — **MISSING** — two names only — opencode `theme/discovery.ts`
-- Rebind a key — **MISSING** — fixed chords in `crates/perch-ui/src/shell/keymap.rs` — opencode `config/keybind.ts`
-- Set font family or size — **MISSING** — no such field in `crates/perch-store/src/settings.rs` — opencode `/themes`, `settings`
+- Pick from a theme library — **HAVE** — `crates/perch-ui/src/theme.rs`: two built-ins plus `$PERCH_HOME/.config/perch/themes/<name>.toml` (`bg`, `ink`, `signal`, optional `ok`/`fail`; every other tone derived), `/themes`, `/theme <name>` — opencode `theme/discovery.ts`
+- Rebind a key — **HAVE** — `crates/perch-store/src/settings/keybinds.rs` (the chord grammar), `crates/perch-ui/src/shell/keybind.rs` (the bindable intents, their defaults and the resolver), `crates/perch-ui/src/shell/settings_keybinds.rs` (the pane); the table is `[keybinds]` in `settings.toml`, `intent = "chord"` — opencode `config/keybind.ts`
+- Set font family or size — **HAVE** — size only: `font_size` in `crates/perch-store/src/settings.rs`, clamped 10–20, scales the kit's type scale by `crates/perch-ui/src/kit/scale.rs`; no family field — opencode `/themes`, `settings`
 - Edit MCP servers without leaving the app — **MISSING** — TOML only, `crates/perch-store/src/settings.rs` — opencode `experimental.mcp.add`
 - Reload settings without a restart — **HAVE** — `crates/perch-app/src/watch.rs`, `crates/perch-app/src/settings.rs` — opencode `location.reload`
 - Per-project configuration — **MISSING** — one global file — opencode `project.update`, `config.get`
@@ -160,7 +161,7 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Check for an update and stage a verified download — **HAVE** — `crates/perch-update/src/check.rs`, `crates/perch-app/src/update/worker.rs` — opencode `/update`
 - Install the update in place — **MISSING** — staging only, `crates/perch-app/src/update/status.rs` — opencode `service.restart`
 - Reopen a closed turn's full tool output from disk — **MISSING** — `docs/specs/2026-11-10-perch-design.md` open questions — opencode `session.message.get`
-- Search the web from the app — **MISSING** — opencode `websearch.query`, `/websearch`
+- Search the web from the app — **MISSING** — the model has `websearch`, a person has no field of their own and no `/websearch`: the tool is reachable from a turn only, `crates/perch-app/src/sources/build.rs` — opencode `websearch.query`, `/websearch`
 - Talk to the model by voice — **MISSING** — opencode `experimental.voice.session`
 - Run a prompt on a schedule or cron — **MISSING** — opencode `experimental.schedule.create`
 - List background jobs (shell, subagent, image) — **HAVE** — `crates/perch-tools/src/builtin/{jobs,job}.rs` (`jobs` list/read/kill by process group, process-wide table per worktree, 16-job cap, no child outlives the app) plus `bash`'s `background: true` — opencode `experimental.job.list`
@@ -172,17 +173,17 @@ opencode proof is the endpoint id or file that defines the capability. perch pro
 - Lose at most the line being written on a crash — **HAVE** — append-only log, `crates/perch-store/src/session.rs` — opencode `packages/core/src/session/store.ts`
 - Import a v1 session history — **MISSING** — opencode `experimental.migration.v1.status`
 
-## The 12 highest-value gaps, in the order a person meets them
+## The gaps still open, in the order a person meets them
 
-1. **Resume a session with its transcript and context** — `perch-app`, `perch-store` — `app/boot.rs`, `session.rs`, `store/session.rs`, `agent/turn.rs` — cheap: the log and the parser exist, so it is a replay into `Transcript` plus a seed message list; the only real design choice is what a resumed session re-sends to the model.
-2. **Rename and delete a session** — `perch-store`, `perch-app`, `perch-ui` — `store/session.rs` (meta rewrite), `app/sessions.rs`, `shell/sidebar.rs` — cheap: a title field and one row control; delete must also stop the bridge and drop the runtime.
-3. **Slash commands with autocomplete** — `perch-ui`, `perch-app` — `shell/composer.rs`, `shell/actions.rs`, new command registry — moderate: the composer already intercepts `/compact`; the work is a registry, a filter list and keys that do not collide with the answer keys.
-4. **Project instructions (AGENTS.md) in the system prompt** — `perch-app`, `perch-agent` — `app/boot.rs` (`SYSTEM`), new instruction loader — cheap: read files up the worktree, concatenate, prepend; the risk is only context cost.
-5. **Undo a turn and restore the files it changed** — `perch-agent`, `perch-app`, `perch-files` — new checkpoint module, `agent/turn.rs`, `app/session.rs` — expensive: needs a snapshot per step and a restore path that does not fight the agent's own writes.
-6. **Search sessions and transcript text** — `perch-app`, `perch-ui` — `store/session.rs`, `shell/sidebar.rs`, new search view — cheap for the open transcript, expensive for history because the JSONL logs need an index.
-7. **A todo tool with a sidebar panel** — `perch-agent`, `perch-ui` — `agent/tools.rs`, new `builtin/todo.rs`, `shell/sidebar.rs` — cheap: a registered tool plus one read-only panel; no new protocol.
-8. **Saved permission rules** — `perch-agent`, `perch-store` — `agent/dispatch.rs`, `store/settings.rs` — cheap: the dispatcher already has `once`/`always`/`reject`; a rule is that decision written to a file and read at start.
-9. **Money cost per turn** — `perch-agent`, `perch-ui` — `agent/rounds.rs`, `shell/meter.rs`, new price table — moderate: the arithmetic is trivial, keeping a model price table current is not.
-10. **Glob and patch tools** — `perch-tools` — `builtin/mod.rs`, new `builtin/glob.rs` and `builtin/patch.rs`, `registry.rs` — cheap: the registry is name-dispatched and both tools reuse `confine` and the existing read/write bodies.
-11. **Git diff view and branch/ahead-behind** — `perch-files`, `perch-ui`, `perch-app` — `files/status.rs` (already shells git), new diff view, `app/sessions.rs` (`branch`), `shell/sidebar.rs` — moderate: the git plumbing exists; the cost is a diff renderer and a patch parser.
-12. **Subagents and skills** — `perch-agent`, `perch-app`, `perch-ui` — `agent/turn.rs`, new `agent/subagent.rs`, `agent/tools.rs`, `app/sessions.rs` (nested sessions), `shell/transcript` — expensive: a second agent loop with its own session, cancellation, cost accounting and UI, and the session store assumes one log per window.
+Eleven of the twelve this section first carried have landed — resuming a session, rename and delete, slash commands with autocomplete, project instructions, session and transcript search, the todo tool and its PLAN panel, saved permission rules, per-turn money, glob and patch, subagents and skills, and several providers with one active. They are listed as **HAVE** above and are not planned here again. What is left:
+
+1. **Undo a turn and restore the files it changed** — `perch-agent`, `perch-app`, `perch-files` — new checkpoint module, `agent/turn.rs`, `app/session.rs` — expensive: needs a snapshot per step and a restore path that does not fight the agent's own writes — opencode `session.revert.stage`.
+2. **Diff the files one turn changed** — `perch-files`, `perch-ui` — the branch plumbing exists (`files/branch.rs`), so this is a patch renderer over `git diff` for one turn's writes, drawn where the preview is — opencode `session.diff`.
+3. **Steer a running turn with a mid-turn message** — the queue exists and delivers at the end of a turn; what is missing is delivery *into* the turn at a step boundary — `crates/perch-ui/src/shell/composer*` — opencode `session.inbox.update` (`delivery: "steer"`).
+4. **Attach an image to a prompt** — the wire is text-only (`crates/perch-agent/src/provider/wire.rs`), so this is a content-part type plus the provider's own shape — opencode `experimental.media.get`.
+5. **Edit MCP servers without leaving the app** — TOML only today; the store already parses `[[mcp_servers]]`, so this is a pane section over the same list — opencode `experimental.mcp.add`.
+6. **Per-project configuration** — one global file; the merge order that instructions already use (worktree up to root, deepest wins) is the model to copy — opencode `project.update`.
+7. **Create, remove or switch a worktree from the app** — a session binds to an existing one — opencode `worktree.create`.
+8. **Choose the shell the dock runs** — the dock is `$SHELL` with no field — opencode `config.shells`.
+9. **Log in to a provider with OAuth or a device code** — the only credential path is a key written by hand — opencode `integration.oauth.connect`.
+

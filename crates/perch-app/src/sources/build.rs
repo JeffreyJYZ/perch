@@ -26,6 +26,16 @@ pub(super) fn add_task(registry: &mut ToolRegistry, agents: Option<&Agents>) -> 
     subagent::register(registry, agents?)
 }
 
+/// Adds `webfetch` and `websearch`, the two tools that reach the network.
+///
+/// Registered before `task` and Code Mode, for the same reason `skill` is: a child turn and a
+/// program are both places a page has to be read, and a registry copied before this point would
+/// be one where neither could.
+pub(super) fn add_web(registry: &mut ToolRegistry) {
+    registry.register(Arc::new(perch_web::WebFetch::new()));
+    registry.register(Arc::new(perch_web::WebSearch::new()));
+}
+
 /// Adds `skill`, which reads a `SKILL.md` from the machine or the project.
 ///
 /// Registered before `task` and Code Mode so both are handed a registry that can already load a

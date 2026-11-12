@@ -64,13 +64,18 @@ pub fn card_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -> bo
 }
 
 /// Every key the window itself answers: a focused card first, then the preview's Escape, then the
-/// composer's map.
+/// composer's map, and last the two Escapes that clear a filter or shut the search bar — so an
+/// overlay that owns Escape still closes first.
 ///
 /// The composer's own return would break the line, so a card that holds the focus takes Return
 /// before the field sees it; with nothing focused this is exactly [`composer_key`] after
 /// [`preview_key`], which only claims a bare Escape.
 pub fn window_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    card_key(shell, ev, tx) || preview_key(shell, ev) || composer_key(shell, ev, tx)
+    card_key(shell, ev, tx)
+        || preview_key(shell, ev)
+        || composer_key(shell, ev, tx)
+        || super::search_transcript::escape_key(shell, ev)
+        || super::search_session::escape_key(shell, ev)
 }
 
 #[cfg(test)]

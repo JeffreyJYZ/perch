@@ -6,13 +6,11 @@
 
 use perch_store::SessionMeta;
 use rune::{El, col};
-use rune_kit::glyphs;
-use rune_kit::shell::SidebarRow;
-use rune_kit::{Button, ButtonVariant, IconButton, IconButtonVariant, Kit};
+use rune_kit::Kit;
+use rune_kit::{Button, ButtonVariant};
 
-use super::ROW;
-use super::keymap::session_list_key;
 use super::live::Live;
+use super::search_session_view;
 use super::state::Shell;
 use crate::files::{files_view, note, section_label};
 
@@ -21,6 +19,9 @@ use crate::files::{files_view, note, section_label};
 /// A session whose worktree is gone still has a row: the work is on disk, and hiding it would
 /// hide the only place its reason is said. Starting a new one needs no picker — it is the
 /// directory this window already has open.
+///
+/// The filter field above the rows is the list's own view: it narrows what is drawn and leaves
+/// every session open, its selection where it was.
 ///
 /// A window that opened with no folder is not an empty window: the column says there is none,
 /// repeats why when the launch directory was refused, and offers the picker.
@@ -36,7 +37,7 @@ pub(super) fn sessions<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         .pb(8.0)
         .gap(2.0)
         .focusable(true)
-        .on_key(session_list_key::<L>)
+        .on_key(super::keymap::session_list_key::<L>)
         .child(section_label(kit, "Sessions", "sessions-label"));
     if shell.session_count() == 0 {
         list = list.child(note(kit, "No folder open"));
@@ -45,17 +46,16 @@ pub(super) fn sessions<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
         }
         return list.child(open_folder::<L>(kit));
     }
-    for (index, session) in shell.headers().into_iter().enumerate() {
-        list = list.child(
-            SidebarRow::new(session.title.clone())
-                .height(ROW)
-                .subtitle(describe(&session))
-                .trailing(delete_button::<L>(index, kit))
-                .selected(index == shell.active)
-                .on_select(move |s: &mut Shell<L>, _: &mut rune::Tx| s.select(index))
-                .build(kit)
-                .key(format!("session-{index}")),
-        );
+    list = list
+        .child(search_session_view::filter_field(shell, kit))
+        .child(search_session_view::count(shell, kit));
+    match search_session_view::empty(shell) {
+        Some(words) => list = list.child(note(kit, &words)),
+        None => {
+            for (index, session) in shell.session_rows() {
+                list = list.child(search_session_view::row(shell, index, &session, kit));
+            }
+        }
     }
     // A notice is still news when a session is open: a `--worktree` that opened nothing says so
     // here rather than nowhere.
@@ -116,21 +116,6 @@ pub(super) fn files<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
     files_view::<L>(panel, kit)
 }
 
-/// The delete control on a session row, and the words when it cannot run.
-///
-/// One press arms the row and says so; the second removes it. Deleting a session drops its log,
-/// which is the only durable copy of the conversation, so a single stray click must not do it.
-fn delete_button<L: Live>(index: usize, kit: &Kit) -> El {
-    IconButton::new(&glyphs::CIRCLE_X)
-        .variant(IconButtonVariant::Ghost)
-        .label(format!("Delete session {index}"))
-        .on_press(move |shell: &mut Shell<L>| {
-            shell.remove_session(index);
-        })
-        .build(kit)
-        .key(format!("session-delete-{index}"))
-}
-
 impl<L: Live> Shell<L> {
     /// The row's delete control: the first press arms it, the second removes the session.
     pub fn remove_session(&mut self, index: usize) -> bool {
@@ -140,7 +125,7 @@ impl<L: Live> Shell<L> {
 
 /// A session row's second line: its branch and its worktree, both as words — or the reason the
 /// session cannot run, before a prompt is typed rather than after one is refused.
-fn describe(session: &SessionMeta) -> String {
+pub(super) fn describe(session: &SessionMeta) -> String {
     let worktree = session.worktree.file_name().map_or_else(
         || session.worktree.display().to_string(),
         |name| name.to_string_lossy().into_owned(),

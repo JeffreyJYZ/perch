@@ -6,9 +6,10 @@ use std::time::Duration;
 use rune::TextStyle;
 use rune_kit::Kit;
 
-use super::live::{Live, SHELL_TICK, TURN_TICK};
+use super::live::Live;
 use super::state::Shell;
 use super::terminal::TerminalTab;
+use super::ticks::{SHELL_TICK, TURN_TICK};
 
 /// A monospace glyph's advance, in ems. The text system knows the exact width per family, and the
 /// dock only needs a size the shell can wrap its prompt at, so this is one number for all of them.

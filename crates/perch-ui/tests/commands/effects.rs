@@ -76,6 +76,41 @@ fn theme_switches_the_kit_the_frame_is_drawn_with_and_saves_it() {
 }
 
 #[test]
+fn themes_lists_the_machine_and_an_unknown_name_is_refused_in_words() {
+    let (_dir, mut shell) = one();
+    run(&mut shell, "/themes");
+    let said = notes(&shell).join("\n");
+    for builtin in ["dark", "light"] {
+        assert!(
+            said.contains(builtin),
+            "the two built-ins are always listed, and {builtin} was not: {said}"
+        );
+    }
+    assert!(
+        !said.contains("not wired"),
+        "a registered command is wired to something: {said}"
+    );
+
+    // A name the library does not have is refused here, in words that say what exists, and the
+    // app is never asked to save a theme it cannot draw.
+    run(&mut shell, "/theme sunset");
+    let refused = notes(&shell).join("\n");
+    assert!(
+        refused.contains("sunset"),
+        "the refusal names what was asked for: {refused}"
+    );
+    assert!(
+        refused.contains("dark"),
+        "and what exists, so the next try can succeed: {refused}"
+    );
+    assert_eq!(
+        shell.live().unwrap().theme,
+        None,
+        "nothing was saved: {refused}"
+    );
+}
+
+#[test]
 fn model_sets_an_id_or_opens_the_list() {
     let (_dir, mut shell) = one();
     run(&mut shell, "/model some/id");

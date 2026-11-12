@@ -16,8 +16,12 @@ fn draft(model: &str) -> SettingsDraft {
         base_url: "https://example.com/v1".to_string(),
         model: model.to_string(),
         theme: "dark".to_string(),
+        font_size: String::new(),
         update_check: String::new(),
         api_key: String::new(),
+        profile: String::new(),
+        activate: false,
+        keybinds: Default::default(),
     }
 }
 

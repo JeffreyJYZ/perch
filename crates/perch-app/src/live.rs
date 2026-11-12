@@ -26,8 +26,7 @@ impl Live for AppState {
         self.active_session().map(crate::SessionRuntime::transcript)
     }
 
-    /// The session's own transcript, not the window's copy: a card opened here is opened for as
-    /// long as the session lives, not for as long as one frame is drawn.
+    /// The session's own transcript: a card opened here lives as long as the session, not a frame.
     fn transcript_mut(&mut self) -> Option<&mut Transcript> {
         self.active_session_mut()
             .map(|session| &mut session.transcript)
@@ -185,6 +184,11 @@ impl Live for AppState {
 
     fn settings(&self) -> Option<perch_ui::shell::SettingsSnapshot> {
         Some(AppState::settings(self))
+    }
+
+    /// The theme and type size, read from `settings.toml` per call, so a save reaches an open window.
+    fn appearance(&self) -> Option<perch_ui::theme::Appearance> {
+        Some(AppState::appearance(self))
     }
 
     fn save_settings(

@@ -6,11 +6,10 @@ use std::time::Duration;
 use perch_agent::ListedModel;
 use perch_store::SessionMeta;
 
-mod tick;
-
+use super::settings_snapshot::{KeyStatus, SettingsSnapshot};
+use super::waiting::Waiting;
 use crate::settings::SettingsDraft;
 use crate::transcript::Transcript;
-pub use tick::{BUDGET, SHELL_TICK, TURN_TICK};
 
 /// What the window asks of the app behind it.
 ///
@@ -95,6 +94,16 @@ pub trait Live: 'static {
     /// The saved settings, when an app is behind the window. `None` is a window with no data
     /// directory, which the settings panel opens over with its defaults.
     fn settings(&self) -> Option<SettingsSnapshot> {
+        None
+    }
+
+    /// What the frame draws with: the theme's own anchors and the type size, when an app is behind
+    /// the window.
+    ///
+    /// Read here rather than cached in the window, because the app answers it from `settings.toml`
+    /// on every call: a save then reaches a window that is already open with no copy to invalidate.
+    /// `None` is a window with no app, which draws the built-in kit its saved word names.
+    fn appearance(&self) -> Option<crate::theme::Appearance> {
         None
     }
 
@@ -188,13 +197,3 @@ pub trait Live: 'static {
         Err("no app is running, so nothing was saved".to_string())
     }
 }
-
-/// A window with no app behind it: the layout, the file panel and the dock alone.
-///
-/// This is what a `--tree` dump and a layout test run against: no data directory, no keychain.
-pub use super::idle::Idle;
-
-pub use super::settings_snapshot::{KeyStatus, SettingsSnapshot};
-
-/// What the active session is waiting on, as the key map needs it.
-pub use super::waiting::Waiting;

@@ -1,5 +1,7 @@
 //! perch-store: settings, keychain secrets and the append-only session log.
 
+pub mod history;
+pub mod history_path;
 pub mod secret;
 pub mod session;
 pub mod settings;

@@ -22,7 +22,7 @@ mod view;
 mod words;
 
 pub use item::{Item, ToolStatus};
-pub use view::transcript_view;
+pub use view::{transcript_view, transcript_view_marked};
 pub(crate) use words::scroll_words;
 pub use words::{COLLAPSED_LINES, cap_line, collapsed_output, expanded_output, summary_line};
 

@@ -21,6 +21,7 @@ mod answers;
 mod boot;
 mod commands;
 mod config;
+mod credentials;
 mod fork;
 mod models;
 mod open;

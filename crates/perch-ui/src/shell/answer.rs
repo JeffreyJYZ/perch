@@ -10,8 +10,9 @@
 
 use rune::TextEdit;
 
-use super::live::{Live, Waiting};
+use super::live::Live;
 use super::state::Shell;
+use super::waiting::Waiting;
 
 /// What a waiting question's answer is made of.
 #[derive(Default)]

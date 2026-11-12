@@ -7,7 +7,8 @@ use rune_kit::TextArea;
 
 use super::answer_view::{answer_key, card};
 use super::commands_view::menu;
-use super::keymap::{Intent, intent};
+use super::history;
+use super::keymap::Intent;
 use super::live::Live;
 use super::meter::composer_meter;
 use super::model_picker_view::composer_model;
@@ -42,15 +43,33 @@ pub(super) fn composer<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
             .on_edit(|shell: &mut Shell<L>| &mut shell.prompt)
             .on_key(composer_key::<L>)
             .on_submit(submit::<L>)
-            .build(kit),
+            .build(kit)
+            // Named, because a window now holds more than one text field and "the first textbox"
+            // is the sidebar's filter. A key is how a test, or anything else, asks for this one.
+            .key("composer-field"),
     )
 }
 
 /// Sends what the box holds, as the same path Enter takes, then carries out whatever the command
 /// asked of the window itself — a close, a focus — through the `Tx` only this path has.
 fn submit<L: Live>(shell: &mut Shell<L>, tx: &mut Tx) {
-    shell.submit();
+    sent(shell);
     drain(shell, tx);
+}
+
+/// Sends the prompt, and records it in this worktree's history when it went.
+fn sent<L: Live>(shell: &mut Shell<L>) {
+    let text = shell.prompt_text().trim().to_owned();
+    let focused = shell.prompt.focused;
+    if shell.submit() && !text.is_empty() {
+        history::record(shell, &text);
+    }
+    // Sending empties the box, and an edit that is not focused is a field Rune drops the keyboard
+    // from on the next frame. Keeping it is what lets a person type the next prompt, or press Up,
+    // without clicking the field again.
+    if focused {
+        shell.prompt.focused = true;
+    }
 }
 
 /// Applies the one-shot requests a command left for the window.
@@ -97,7 +116,12 @@ pub fn composer_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -
     if shell.menu_key(ev) {
         return true;
     }
-    match intent(ev, shell.waiting) {
+    // Up and Down over an empty box walk back through what this worktree has sent; with text
+    // there, or no history, the field keeps the key.
+    if history::history_key(shell, ev) {
+        return true;
+    }
+    match shell.intent(ev) {
         // A line break is the field's to insert, and nothing else does it for us.
         Intent::Ignore | Intent::Newline => {
             if matches!(ev.key, Key::Text(_)) {
@@ -106,7 +130,7 @@ pub fn composer_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -
             false
         }
         Intent::Submit => {
-            shell.submit();
+            sent(shell);
             drain(shell, tx);
             true
         }
@@ -160,6 +184,13 @@ pub fn composer_key<L: Live>(shell: &mut Shell<L>, ev: &KeyEvent, tx: &mut Tx) -
         Intent::Finder => {
             tx.instant();
             shell.toggle_finder();
+            true
+        }
+        // ⌘F, for the same reason: the bar's field must take the keyboard on the frame it is
+        // drawn, or the first letter goes nowhere.
+        Intent::Find => {
+            tx.instant();
+            shell.toggle_find();
             true
         }
     }

@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use perch_agent::{AgentHandle, Dispatcher, EndReason, Endpoint, Model, Usage};
+use perch_agent::{AgentHandle, Dispatcher, EndReason, Endpoint, Model};
 use perch_store::{SessionEvent, SessionLog, SessionMeta};
 use perch_ui::Transcript;
 
@@ -16,6 +16,8 @@ use crate::bridge::Bridge;
 use crate::turn::Pending;
 
 mod apply;
+
+use self::apply::Turn;
 
 /// What the transcript says when a turn is cancelled.
 ///
@@ -53,12 +55,15 @@ pub struct SessionRuntime {
     /// Messages sent while a turn was running: they go out, in order, as soon as it ends. A
     /// prompt that arrives mid-turn is queued, never interleaved into the turn in flight.
     queued: Vec<String>,
-    /// The tokens the last turn reported and what it cost, which is what the meter counts.
+    /// The last finished turn: the tokens it reported, and the model its request named.
     ///
     /// `None` before the first turn: a fresh session has spent nothing, and drawing `0%` would
     /// claim a measurement nobody made. The split is kept because money is charged per kind of
-    /// token, so the total alone cannot be priced.
-    usage: Option<Usage>,
+    /// token, and the model is kept because what a turn cost is a fact about that turn, not about
+    /// whichever model the composer shows now.
+    turn: Option<Turn>,
+    /// The model the turn in flight names, read from the handle its request is built from.
+    running_model: Option<String>,
     /// How the last turn ended. A cancelled turn has no answer to name, so auto-titling skips it.
     last_reason: Option<EndReason>,
     /// Whether a compaction is on its way. Requests travel the agent's own queue, so one sent
@@ -96,7 +101,8 @@ impl SessionRuntime {
             turns: 0,
             open_text: String::new(),
             queued: Vec::new(),
-            usage: None,
+            turn: None,
+            running_model: None,
             compacting: false,
             last_reason: None,
         }
@@ -128,17 +134,6 @@ impl SessionRuntime {
         matches!(self.last_reason, Some(EndReason::Done))
     }
 
-    /// The tokens the last turn reported, when a turn has ended.
-    pub fn tokens_used(&self) -> Option<u32> {
-        self.usage
-            .map(|usage| usage.input.saturating_add(usage.output))
-    }
-
-    /// The split the last turn reported, which is what its dollars are computed from.
-    pub fn usage(&self) -> Option<Usage> {
-        self.usage
-    }
-
     /// Marks a compaction as asked for, and answers false when one already was.
     pub(crate) fn begin_compact(&mut self) -> bool {
         let was = self.compacting;
@@ -157,9 +152,13 @@ impl SessionRuntime {
     }
 
     /// Marks a turn as started and records the question the person asked.
+    ///
+    /// The model is read here, from the same handle the request is built from, because the price
+    /// this turn is charged at is the model it names — not whatever is picked while it streams.
     pub(crate) fn begin(&mut self, text: &str) {
         self.open_text.clear();
         self.running = true;
+        self.running_model = Some(self.model.current());
         self.transcript.push_user(text.to_string());
         let _ = self.log.append(&SessionEvent::User {
             text: text.to_string(),

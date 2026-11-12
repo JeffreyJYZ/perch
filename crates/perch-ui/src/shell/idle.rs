@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use crate::transcript::Transcript;
 
-use super::live::{Live, Waiting};
+use super::live::Live;
+use super::waiting::Waiting;
 
 /// A window with no app behind it.
 pub struct Idle;

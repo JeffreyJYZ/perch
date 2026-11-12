@@ -35,6 +35,23 @@ impl std::fmt::Display for ToolStatus {
     }
 }
 
+impl Item {
+    /// The key the column draws this item under.
+    ///
+    /// One source for the key, so the node a search scrolls to and the node the column draws
+    /// cannot drift apart.
+    #[must_use]
+    pub fn key(&self, index: usize) -> String {
+        match self {
+            Item::User { .. } | Item::Assistant { .. } => format!("turn-{index}"),
+            Item::Reasoning { .. } => format!("reasoning-{index}"),
+            Item::Tool { .. } => format!("tool-{index}"),
+            Item::Note(_) => format!("note-{index}"),
+            Item::Summary { .. } => format!("summary-{index}"),
+        }
+    }
+}
+
 /// One entry of the transcript column.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Item {

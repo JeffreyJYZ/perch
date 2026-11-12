@@ -17,7 +17,7 @@ use super::state::Shell;
 use super::tabs;
 use super::todo;
 use crate::preview::preview_view;
-use crate::transcript::transcript_view;
+use crate::transcript::transcript_view_marked;
 
 /// The whole window.
 ///
@@ -28,7 +28,7 @@ use crate::transcript::transcript_view;
 /// The plugin column is the last child and only exists when the app has a panel or a word about
 /// one, so a window with no plugin is laid out exactly as it was before plugins existed.
 pub fn view<L: Live + Panels>(shell: &Shell<L>, cx: &mut Cx<Shell<L>>) -> El {
-    let kit = crate::kit::perch(shell.dark());
+    let kit = shell.appearance().kit();
     let mut root = row()
         .key("perch")
         .w_full()
@@ -110,16 +110,17 @@ fn workspace<L: Live>(shell: &Shell<L>, kit: &Kit, cx: &mut Cx<Shell<L>>) -> El 
     workspace
 }
 
-/// The transcript column: the turns, and the prompt at the bottom of it.
+/// The transcript column: the search bar when it is open, the turns, and the prompt at the bottom
+/// of it.
 ///
 /// The prompt sits in this column rather than under the dock, so the dock's bottom edge is the
 /// window's and the composer belongs to what it asks.
 fn centre<L: Live>(shell: &Shell<L>, kit: &Kit) -> El {
-    col()
-        .key("transcript-column")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .child(transcript_view(&shell.transcript))
+    let mut column = col().key("transcript-column").w_full().grow(1.0).min_h(0.0);
+    if let Some(bar) = super::search_transcript_view::bar(shell, kit) {
+        column = column.child(bar);
+    }
+    column
+        .child(transcript_view_marked(&shell.transcript, shell.find_mark()))
         .child(composer(shell, kit))
 }

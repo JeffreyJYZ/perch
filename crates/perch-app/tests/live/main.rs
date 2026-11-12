@@ -15,6 +15,7 @@ mod support;
 mod approval;
 mod cancel;
 mod compact;
+mod cost;
 mod harness;
 mod question;
 mod queue;

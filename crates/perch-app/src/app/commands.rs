@@ -43,19 +43,22 @@ impl AppState {
 
     /// Saves `theme` to `settings.toml`, keeping every other field as it was.
     pub fn save_theme(&mut self, theme: &str) -> Result<()> {
-        if !perch_ui::THEMES.contains(&theme) {
-            return Err(Error::Model(format!(
-                "theme must be one of {}",
-                perch_ui::THEMES.join(", ")
-            )));
+        // The library is every name this machine can draw: the two built-ins plus each theme file
+        // that parsed, so a person's own theme saves like any other.
+        if let Err(words) = perch_ui::theme::discover().choose(theme) {
+            return Err(Error::Model(words));
         }
         let snapshot = file::snapshot(&self.dir, &*self.secrets);
         let draft = perch_ui::SettingsDraft {
             base_url: snapshot.base_url,
             model: snapshot.model,
             theme: theme.to_string(),
+            font_size: snapshot.font_size,
             update_check: snapshot.update_check,
             api_key: String::new(),
+            profile: String::new(),
+            activate: false,
+            keybinds: Default::default(),
         };
         file::apply(&self.dir, &mut self.defaults, &*self.secrets, draft)?;
         Ok(())

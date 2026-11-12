@@ -11,11 +11,11 @@ use rune::TextEdit;
 
 use super::answer::Answering;
 use super::folder::Folder;
-use super::live::{Idle, Live, Waiting};
 use super::pane::Pane;
 use super::panel_form::PanelForm;
 use super::state::Shell;
 use super::terminal::{GRID, TerminalTab};
+use super::{Idle, Live, Waiting};
 use crate::files::FilePanel;
 use crate::transcript::Transcript;
 
@@ -55,11 +55,15 @@ impl<L: Live> Shell<L> {
             files_open: Vec::new(),
             settings: None,
             dark: true,
+            picked: None,
+            bindings: super::keybind::Bindings::defaults(),
             panel: PanelForm::default(),
             folder: Folder::default(),
             menu: super::composer_menu::Menu::default(),
             palette: None,
             finder: None,
+            find: None,
+            session_filter: super::search_session::SessionFilter::default(),
             dock_hidden: false,
             sessions_focused: false,
             pending_delete: None,
@@ -96,7 +100,9 @@ impl<L: Live> Shell<L> {
         // keychain per frame. The panel opening and a save are the other two reads.
         if let Some(theme) = self.live.as_ref().and_then(Live::settings) {
             self.set_theme(&theme.theme);
+            self.bindings = theme.keybinds;
         }
+        self.refresh_appearance();
         self.refresh();
         self
     }
